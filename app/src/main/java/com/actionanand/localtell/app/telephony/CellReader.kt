@@ -71,8 +71,8 @@ class CellReader(private val context: Context) {
             info is CellInfoLte -> info.cellIdentity.let { id ->
                 validCell(
                     radio = "LTE",
-                    mcc = id.mccString,
-                    mnc = id.mncString,
+                    mcc = id.compatMcc(),
+                    mnc = id.compatMnc(),
                     areaCode = id.tac.takeIf { it != CellInfo.UNAVAILABLE }?.toLong(),
                     cellId = id.ci.takeIf { it != CellInfo.UNAVAILABLE }?.toLong(),
                     dbm = info.cellSignalStrength.dbm,
@@ -94,8 +94,8 @@ class CellReader(private val context: Context) {
             info is CellInfoWcdma -> info.cellIdentity.let { id ->
                 validCell(
                     radio = "WCDMA",
-                    mcc = id.mccString,
-                    mnc = id.mncString,
+                    mcc = id.compatMcc(),
+                    mnc = id.compatMnc(),
                     areaCode = id.lac.takeIf { it != CellInfo.UNAVAILABLE }?.toLong(),
                     cellId = id.cid.takeIf { it != CellInfo.UNAVAILABLE }?.toLong(),
                     dbm = info.cellSignalStrength.dbm,
@@ -105,8 +105,8 @@ class CellReader(private val context: Context) {
             info is CellInfoGsm -> info.cellIdentity.let { id ->
                 validCell(
                     radio = "GSM",
-                    mcc = id.mccString,
-                    mnc = id.mncString,
+                    mcc = id.compatMcc(),
+                    mnc = id.compatMnc(),
                     areaCode = id.lac.takeIf { it != CellInfo.UNAVAILABLE }?.toLong(),
                     cellId = id.cid.takeIf { it != CellInfo.UNAVAILABLE }?.toLong(),
                     dbm = info.cellSignalStrength.dbm,
@@ -128,6 +128,20 @@ class CellReader(private val context: Context) {
             else -> null
         }
     }
+
+    private fun CellIdentity.compatMcc(): String? =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            mccString?.takeIf { it.toIntOrNull()?.let { code -> code in 100..999 } == true }
+        } else {
+            mcc.takeIf { it in 100..999 }?.toString()
+        }
+
+    private fun CellIdentity.compatMnc(): String? =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            mncString?.takeIf { it.toIntOrNull()?.let { code -> code in 0..999 } == true }
+        } else {
+            mnc.takeIf { it in 0..999 }?.toString()
+        }
 
     private fun validCell(
         radio: String,
