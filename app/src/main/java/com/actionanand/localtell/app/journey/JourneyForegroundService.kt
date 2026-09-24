@@ -47,7 +47,7 @@ class JourneyForegroundService : Service() {
     }
 
     private suspend fun trackingLoop() {
-        while (isActive) {
+        while (currentCoroutineContext().isActive) {
             runCatching {
                 val cells = reader.requestServingCells()
                 val match = resolver.resolveFirst(cells)
