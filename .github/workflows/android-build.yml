@@ -35,7 +35,11 @@ jobs:
           java-version: '21'
 
       - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
+        with:
+          # The legacy Android SDK "tools" package was retired. This action
+          # installs command-line tools; the next step installs our exact SDK.
+          packages: ''
 
       - name: Install Android SDK platform and build tools
         run: sdkmanager "platforms;android-${COMPILE_SDK_VERSION}" "build-tools;${BUILD_TOOLS_VERSION}" "platform-tools"
