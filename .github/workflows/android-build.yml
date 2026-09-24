@@ -1,0 +1,208 @@
+name: Android APK and AAB
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main-android]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: localtell-android-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: github.ref == 'refs/heads/main-android'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Load Android SDK configuration
+        shell: bash
+        run: |
+          while IFS='=' read -r key value; do
+            [[ -z "$key" || "$key" =~ ^# ]] && continue
+            echo "$key=$value" >> "$GITHUB_ENV"
+          done < android-sdk.properties
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK platform and build tools
+        run: sdkmanager "platforms;android-${COMPILE_SDK_VERSION}" "build-tools;${BUILD_TOOLS_VERSION}" "platform-tools"
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.5.0'
+
+      - name: Validate configuration and tests
+        run: |
+          python3 -m json.tool app-config.json >/dev/null
+          python3 -m json.tool android-version.json >/dev/null
+          gradle lint testDebugUnitTest
+
+      - name: Bump Android version code
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          python3 scripts/bump-android-version.py
+          VERSION_CODE=$(python3 -c "import json; print(json.load(open('android-version.json'))['versionCode'])")
+          git add android-version.json
+          git diff --cached --quiet || git commit -m "chore: bump Android versionCode to $VERSION_CODE [skip ci]"
+          git pull --rebase --autostash origin main-android
+          git push
+
+      - name: Resolve release file name
+        run: |
+          VERSION_NAME=$(python3 -c "import json; print(json.load(open('android-version.json'))['versionName'])")
+          VERSION_CODE=$(python3 -c "import json; print(json.load(open('android-version.json'))['versionCode'])")
+          RELEASE_BASENAME=$(python3 -c "import json; print(json.load(open('app-config.json'))['releaseBaseName'])")
+          echo "VERSION_NAME=$VERSION_NAME" >> "$GITHUB_ENV"
+          echo "VERSION_CODE=$VERSION_CODE" >> "$GITHUB_ENV"
+          echo "RELEASE_FILE=${RELEASE_BASENAME}-${VERSION_NAME//./-}" >> "$GITHUB_ENV"
+
+      - name: Clear previous release artifacts
+        run: |
+          mkdir -p releases
+          rm -f releases/*.apk releases/*.aab releases/*.apk.idsig releases/*-mapping.txt
+
+      - name: Build unsigned APK and AAB
+        run: gradle clean assembleRelease bundleRelease
+
+      - name: Collect unsigned artifacts and R8 mapping
+        run: |
+          UNSIGNED_APK=$(find app/build/outputs/apk/release -name '*-release-unsigned.apk' -type f | head -1)
+          UNSIGNED_AAB=$(find app/build/outputs/bundle/release -name '*-release.aab' -type f | head -1)
+          MAPPING_SOURCE="app/build/outputs/mapping/release/mapping.txt"
+          test -s "$UNSIGNED_APK"
+          test -s "$UNSIGNED_AAB"
+          cp "$UNSIGNED_APK" "releases/${RELEASE_FILE}-unsigned.apk"
+          cp "$UNSIGNED_AAB" "releases/${RELEASE_FILE}-unsigned.aab"
+          if [[ -s "$MAPPING_SOURCE" ]]; then cp "$MAPPING_SOURCE" "releases/${RELEASE_FILE}-mapping.txt"; fi
+
+      - name: Fetch signing secrets and decode keystore
+        id: keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+        run: |
+          if [[ -n "$KEYSTORE_BASE64" && -n "$KEYSTORE_PASSWORD" && -n "$KEY_ALIAS" ]]; then
+            if printf '%s' "$KEYSTORE_BASE64" | base64 --decode > app/release-keystore.jks; then
+              echo "available=true" >> "$GITHUB_OUTPUT"
+              echo "Signing secrets are available."
+            else
+              rm -f app/release-keystore.jks
+              echo "available=false" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            rm -f app/release-keystore.jks
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Detect keystore type
+        id: keystore_type
+        if: steps.keystore.outputs.available == 'true'
+        continue-on-error: true
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+        run: |
+          KS_TYPE=$(keytool -list -keystore app/release-keystore.jks -storepass:env KEYSTORE_PASSWORD 2>/dev/null | grep -i "Keystore type" | awk '{print $NF}')
+          echo "type=$KS_TYPE" >> "$GITHUB_OUTPUT"
+
+      - name: Create signed APK
+        id: sign_apk
+        if: steps.keystore.outputs.available == 'true'
+        continue-on-error: true
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ steps.keystore_type.outputs.type == 'PKCS12' && secrets.KEYSTORE_PASSWORD || secrets.KEY_PASSWORD }}
+        run: |
+          BUILD_TOOLS="${ANDROID_HOME}/build-tools/${BUILD_TOOLS_VERSION}"
+          UNSIGNED_APK="releases/${RELEASE_FILE}-unsigned.apk"
+          OUTPUT_APK="releases/${RELEASE_FILE}.apk"
+          test -s "$UNSIGNED_APK"
+          "$BUILD_TOOLS/zipalign" -f 4 "$UNSIGNED_APK" "$OUTPUT_APK"
+          "$BUILD_TOOLS/apksigner" sign --ks app/release-keystore.jks --ks-pass env:KEYSTORE_PASSWORD --ks-key-alias "$KEY_ALIAS" --key-pass env:KEY_PASSWORD "$OUTPUT_APK"
+          "$BUILD_TOOLS/apksigner" verify --verbose "$OUTPUT_APK"
+          rm -f "$UNSIGNED_APK" "${OUTPUT_APK}.idsig"
+
+      - name: Create signed AAB
+        id: sign_aab
+        if: steps.keystore.outputs.available == 'true'
+        continue-on-error: true
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ steps.keystore_type.outputs.type == 'PKCS12' && secrets.KEYSTORE_PASSWORD || secrets.KEY_PASSWORD }}
+        run: |
+          UNSIGNED_AAB="releases/${RELEASE_FILE}-unsigned.aab"
+          OUTPUT_AAB="releases/${RELEASE_FILE}.aab"
+          STORE_PASS_FILE=$(mktemp)
+          KEY_PASS_FILE=$(mktemp)
+          trap 'rm -f "$STORE_PASS_FILE" "$KEY_PASS_FILE"' EXIT
+          printf '%s' "$KEYSTORE_PASSWORD" > "$STORE_PASS_FILE"
+          printf '%s' "$KEY_PASSWORD" > "$KEY_PASS_FILE"
+          jarsigner -keystore app/release-keystore.jks -storepass:file "$STORE_PASS_FILE" -keypass:file "$KEY_PASS_FILE" -signedjar "$OUTPUT_AAB" "$UNSIGNED_AAB" "$KEY_ALIAS"
+          jarsigner -verify -verbose -certs "$OUTPUT_AAB"
+          rm -f "$UNSIGNED_AAB"
+
+      - name: Remove failed signed APK output
+        if: steps.keystore.outputs.available == 'true' && steps.sign_apk.outcome == 'failure'
+        run: rm -f "releases/${RELEASE_FILE}.apk" "releases/${RELEASE_FILE}.apk.idsig"
+
+      - name: Remove failed signed AAB output
+        if: steps.keystore.outputs.available == 'true' && steps.sign_aab.outcome == 'failure'
+        run: rm -f "releases/${RELEASE_FILE}.aab"
+
+      - name: Summarize artifacts
+        run: |
+          APK_FILE=$(find releases -maxdepth 1 -name '*.apk' -type f | head -1)
+          AAB_FILE=$(find releases -maxdepth 1 -name '*.aab' -type f | head -1)
+          test -s "$APK_FILE"
+          test -s "$AAB_FILE"
+          if [[ "$APK_FILE" == *-unsigned.apk ]]; then APK_LABEL="Unsigned APK"; else APK_LABEL="Signed APK"; fi
+          if [[ "$AAB_FILE" == *-unsigned.aab ]]; then AAB_LABEL="Unsigned AAB"; else AAB_LABEL="Signed AAB"; fi
+          echo "## LocalTell Android artifacts" >> "$GITHUB_STEP_SUMMARY"
+          echo "- $APK_LABEL: \`$APK_FILE\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- $AAB_LABEL: \`$AAB_FILE\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Version: ${VERSION_NAME} (${VERSION_CODE})" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Commit release files to main-android
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git pull --rebase --autostash origin main-android
+          git add releases/
+          if git diff --cached --quiet; then
+            echo "Release files are unchanged."
+          else
+            git commit -m "build: update LocalTell Android release files [skip ci]"
+            git push
+          fi
+
+      - name: Upload Android artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: localtell-android-${{ env.VERSION_NAME }}
+          path: |
+            releases/*.apk
+            releases/*.aab
+            releases/*-mapping.txt
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Remove decoded keystore
+        if: always()
+        run: rm -f app/release-keystore.jks
