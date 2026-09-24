@@ -11,6 +11,8 @@ keystore.b64.txt
 *.pem
 *.p12
 *.pfx
+*-key.pem
+*-cert.pem
 # Temporary database build files
 *.db-journal
 *.db-wal

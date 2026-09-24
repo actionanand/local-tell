@@ -1,0 +1,10 @@
+{
+  "name": "localtell-developer-tools",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Local developer utilities; Android builds remain Gradle-based.",
+  "scripts": {
+    "generate-keystore": "node scripts/generate-keystore.mjs",
+    "keystore:type": "node scripts/detect-keystore-format.mjs release-keystore.jks"
+  }
+}
