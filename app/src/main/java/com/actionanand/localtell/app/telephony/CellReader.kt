@@ -129,19 +129,47 @@ class CellReader(private val context: Context) {
         }
     }
 
-    private fun CellIdentity.compatMcc(): String? =
+    @Suppress("DEPRECATION")
+    private fun CellIdentityLte.compatMcc(): String? =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            mccString?.takeIf { it.toIntOrNull()?.let { code -> code in 100..999 } == true }
+            validMcc(mccString)
         } else {
-            mcc.takeIf { it in 100..999 }?.toString()
+            validMcc(mcc)
         }
 
-    private fun CellIdentity.compatMnc(): String? =
+    @Suppress("DEPRECATION")
+    private fun CellIdentityLte.compatMnc(): String? =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            mncString?.takeIf { it.toIntOrNull()?.let { code -> code in 0..999 } == true }
+            validMnc(mncString)
         } else {
-            mnc.takeIf { it in 0..999 }?.toString()
+            validMnc(mnc)
         }
+
+    @Suppress("DEPRECATION")
+    private fun CellIdentityWcdma.compatMcc(): String? =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) validMcc(mccString) else validMcc(mcc)
+
+    @Suppress("DEPRECATION")
+    private fun CellIdentityWcdma.compatMnc(): String? =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) validMnc(mncString) else validMnc(mnc)
+
+    @Suppress("DEPRECATION")
+    private fun CellIdentityGsm.compatMcc(): String? =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) validMcc(mccString) else validMcc(mcc)
+
+    @Suppress("DEPRECATION")
+    private fun CellIdentityGsm.compatMnc(): String? =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) validMnc(mncString) else validMnc(mnc)
+
+    private fun validMcc(value: String?): String? =
+        value?.takeIf { it.toIntOrNull()?.let { code -> code in 100..999 } == true }
+
+    private fun validMcc(value: Int): String? = value.takeIf { it in 100..999 }?.toString()
+
+    private fun validMnc(value: String?): String? =
+        value?.takeIf { it.toIntOrNull()?.let { code -> code in 0..999 } == true }
+
+    private fun validMnc(value: Int): String? = value.takeIf { it in 0..999 }?.toString()
 
     private fun validCell(
         radio: String,
