@@ -82,6 +82,8 @@ class JourneyForegroundService : Service() {
                     }
                 } else if (cells.isEmpty()) {
                     updateNotification("No cellular identity available")
+                } else if (cells.none { it.registered }) {
+                    updateNotification("Available neighbouring cells; no serving cell")
                 } else {
                     updateNotification("Cell detected; locality not in installed offline packs")
                 }

@@ -6,6 +6,7 @@ import com.actionanand.localtell.app.model.RadioCell
 
 class OfflineAreaResolver(private val store: PackStore) {
     fun resolve(cell: RadioCell): AreaMatch? {
+        if (!cell.registered) return null
         for (pack in store.all()) {
             val match = runCatching { query(pack, cell) }.getOrNull()
             if (match != null) return match
@@ -14,7 +15,8 @@ class OfflineAreaResolver(private val store: PackStore) {
     }
 
     fun resolveFirst(cells: List<RadioCell>): AreaMatch? {
-        cells.sortedWith(compareByDescending<RadioCell> { it.radio == "NR" }.thenByDescending { it.dbm ?: -999 })
+        cells.filter(RadioCell::registered)
+            .sortedWith(compareByDescending<RadioCell> { it.radio == "NR" }.thenByDescending { it.dbm ?: -999 })
             .forEach { cell -> resolve(cell)?.let { return it } }
         return null
     }

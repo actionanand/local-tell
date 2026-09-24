@@ -64,7 +64,7 @@ class CellReader(private val context: Context) {
     @RequiresPermission(Manifest.permission.ACCESS_FINE_LOCATION)
     private fun cachedServingCellsWithPermission(manager: TelephonyManager, subscription: ActiveSubscription?): List<RadioCell> =
         runCatching { manager.allCellInfo.orEmpty().toRadioCells(subscription) }
-            .getOrDefault(emptyList()).filter(RadioCell::registered)
+            .getOrDefault(emptyList()).sortedByDescending(RadioCell::registered)
 
     @RequiresApi(Build.VERSION_CODES.Q)
     @RequiresPermission(Manifest.permission.ACCESS_FINE_LOCATION)
@@ -72,7 +72,7 @@ class CellReader(private val context: Context) {
         suspendCancellableCoroutine { continuation ->
             val callback = object : TelephonyManager.CellInfoCallback() {
                 override fun onCellInfo(cellInfo: MutableList<CellInfo>) {
-                    if (continuation.isActive) continuation.resume(cellInfo.toRadioCells(subscription).filter(RadioCell::registered))
+                    if (continuation.isActive) continuation.resume(cellInfo.toRadioCells(subscription).sortedByDescending(RadioCell::registered))
                 }
 
                 override fun onError(errorCode: Int, detail: Throwable?) {

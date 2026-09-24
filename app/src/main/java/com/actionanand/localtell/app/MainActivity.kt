@@ -111,13 +111,15 @@ private fun HomeScreen(vm: HomeViewModel = viewModel()) {
     val activity = context as? MainActivity
     val status by vm.status.collectAsStateWithLifecycle()
     var permissionGranted by remember { mutableStateOf(hasPermission(context, Manifest.permission.ACCESS_FINE_LOCATION)) }
+    var phoneStateGranted by remember { mutableStateOf(hasPermission(context, Manifest.permission.READ_PHONE_STATE)) }
     var locationEnabled by remember { mutableStateOf(activity?.isLocationEnabled() == true) }
     var selectedSubscriptionId by remember { mutableStateOf<Int?>(null) }
-    val requestLocation = {
+    val requestLocation: () -> Unit = {
         activity?.requestLocationEnable {
             locationEnabled = activity.isLocationEnabled()
             if (locationEnabled) vm.refresh()
         }
+        Unit
     }
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
         permissionGranted = grants[Manifest.permission.ACCESS_FINE_LOCATION] == true
@@ -125,6 +127,10 @@ private fun HomeScreen(vm: HomeViewModel = viewModel()) {
             locationEnabled = activity?.isLocationEnabled() == true
             if (locationEnabled) vm.refresh() else requestLocation()
         }
+    }
+    val phoneStateLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        phoneStateGranted = granted
+        vm.refresh()
     }
     androidx.compose.runtime.LaunchedEffect(permissionGranted, locationEnabled) {
         if (permissionGranted && locationEnabled && status is HomeStatus.Idle) vm.refresh()
@@ -137,10 +143,14 @@ private fun HomeScreen(vm: HomeViewModel = viewModel()) {
         }
         if (!permissionGranted) item {
             InfoCard("Permission needed", "Android protects Cell IDs as location-sensitive data. LocalTell requests precise-location permission only to read cellular identities; it never requests GPS coordinates.")
-            Button(onClick = { permissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.READ_PHONE_STATE)) }) { Text("Allow cell access") }
+            Button(onClick = { permissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION)) }) { Text("Allow cell access") }
         } else if (!locationEnabled) item {
             InfoCard("Android Location setting is off", "Android requires the Location switch to expose cellular identity. LocalTell does not read GPS coordinates.")
             Button(onClick = requestLocation) { Text("Enable Location") }
+        }
+        if (permissionGranted && !phoneStateGranted) item {
+            InfoCard("SIM details optional", "Cell ID lookup works without this permission. Enable SIM details to show SIM slots and carrier names.")
+            OutlinedButton(onClick = { phoneStateLauncher.launch(Manifest.permission.READ_PHONE_STATE) }) { Text("Enable SIM details") }
         }
         item {
             when (val current = status) {
@@ -168,7 +178,7 @@ private fun HomeResults(status: HomeStatus.Ready, selectedSubscriptionId: Int?, 
     ElevatedCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Approximate area", style = MaterialTheme.typography.labelLarge)
-            Text(selectedMatch?.areaName ?: if (displayedCells.isEmpty()) "No serving cell" else "Unknown area", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
+            Text(selectedMatch?.areaName ?: if (displayedCells.any(RadioCell::registered)) "Unknown area" else "No serving cell", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
             selectedMatch?.district?.let { Text(listOfNotNull(it, selectedMatch.state).joinToString(", ")) }
             selectedMatch?.let { Text("Confidence ${it.confidence}% · Offline pack ${it.packId}") }
         }
@@ -226,7 +236,7 @@ private fun PacksScreen(vm: PacksViewModel = viewModel()) {
 }
 
 @Composable
-private fun PackItem(pack: RemotePack, installedVersion: Int?, progress: Int?, vm: PacksViewModel) {
+private fun PackItem(pack: RemotePack, installedVersion: Long?, progress: Int?, vm: PacksViewModel) {
     ElevatedCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
             Text(pack.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
