@@ -82,6 +82,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.kotlinx.coroutines.android)
+    implementation("com.google.android.gms:play-services-location:21.3.0")
 
     val composeBom = platform(libs.androidx.compose.bom)
     implementation(composeBom)

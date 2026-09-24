@@ -10,7 +10,7 @@
         <item name="android:fontFamily">sans</item>
         <item name="android:windowLightStatusBar">true</item>
         <item name="android:statusBarColor">@color/localtell_background</item>
-        <item name="android:navigationBarColor">@color/localtell_background</item>
+        <item name="android:navigationBarColor">@color/localtell_surface</item>
         <item name="android:windowActionModeOverlay">true</item>
     </style>
 </resources>

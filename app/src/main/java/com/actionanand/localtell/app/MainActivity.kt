@@ -3,20 +3,48 @@ package com.actionanand.localtell.app
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.location.LocationManager
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Route
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material3.Button
+import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -29,15 +57,30 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.actionanand.localtell.app.data.RemotePack
 import com.actionanand.localtell.app.journey.JourneyForegroundService
 import com.actionanand.localtell.app.journey.JourneyPoint
+import com.actionanand.localtell.app.model.RadioCell
+import com.actionanand.localtell.app.model.SubscriptionCells
+import com.actionanand.localtell.app.ui.theme.LocalTellTheme
 import java.text.DateFormat
 import java.util.Date
 
 class MainActivity : ComponentActivity() {
+    private lateinit var locationEnablement: LocationEnablement
+
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         super.onCreate(savedInstanceState)
+        locationEnablement = LocationEnablement(this)
         setContent { LocalTellTheme { LocalTellApp() } }
     }
+
+    override fun onResume() {
+        super.onResume()
+        if (::locationEnablement.isInitialized) locationEnablement.onResume()
+    }
+
+    fun isLocationEnabled(): Boolean = locationEnablement.isEnabled()
+
+    fun requestLocationEnable(onEnabled: () -> Unit) = locationEnablement.requestEnable(onEnabled)
 }
 
 private enum class Tab { HOME, PACKS, JOURNEY }
@@ -45,15 +88,13 @@ private enum class Tab { HOME, PACKS, JOURNEY }
 @Composable
 private fun LocalTellApp() {
     var tab by remember { mutableStateOf(Tab.HOME) }
-    Scaffold(
-        bottomBar = {
-            NavigationBar {
-                NavigationBarItem(tab == Tab.HOME, { tab = Tab.HOME }, { Icon(Icons.Default.Home, null) }, label = { Text("Home") })
-                NavigationBarItem(tab == Tab.PACKS, { tab = Tab.PACKS }, { Icon(Icons.Default.Download, null) }, label = { Text("Offline data") })
-                NavigationBarItem(tab == Tab.JOURNEY, { tab = Tab.JOURNEY }, { Icon(Icons.Default.Route, null) }, label = { Text("Journey") })
-            }
+    Scaffold(bottomBar = {
+        NavigationBar {
+            NavigationBarItem(tab == Tab.HOME, { tab = Tab.HOME }, { Icon(Icons.Default.Home, null) }, label = { Text("Home") })
+            NavigationBarItem(tab == Tab.PACKS, { tab = Tab.PACKS }, { Icon(Icons.Default.Download, null) }, label = { Text("Offline data") })
+            NavigationBarItem(tab == Tab.JOURNEY, { tab = Tab.JOURNEY }, { Icon(Icons.Default.Route, null) }, label = { Text("Journey") })
         }
-    ) { padding ->
+    }) { padding ->
         Box(Modifier.padding(padding)) {
             when (tab) {
                 Tab.HOME -> HomeScreen()
@@ -67,124 +108,135 @@ private fun LocalTellApp() {
 @Composable
 private fun HomeScreen(vm: HomeViewModel = viewModel()) {
     val context = LocalContext.current
+    val activity = context as? MainActivity
     val status by vm.status.collectAsStateWithLifecycle()
-    var permissionGranted by remember { mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) }
-    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
-        val fineGranted = grants[Manifest.permission.ACCESS_FINE_LOCATION] == true
-        permissionGranted = fineGranted
-        if (fineGranted) vm.refresh()
+    var permissionGranted by remember { mutableStateOf(hasPermission(context, Manifest.permission.ACCESS_FINE_LOCATION)) }
+    var locationEnabled by remember { mutableStateOf(activity?.isLocationEnabled() == true) }
+    var selectedSubscriptionId by remember { mutableStateOf<Int?>(null) }
+    val requestLocation = {
+        activity?.requestLocationEnable {
+            locationEnabled = activity.isLocationEnabled()
+            if (locationEnabled) vm.refresh()
+        }
+    }
+    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
+        permissionGranted = grants[Manifest.permission.ACCESS_FINE_LOCATION] == true
+        if (permissionGranted) {
+            locationEnabled = activity?.isLocationEnabled() == true
+            if (locationEnabled) vm.refresh() else requestLocation()
+        }
+    }
+    androidx.compose.runtime.LaunchedEffect(permissionGranted, locationEnabled) {
+        if (permissionGranted && locationEnabled && status is HomeStatus.Idle) vm.refresh()
     }
 
-    LaunchedEffect(permissionGranted) { if (permissionGranted) vm.refresh() }
-
-    val locationEnabled = remember(status) {
-        val manager = context.getSystemService(LocationManager::class.java)
-        if (Build.VERSION.SDK_INT >= 28) manager.isLocationEnabled else true
-    }
-
-    LazyColumn(
-        modifier = Modifier.fillMaxSize().padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
-    ) {
+    LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item {
             Text("LocalTell", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
             Text("Approximate locality from the cellular network and an offline database.")
         }
-        if (!permissionGranted) {
-            item {
-                InfoCard(
-                    "Permission needed",
-                    "Android protects Cell IDs as location-sensitive data. LocalTell requests precise-location permission only to read cellular identities; it never requests GPS coordinates."
-                )
-                Button(onClick = { launcher.launch(arrayOf(Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION)) }) { Text("Allow cell access") }
-            }
-        } else if (!locationEnabled) {
-            item {
-                InfoCard("Android Location setting is off", "Many Android devices will not expose Cell IDs while the system Location switch is off. Turning it on does not make LocalTell request GPS coordinates.")
-            }
+        if (!permissionGranted) item {
+            InfoCard("Permission needed", "Android protects Cell IDs as location-sensitive data. LocalTell requests precise-location permission only to read cellular identities; it never requests GPS coordinates.")
+            Button(onClick = { permissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.READ_PHONE_STATE)) }) { Text("Allow cell access") }
+        } else if (!locationEnabled) item {
+            InfoCard("Android Location setting is off", "Android requires the Location switch to expose cellular identity. LocalTell does not read GPS coordinates.")
+            Button(onClick = requestLocation) { Text("Enable Location") }
         }
         item {
-            when (val s = status) {
+            when (val current = status) {
                 HomeStatus.Idle -> Text("Ready")
                 HomeStatus.Loading -> LinearProgressIndicator(Modifier.fillMaxWidth())
-                is HomeStatus.Error -> InfoCard("Unable to resolve", s.message)
-                is HomeStatus.Ready -> {
-                    val match = s.match
-                    ElevatedCard(Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("Approximate area", style = MaterialTheme.typography.labelLarge)
-                            Text(match?.areaName ?: if (s.cells.isEmpty()) "No serving cell" else "Unknown area", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
-                            match?.district?.let { Text(listOfNotNull(it, match.state).joinToString(", ")) }
-                            if (match != null) Text("Confidence ${match.confidence}% · Offline pack ${match.packId}")
-                        }
-                    }
-                    Spacer(Modifier.height(10.dp))
-                    s.cells.firstOrNull()?.let { cell ->
-                        InfoCard("Serving cell", "${cell.radio} · PLMN ${cell.plmn}\nTAC/LAC ${cell.areaCode ?: "—"} · Cell ${cell.cellId}\nSignal ${cell.dbm?.let { "$it dBm" } ?: "—"}")
-                    }
-                    if (match != null) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            OutlinedButton(onClick = {
-                                val text = "My approximate area is ${match.areaName}${match.district?.let { ", $it" } ?: ""}. (LocalTell cellular estimate)"
-                                val send = Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, text) }
-                                context.startActivity(Intent.createChooser(send, "Share approximate area"))
-                            }) { Icon(Icons.Default.Share, null); Spacer(Modifier.width(6.dp)); Text("Share") }
-                        }
-                    }
-                }
+                is HomeStatus.Error -> InfoCard("Unable to resolve", current.message)
+                is HomeStatus.Ready -> HomeResults(current, selectedSubscriptionId) { selectedSubscriptionId = it }
             }
         }
         item {
-            Button(enabled = permissionGranted, onClick = vm::refresh) {
-                Icon(Icons.Default.Refresh, null); Spacer(Modifier.width(6.dp)); Text("Refresh cell")
+            Button(enabled = permissionGranted, onClick = { if (locationEnabled) vm.refresh() else requestLocation() }) {
+                Icon(Icons.Default.Refresh, null); Spacer(Modifier.padding(3.dp)); Text("Refresh cell")
             }
         }
-        item {
-            InfoCard("Offline by design", "After a state/India pack is downloaded, area lookup uses only the serving cellular identity and local SQLite data. Internet is used only for optional pack downloads/updates.")
-        }
+        item { InfoCard("Offline by design", "After a state/India pack is downloaded, area lookup uses only the serving cellular identity and local SQLite data. Internet is used only for optional pack downloads/updates.") }
     }
 }
 
 @Composable
+private fun HomeResults(status: HomeStatus.Ready, selectedSubscriptionId: Int?, onSelect: (Int?) -> Unit) {
+    val context = LocalContext.current
+    val selected = status.subscriptions.filter { selectedSubscriptionId == null || it.subscription?.subscriptionId == selectedSubscriptionId }
+    val displayedCells = selected.flatMap(SubscriptionCells::cells)
+    val selectedMatch = if (selectedSubscriptionId == null) status.match else status.subscriptionMatches[selectedSubscriptionId]
+    ElevatedCard(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Approximate area", style = MaterialTheme.typography.labelLarge)
+            Text(selectedMatch?.areaName ?: if (displayedCells.isEmpty()) "No serving cell" else "Unknown area", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
+            selectedMatch?.district?.let { Text(listOfNotNull(it, selectedMatch.state).joinToString(", ")) }
+            selectedMatch?.let { Text("Confidence ${it.confidence}% · Offline pack ${it.packId}") }
+        }
+    }
+    if (status.subscriptions.any { it.subscription != null }) {
+        Spacer(Modifier.height(10.dp))
+        Text("Cellular diagnostics", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterChip(selectedSubscriptionId == null, { onSelect(null) }, { Text("All SIMs") })
+            status.subscriptions.mapNotNull(SubscriptionCells::subscription).forEach { subscription ->
+                FilterChip(selectedSubscriptionId == subscription.subscriptionId, { onSelect(subscription.subscriptionId) }, { Text("SIM ${subscription.simSlotIndex + 1} · ${subscription.carrierName}") })
+            }
+        }
+        Text("This selector only filters LocalTell diagnostics; it never changes Android's mobile-data SIM.", style = MaterialTheme.typography.bodySmall)
+    }
+    selected.forEach { group ->
+        val heading = group.subscription?.let { "SIM ${it.simSlotIndex + 1} · ${it.carrierName}" } ?: "Serving cell"
+        if (group.cells.isEmpty()) InfoCard(heading, "No cellular identity available")
+        group.cells.forEach { cell -> CellCard(heading, cell) }
+    }
+    selectedMatch?.let { match ->
+        Spacer(Modifier.height(10.dp))
+        OutlinedButton(onClick = {
+            val text = "My approximate area is ${match.areaName}${match.district?.let { ", $it" } ?: ""}. (LocalTell cellular estimate)"
+            context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_TEXT, text)
+            }, "Share approximate area"))
+        }) { Icon(Icons.Default.Share, null); Spacer(Modifier.padding(3.dp)); Text("Share") }
+    }
+}
+
+@Composable
+private fun CellCard(heading: String, cell: RadioCell) = InfoCard(
+    heading,
+    "${cell.radio} · ${if (cell.registered) "Registered" else "Available"}\nMCC ${cell.mcc} · MNC ${cell.mnc} · PLMN ${cell.plmn}\nTAC/LAC ${cell.areaCode ?: "—"} · Cell ${cell.cellId}\nSignal ${cell.dbm?.let { "$it dBm" } ?: "—"}",
+)
+
+@Composable
 private fun PacksScreen(vm: PacksViewModel = viewModel()) {
     val state by vm.state.collectAsStateWithLifecycle()
-    LaunchedEffect(Unit) { vm.refresh() }
+    androidx.compose.runtime.LaunchedEffect(Unit) { vm.refresh() }
     LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
             Text("Offline data", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
             Text("Download only the states you need. Entire-India can be published as another pack later.")
             Spacer(Modifier.height(8.dp))
-            OutlinedButton(onClick = vm::refresh) { Icon(Icons.Default.Refresh, null); Spacer(Modifier.width(6.dp)); Text("Refresh list") }
+            OutlinedButton(onClick = vm::refresh) { Icon(Icons.Default.Refresh, null); Spacer(Modifier.padding(3.dp)); Text("Refresh list") }
         }
         if (state.loading) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
         state.error?.let { error -> item { InfoCard("Data source", error) } }
-        items(state.remote, key = RemotePack::id) { pack ->
-            val installed = state.installed[pack.id]
-            val progress = state.progress[pack.id]
-            ElevatedCard(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                    Text(pack.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    Text("Version ${pack.version}" + (pack.compressedBytes?.let { " · ${formatBytes(it)} download" } ?: ""))
-                    when {
-                        progress != null -> {
-                            LinearProgressIndicator(progress = { progress / 100f }, modifier = Modifier.fillMaxWidth())
-                            Text("Downloading $progress%")
-                        }
-                        installed == null -> Button(onClick = { vm.download(pack) }) { Text("Download") }
-                        installed.version < pack.version -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(onClick = { vm.download(pack) }) { Text("Update") }
-                            OutlinedButton(onClick = { vm.remove(pack.id) }) { Text("Remove") }
-                        }
-                        else -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Text("Installed", fontWeight = FontWeight.SemiBold)
-                            OutlinedButton(onClick = { vm.remove(pack.id) }) { Text("Remove") }
-                        }
-                    }
-                }
+        items(state.remote, key = RemotePack::id) { pack -> PackItem(pack, state.installed[pack.id]?.version, state.progress[pack.id], vm) }
+        if (!state.loading && state.remote.isEmpty() && state.error == null) item { InfoCard("No manifest loaded", "Create the LocalTell data release repository and publish manifest.json at the URL configured in app-config.json.") }
+    }
+}
+
+@Composable
+private fun PackItem(pack: RemotePack, installedVersion: Int?, progress: Int?, vm: PacksViewModel) {
+    ElevatedCard(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+            Text(pack.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text("Version ${pack.version}" + (pack.compressedBytes?.let { " · ${formatBytes(it)} download" } ?: ""))
+            when {
+                progress != null -> { LinearProgressIndicator(progress = { progress / 100f }, modifier = Modifier.fillMaxWidth()); Text("Downloading $progress%") }
+                installedVersion == null -> Button(onClick = { vm.download(pack) }) { Text("Download") }
+                installedVersion < pack.version -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { Button(onClick = { vm.download(pack) }) { Text("Update") }; OutlinedButton(onClick = { vm.remove(pack.id) }) { Text("Remove") } }
+                else -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) { Text("Installed", fontWeight = FontWeight.SemiBold); OutlinedButton(onClick = { vm.remove(pack.id) }) { Text("Remove") } }
             }
-        }
-        if (!state.loading && state.remote.isEmpty() && state.error == null) item {
-            InfoCard("No manifest loaded", "Create the LocalTell data release repository and publish manifest.json at the URL configured in app-config.json.")
         }
     }
 }
@@ -192,88 +244,39 @@ private fun PacksScreen(vm: PacksViewModel = viewModel()) {
 @Composable
 private fun JourneyScreen(vm: JourneyViewModel = viewModel()) {
     val context = LocalContext.current
+    val activity = context as? MainActivity
     val points by vm.points.collectAsStateWithLifecycle()
-    val hasFineLocation = ContextCompat.checkSelfPermission(
-        context,
-        Manifest.permission.ACCESS_FINE_LOCATION,
-    ) == PackageManager.PERMISSION_GRANTED
-    var hasNotifications by remember {
-        mutableStateOf(
-            Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
-                ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
-        )
+    val hasFineLocation = hasPermission(context, Manifest.permission.ACCESS_FINE_LOCATION)
+    var locationEnabled by remember { mutableStateOf(activity?.isLocationEnabled() == true) }
+    var hasNotifications by remember { mutableStateOf(Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU || hasPermission(context, Manifest.permission.POST_NOTIFICATIONS)) }
+    val startService = { ContextCompat.startForegroundService(context, Intent(context, JourneyForegroundService::class.java).setAction(JourneyForegroundService.ACTION_START)) }
+    val notificationLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted -> if (granted) startService() }
+    val beginJourney = {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !hasNotifications) notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS) else startService()
     }
-    val startJourney = {
-        val intent = Intent(context, JourneyForegroundService::class.java).setAction(JourneyForegroundService.ACTION_START)
-        ContextCompat.startForegroundService(context, intent)
-    }
-    val notificationLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        hasNotifications = granted
-        if (granted && hasFineLocation) startJourney()
-    }
-
-    LaunchedEffect(Unit) { vm.refresh() }
+    androidx.compose.runtime.LaunchedEffect(Unit) { vm.refresh() }
     LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
             Text("Journey", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
             Text("Records an entry only when the resolved locality changes.")
-            if (!hasFineLocation) {
-                Spacer(Modifier.height(8.dp))
-                InfoCard("Cell permission required", "Allow cell access on the Home tab before starting Journey mode.")
-            }
+            if (!hasFineLocation) { Spacer(Modifier.height(8.dp)); InfoCard("Cell permission required", "Allow cell access on the Home tab before starting Journey mode.") }
+            else if (!locationEnabled) { Spacer(Modifier.height(8.dp)); InfoCard("Location setting required", "Android requires the Location switch to expose cellular identity. LocalTell does not read GPS coordinates.") }
             Spacer(Modifier.height(10.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(
-                    enabled = hasFineLocation,
-                    onClick = {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !hasNotifications) {
-                            notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                        } else {
-                            startJourney()
-                        }
-                    },
-                ) { Icon(Icons.Default.PlayArrow, null); Spacer(Modifier.width(4.dp)); Text("Start") }
-                OutlinedButton(onClick = {
-                    context.startService(Intent(context, JourneyForegroundService::class.java).setAction(JourneyForegroundService.ACTION_STOP))
-                    vm.refresh()
-                }) { Icon(Icons.Default.Stop, null); Spacer(Modifier.width(4.dp)); Text("Stop") }
-                TextButton(onClick = { vm.clear() }) { Text("Clear") }
+                Button(enabled = hasFineLocation, onClick = {
+                    if (locationEnabled) beginJourney() else activity?.requestLocationEnable { locationEnabled = activity.isLocationEnabled(); if (locationEnabled) beginJourney() }
+                }) { Icon(Icons.Default.PlayArrow, null); Spacer(Modifier.padding(2.dp)); Text("Start") }
+                OutlinedButton(onClick = { context.startService(Intent(context, JourneyForegroundService::class.java).setAction(JourneyForegroundService.ACTION_STOP)); vm.refresh() }) { Icon(Icons.Default.Stop, null); Spacer(Modifier.padding(2.dp)); Text("Stop") }
+                TextButton(onClick = vm::clear) { Text("Clear") }
             }
         }
         if (points.isEmpty()) item { InfoCard("No journey entries", "Start Journey after installing an offline data pack. Cell checks run about every 20 seconds while the foreground service is active.") }
-        items(points, key = JourneyPoint::id) { p ->
-            ElevatedCard(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(14.dp)) {
-                    Text(p.areaName, fontWeight = FontWeight.Bold)
-                    Text(DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(p.timestamp)))
-                    Text("${p.radio} · ${p.plmn} · confidence ${p.confidence}%", style = MaterialTheme.typography.bodySmall)
-                }
-            }
-        }
+        items(points, key = JourneyPoint::id) { point -> ElevatedCard(Modifier.fillMaxWidth()) { Column(Modifier.padding(14.dp)) { Text(point.areaName, fontWeight = FontWeight.Bold); Text(DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(point.timestamp))); Text("${point.radio} · ${point.plmn} · confidence ${point.confidence}%", style = MaterialTheme.typography.bodySmall) } } }
     }
 }
 
 @Composable
-private fun InfoCard(title: String, body: String) {
-    ElevatedCard(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-            Text(title, fontWeight = FontWeight.Bold)
-            Text(body)
-        }
-    }
-}
+private fun InfoCard(title: String, body: String) { ElevatedCard(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) { Text(title, fontWeight = FontWeight.Bold); Text(body) } } }
 
-private fun formatBytes(bytes: Long): String = when {
-    bytes >= 1024L * 1024L * 1024L -> "%.1f GB".format(bytes / (1024.0 * 1024 * 1024))
-    bytes >= 1024L * 1024L -> "%.1f MB".format(bytes / (1024.0 * 1024))
-    else -> "%.1f KB".format(bytes / 1024.0)
-}
-
-@Composable
-private fun LocalTellTheme(content: @Composable () -> Unit) {
-    MaterialTheme(
-        colorScheme = if (androidx.compose.foundation.isSystemInDarkTheme()) darkColorScheme(primary = androidx.compose.ui.graphics.Color(0xFF7AD99B))
-        else lightColorScheme(primary = androidx.compose.ui.graphics.Color(0xFF166534)),
-        content = content,
-    )
-}
+private fun hasPermission(context: android.content.Context, permission: String): Boolean = ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
+private fun formatBytes(bytes: Long): String = when { bytes >= 1024L * 1024L * 1024L -> "%.1f GB".format(bytes / (1024.0 * 1024 * 1024)); bytes >= 1024L * 1024L -> "%.1f MB".format(bytes / (1024.0 * 1024)); else -> "%.1f KB".format(bytes / 1024.0) }
