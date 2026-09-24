@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Load Android SDK configuration
         shell: bash
@@ -29,7 +29,7 @@ jobs:
           done < android-sdk.properties
 
       - name: Setup Java
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: '21'
@@ -41,8 +41,22 @@ jobs:
           # installs command-line tools; the next step installs our exact SDK.
           packages: ''
 
+      - name: Install Android CLI
+        shell: bash
+        run: |
+          curl -fsSL https://dl.google.com/android/cli/latest/linux_x86_64/install.sh | bash
+          test -n "${ANDROID_HOME:-}"
+          printf '%s\n' "--sdk=${ANDROID_HOME}" > "$HOME/.androidrc"
+          echo "$HOME/.android/bin" >> "$GITHUB_PATH"
+
       - name: Install Android SDK platform and build tools
-        run: sdkmanager "platforms;android-${COMPILE_SDK_VERSION}" "build-tools;${BUILD_TOOLS_VERSION}" "platform-tools"
+        shell: bash
+        run: |
+          android --version
+          android sdk install \
+            "platforms/android-${COMPILE_SDK_VERSION}" \
+            "build-tools/${BUILD_TOOLS_VERSION}" \
+            "platform-tools"
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
