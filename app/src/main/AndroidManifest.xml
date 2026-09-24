@@ -18,7 +18,7 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:usesCleartextTraffic="false"
-        android:theme="@style/Theme.LocalTell">
+        android:theme="@style/Theme.LocalTell.Splash">
 
         <activity
             android:name=".MainActivity"

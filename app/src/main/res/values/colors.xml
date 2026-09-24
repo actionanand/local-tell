@@ -2,5 +2,6 @@
 <resources>
     <color name="localtell_green">#166534</color>
     <color name="localtell_green_dark">#0F3D25</color>
+    <color name="localtell_splash_background">#0B2F22</color>
     <color name="localtell_background">#F4F8F5</color>
 </resources>
