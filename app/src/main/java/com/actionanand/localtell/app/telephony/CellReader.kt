@@ -65,7 +65,6 @@ class CellReader(private val context: Context) {
                     if (continuation.isActive) continuation.resume(cachedServingCells())
                 }
         }
-    }
 
     private fun List<CellInfo>.toRadioCells(): List<RadioCell> = mapNotNull { info ->
         when {
