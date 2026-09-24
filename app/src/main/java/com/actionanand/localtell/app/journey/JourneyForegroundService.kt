@@ -1,11 +1,15 @@
 package com.actionanand.localtell.app.journey
 
 import android.app.*
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import androidx.annotation.RequiresPermission
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import com.actionanand.localtell.app.MainActivity
 import com.actionanand.localtell.app.R
 import com.actionanand.localtell.app.data.OfflineAreaResolver
@@ -41,13 +45,20 @@ class JourneyForegroundService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
+        if (
+            ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) !=
+                PackageManager.PERMISSION_GRANTED
+        ) {
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
         startAsForeground("Finding approximate area…")
         if (loopJob == null) loopJob = scope.launch { trackingLoop() }
         return START_STICKY
     }
 
     private suspend fun trackingLoop() {
-        while (isActive) {
+        while (currentCoroutineContext().isActive) {
             runCatching {
                 val cells = reader.requestServingCells()
                 val match = resolver.resolveFirst(cells)
@@ -101,6 +112,7 @@ class JourneyForegroundService : Service() {
             .build()
     }
 
+    @RequiresPermission(Manifest.permission.ACCESS_FINE_LOCATION)
     private fun startAsForeground(text: String) {
         val n = notification(text)
         if (Build.VERSION.SDK_INT >= 29) {
