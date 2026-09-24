@@ -115,11 +115,12 @@ private fun HomeScreen(vm: HomeViewModel = viewModel()) {
     var locationEnabled by remember { mutableStateOf(activity?.isLocationEnabled() == true) }
     var selectedSubscriptionId by remember { mutableStateOf<Int?>(null) }
     val requestLocation: () -> Unit = {
-        activity?.requestLocationEnable {
-            locationEnabled = activity.isLocationEnabled()
-            if (locationEnabled) vm.refresh()
+        if (activity != null) {
+            activity.requestLocationEnable {
+                locationEnabled = activity.isLocationEnabled()
+                if (locationEnabled) vm.refresh()
+            }
         }
-        Unit
     }
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
         permissionGranted = grants[Manifest.permission.ACCESS_FINE_LOCATION] == true
