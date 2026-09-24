@@ -5,6 +5,8 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
 import android.telephony.*
+import androidx.annotation.RequiresApi
+import androidx.annotation.RequiresPermission
 import androidx.core.content.ContextCompat
 import com.actionanand.localtell.app.model.RadioCell
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -20,17 +22,33 @@ class CellReader(private val context: Context) {
             PackageManager.PERMISSION_GRANTED
 
     fun cachedServingCells(): List<RadioCell> {
-        if (!hasPermission()) return emptyList()
-        return runCatching { telephonyManager.allCellInfo.orEmpty().toRadioCells() }
-            .getOrDefault(emptyList())
-            .filter { it.registered }
+        if (
+            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) !=
+                PackageManager.PERMISSION_GRANTED
+        ) return emptyList()
+        return cachedServingCellsWithPermission()
     }
 
+    @RequiresPermission(Manifest.permission.ACCESS_FINE_LOCATION)
+    private fun cachedServingCellsWithPermission(): List<RadioCell> =
+        runCatching { telephonyManager.allCellInfo.orEmpty().toRadioCells() }
+            .getOrDefault(emptyList())
+            .filter { it.registered }
+
     suspend fun requestServingCells(): List<RadioCell> {
-        if (!hasPermission()) return emptyList()
+        if (
+            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) !=
+                PackageManager.PERMISSION_GRANTED
+        ) return emptyList()
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return cachedServingCells()
 
-        return suspendCancellableCoroutine { continuation ->
+        return requestServingCellsWithPermission()
+    }
+
+    @RequiresApi(Build.VERSION_CODES.Q)
+    @RequiresPermission(Manifest.permission.ACCESS_FINE_LOCATION)
+    private suspend fun requestServingCellsWithPermission(): List<RadioCell> =
+        suspendCancellableCoroutine { continuation ->
             val callback = object : TelephonyManager.CellInfoCallback() {
                 override fun onCellInfo(cellInfo: MutableList<CellInfo>) {
                     if (continuation.isActive) {
