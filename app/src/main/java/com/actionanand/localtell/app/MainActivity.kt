@@ -15,26 +15,32 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.BrightnessAuto
+import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Route
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material3.Button
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -52,10 +58,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.core.content.ContextCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -159,9 +170,7 @@ private fun HomeScreen(
 
     LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item {
-            BrandHeader()
-            Spacer(Modifier.height(10.dp))
-            ThemeSelector(themeMode, onThemeModeChange)
+            BrandHeader(themeMode, onThemeModeChange)
         }
         if (!permissionGranted) item {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -242,32 +251,60 @@ private fun HomeResults(status: HomeStatus.Ready, selectedSubscriptionId: Int?, 
 }
 
 @Composable
-private fun BrandHeader() {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Surface(
-            modifier = Modifier.size(52.dp),
-            shape = CircleShape,
-            color = MaterialTheme.colorScheme.primaryContainer,
-        ) {
-            Box(contentAlignment = Alignment.Center) {
-                Icon(Icons.Default.LocationOn, "LocalTell", tint = MaterialTheme.colorScheme.primary)
-            }
-        }
-        Column(Modifier.padding(start = 14.dp)) {
+private fun BrandHeader(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit) {
+    val nextThemeMode = when (themeMode) {
+        ThemeMode.SYSTEM -> ThemeMode.LIGHT
+        ThemeMode.LIGHT -> ThemeMode.DARK
+        ThemeMode.DARK -> ThemeMode.SYSTEM
+    }
+    val themeIcon = when (themeMode) {
+        ThemeMode.SYSTEM -> Icons.Default.BrightnessAuto
+        ThemeMode.LIGHT -> Icons.Default.LightMode
+        ThemeMode.DARK -> Icons.Default.DarkMode
+    }
+    val themeDescription = when (themeMode) {
+        ThemeMode.SYSTEM -> "Theme: Automatic"
+        ThemeMode.LIGHT -> "Theme: Light"
+        ThemeMode.DARK -> "Theme: Dark"
+    }
+
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Image(
+            painter = painterResource(R.drawable.localtell_brand_icon),
+            contentDescription = "LocalTell",
+            modifier = Modifier.size(56.dp),
+            contentScale = ContentScale.Fit,
+        )
+        Column(Modifier.weight(1f).padding(start = 14.dp)) {
             Text("LocalTell", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
             Text("Know where you are", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.secondary)
         }
+        IconButton(onClick = { onThemeModeChange(nextThemeMode) }) {
+            Icon(themeIcon, themeDescription, tint = MaterialTheme.colorScheme.primary)
+        }
     }
-    Spacer(Modifier.height(10.dp))
-    Text("See your approximate locality using cellular network information.")
-}
 
-@Composable
-private fun ThemeSelector(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit) {
-    Text("Appearance", style = MaterialTheme.typography.labelLarge)
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        ThemeMode.entries.forEach { mode ->
-            FilterChip(themeMode == mode, { onThemeModeChange(mode) }, { Text(if (mode == ThemeMode.SYSTEM) "Automatic" else mode.name.lowercase().replaceFirstChar(Char::titlecase)) })
+    Spacer(Modifier.height(14.dp))
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        shape = RoundedCornerShape(12.dp),
+    ) {
+        Row(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier
+                    .width(3.dp)
+                    .height(44.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(MaterialTheme.colorScheme.primary),
+            )
+            Spacer(Modifier.width(10.dp))
+            Text(
+                "See your approximate locality using cellular network information.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontWeight = FontWeight.Medium,
+                lineHeight = 22.sp,
+            )
         }
     }
 }
