@@ -1,6 +1,7 @@
 package com.actionanand.localtell.app
 
 import android.Manifest
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
@@ -18,6 +19,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -28,6 +30,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Route
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material3.Button
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.FilterChip
@@ -38,6 +41,8 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -50,6 +55,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.shape.CircleShape
 import androidx.core.content.ContextCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -60,6 +66,7 @@ import com.actionanand.localtell.app.journey.JourneyPoint
 import com.actionanand.localtell.app.model.RadioCell
 import com.actionanand.localtell.app.model.SubscriptionCells
 import com.actionanand.localtell.app.ui.theme.LocalTellTheme
+import com.actionanand.localtell.app.ui.theme.ThemeMode
 import java.text.DateFormat
 import java.util.Date
 
@@ -70,7 +77,16 @@ class MainActivity : ComponentActivity() {
         installSplashScreen()
         super.onCreate(savedInstanceState)
         locationEnablement = LocationEnablement(this)
-        setContent { LocalTellTheme { LocalTellApp() } }
+        setContent {
+            val preferences = remember { getSharedPreferences("localtell_preferences", Context.MODE_PRIVATE) }
+            var themeMode by remember { mutableStateOf(ThemeMode.fromPreference(preferences.getString("theme_mode", null))) }
+            LocalTellTheme(themeMode) {
+                LocalTellApp(themeMode) { mode ->
+                    themeMode = mode
+                    preferences.edit().putString("theme_mode", mode.name).apply()
+                }
+            }
+        }
     }
 
     override fun onResume() {
@@ -86,7 +102,7 @@ class MainActivity : ComponentActivity() {
 private enum class Tab { HOME, PACKS, JOURNEY }
 
 @Composable
-private fun LocalTellApp() {
+private fun LocalTellApp(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit) {
     var tab by remember { mutableStateOf(Tab.HOME) }
     Scaffold(bottomBar = {
         NavigationBar {
@@ -97,7 +113,7 @@ private fun LocalTellApp() {
     }) { padding ->
         Box(Modifier.padding(padding)) {
             when (tab) {
-                Tab.HOME -> HomeScreen()
+                Tab.HOME -> HomeScreen(themeMode, onThemeModeChange)
                 Tab.PACKS -> PacksScreen()
                 Tab.JOURNEY -> JourneyScreen()
             }
@@ -106,7 +122,11 @@ private fun LocalTellApp() {
 }
 
 @Composable
-private fun HomeScreen(vm: HomeViewModel = viewModel()) {
+private fun HomeScreen(
+    themeMode: ThemeMode,
+    onThemeModeChange: (ThemeMode) -> Unit,
+    vm: HomeViewModel = viewModel(),
+) {
     val context = LocalContext.current
     val activity = context as? MainActivity
     val status by vm.status.collectAsStateWithLifecycle()
@@ -139,19 +159,26 @@ private fun HomeScreen(vm: HomeViewModel = viewModel()) {
 
     LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item {
-            Text("LocalTell", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-            Text("Approximate locality from the cellular network and an offline database.")
+            BrandHeader()
+            Spacer(Modifier.height(10.dp))
+            ThemeSelector(themeMode, onThemeModeChange)
         }
         if (!permissionGranted) item {
-            InfoCard("Permission needed", "Android protects Cell IDs as location-sensitive data. LocalTell requests precise-location permission only to read cellular identities; it never requests GPS coordinates.")
-            Button(onClick = { permissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION)) }) { Text("Allow cell access") }
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                InfoCard("Permission needed", "Android protects Cell IDs as location-sensitive data. LocalTell requests precise-location permission only to read cellular identities; it never requests GPS coordinates.")
+                Button(onClick = { permissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION)) }) { Text("Allow cell access") }
+            }
         } else if (!locationEnabled) item {
-            InfoCard("Android Location setting is off", "Android requires the Location switch to expose cellular identity. LocalTell does not read GPS coordinates.")
-            Button(onClick = requestLocation) { Text("Enable Location") }
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                InfoCard("Android Location setting is off", "Android requires the Location switch to expose cellular identity. LocalTell does not read GPS coordinates.")
+                PermissionToggle("Enable Location", requestLocation)
+            }
         }
         if (permissionGranted && !phoneStateGranted) item {
-            InfoCard("SIM details optional", "Cell ID lookup works without this permission. Enable SIM details to show SIM slots and carrier names.")
-            OutlinedButton(onClick = { phoneStateLauncher.launch(Manifest.permission.READ_PHONE_STATE) }) { Text("Enable SIM details") }
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                InfoCard("SIM details optional", "Cell ID lookup works without this permission. Enable SIM details to show SIM slots and carrier names.")
+                PermissionToggle("Enable SIM details") { phoneStateLauncher.launch(Manifest.permission.READ_PHONE_STATE) }
+            }
         }
         item {
             when (val current = status) {
@@ -162,8 +189,10 @@ private fun HomeScreen(vm: HomeViewModel = viewModel()) {
             }
         }
         item {
-            Button(enabled = permissionGranted, onClick = { if (locationEnabled) vm.refresh() else requestLocation() }) {
-                Icon(Icons.Default.Refresh, null); Spacer(Modifier.padding(3.dp)); Text("Refresh cell")
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+                Button(enabled = permissionGranted, onClick = { if (locationEnabled) vm.refresh() else requestLocation() }) {
+                    Icon(Icons.Default.Refresh, null); Spacer(Modifier.padding(3.dp)); Text("Refresh cell")
+                }
             }
         }
         item { InfoCard("Offline by design", "After a state/India pack is downloaded, area lookup uses only the serving cellular identity and local SQLite data. Internet is used only for optional pack downloads/updates.") }
@@ -176,39 +205,78 @@ private fun HomeResults(status: HomeStatus.Ready, selectedSubscriptionId: Int?, 
     val selected = status.subscriptions.filter { selectedSubscriptionId == null || it.subscription?.subscriptionId == selectedSubscriptionId }
     val displayedCells = selected.flatMap(SubscriptionCells::cells)
     val selectedMatch = if (selectedSubscriptionId == null) status.match else status.subscriptionMatches[selectedSubscriptionId]
-    ElevatedCard(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Approximate area", style = MaterialTheme.typography.labelLarge)
-            Text(selectedMatch?.areaName ?: if (displayedCells.any(RadioCell::registered)) "Unknown area" else "No serving cell", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
-            selectedMatch?.district?.let { Text(listOfNotNull(it, selectedMatch.state).joinToString(", ")) }
-            selectedMatch?.let { Text("Confidence ${it.confidence}% · Offline pack ${it.packId}") }
-        }
-    }
-    if (status.subscriptions.any { it.subscription != null }) {
-        Spacer(Modifier.height(10.dp))
-        Text("Cellular diagnostics", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FilterChip(selectedSubscriptionId == null, { onSelect(null) }, { Text("All SIMs") })
-            status.subscriptions.mapNotNull(SubscriptionCells::subscription).forEach { subscription ->
-                FilterChip(selectedSubscriptionId == subscription.subscriptionId, { onSelect(subscription.subscriptionId) }, { Text("SIM ${subscription.simSlotIndex + 1} · ${subscription.carrierName}") })
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        ElevatedCard(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Approximate area", style = MaterialTheme.typography.labelLarge)
+                Text(selectedMatch?.areaName ?: if (displayedCells.any(RadioCell::registered)) "Unknown area" else "No serving cell", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
+                selectedMatch?.district?.let { Text(listOfNotNull(it, selectedMatch.state).joinToString(", ")) }
+                selectedMatch?.let { Text("Confidence ${it.confidence}% · Offline pack ${it.packId}") }
             }
         }
-        Text("This selector only filters LocalTell diagnostics; it never changes Android's mobile-data SIM.", style = MaterialTheme.typography.bodySmall)
+        if (status.subscriptions.any { it.subscription != null }) {
+            Text("Cellular diagnostics", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(selectedSubscriptionId == null, { onSelect(null) }, { Text("All SIMs") })
+                status.subscriptions.mapNotNull(SubscriptionCells::subscription).forEach { subscription ->
+                    FilterChip(selectedSubscriptionId == subscription.subscriptionId, { onSelect(subscription.subscriptionId) }, { Text("SIM ${subscription.simSlotIndex + 1} · ${subscription.carrierName}") })
+                }
+            }
+            Text("This selector only filters LocalTell diagnostics; it never changes Android's mobile-data SIM.", style = MaterialTheme.typography.bodySmall)
+        }
+        selected.forEach { group ->
+            val heading = group.subscription?.let { "SIM ${it.simSlotIndex + 1} · ${it.carrierName}" } ?: "Serving cell"
+            if (group.cells.isEmpty()) InfoCard(heading, "No cellular identity available")
+            group.cells.forEach { cell -> CellCard(heading, cell) }
+        }
+        selectedMatch?.let { match ->
+            OutlinedButton(onClick = {
+                val text = "My approximate area is ${match.areaName}${match.district?.let { ", $it" } ?: ""}. (LocalTell cellular estimate)"
+                context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_TEXT, text)
+                }, "Share approximate area"))
+            }) { Icon(Icons.Default.Share, null); Spacer(Modifier.padding(3.dp)); Text("Share") }
+        }
     }
-    selected.forEach { group ->
-        val heading = group.subscription?.let { "SIM ${it.simSlotIndex + 1} · ${it.carrierName}" } ?: "Serving cell"
-        if (group.cells.isEmpty()) InfoCard(heading, "No cellular identity available")
-        group.cells.forEach { cell -> CellCard(heading, cell) }
+}
+
+@Composable
+private fun BrandHeader() {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Surface(
+            modifier = Modifier.size(52.dp),
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.primaryContainer,
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(Icons.Default.LocationOn, "LocalTell", tint = MaterialTheme.colorScheme.primary)
+            }
+        }
+        Column(Modifier.padding(start = 14.dp)) {
+            Text("LocalTell", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+            Text("Know where you are", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.secondary)
+        }
     }
-    selectedMatch?.let { match ->
-        Spacer(Modifier.height(10.dp))
-        OutlinedButton(onClick = {
-            val text = "My approximate area is ${match.areaName}${match.district?.let { ", $it" } ?: ""}. (LocalTell cellular estimate)"
-            context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
-                type = "text/plain"
-                putExtra(Intent.EXTRA_TEXT, text)
-            }, "Share approximate area"))
-        }) { Icon(Icons.Default.Share, null); Spacer(Modifier.padding(3.dp)); Text("Share") }
+    Spacer(Modifier.height(10.dp))
+    Text("See your approximate locality using cellular network information.")
+}
+
+@Composable
+private fun ThemeSelector(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit) {
+    Text("Appearance", style = MaterialTheme.typography.labelLarge)
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        ThemeMode.entries.forEach { mode ->
+            FilterChip(themeMode == mode, { onThemeModeChange(mode) }, { Text(if (mode == ThemeMode.SYSTEM) "Automatic" else mode.name.lowercase().replaceFirstChar(Char::titlecase)) })
+        }
+    }
+}
+
+@Composable
+private fun PermissionToggle(label: String, onEnable: () -> Unit) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+        Text(label, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+        Switch(checked = false, onCheckedChange = { enabled -> if (enabled) onEnable() })
     }
 }
 
