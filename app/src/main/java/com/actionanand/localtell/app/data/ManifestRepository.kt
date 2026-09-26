@@ -28,7 +28,7 @@ class ManifestRepository {
     internal fun parse(text: String): RemoteManifest {
         val root = JSONObject(text)
         val schemaVersion = root.getInt("schemaVersion")
-        require(schemaVersion == 1) { "Unsupported manifest schema: $schemaVersion" }
+        require(schemaVersion in 1..2) { "Unsupported manifest schema: $schemaVersion" }
         val packsJson = root.getJSONArray("packs")
         val packs = buildList {
             for (i in 0 until packsJson.length()) {

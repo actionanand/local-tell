@@ -1,2 +1,3 @@
-mcc,mnc,radio,area_code,cell_id,area_name,district,state,confidence,last_seen
-999,99,LTE,1001,123456,Sample Locality,Sample District,Tamil Nadu,90,1760000000
+mcc,mnc,radio,area_code,cell_id,source_site_id,pci,arfcn,confidence,last_seen
+405,869,NR,89,4367237120,734366,278,634080,95,1760000000
+404,94,LTE,55119,168478730,734366,186,39150,95,1760000000

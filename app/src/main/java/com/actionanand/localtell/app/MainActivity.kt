@@ -216,10 +216,17 @@ private fun HomeResults(status: HomeStatus.Ready, selectedSubscriptionId: Int?, 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         ElevatedCard(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Approximate area", style = MaterialTheme.typography.labelLarge)
+                Text("Serving tower area", style = MaterialTheme.typography.labelLarge)
                 Text(selectedMatch?.areaName ?: if (displayedCells.any(RadioCell::registered)) "Unknown area" else "No serving cell", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
                 selectedMatch?.district?.let { Text(listOfNotNull(it, selectedMatch.state).joinToString(", ")) }
-                selectedMatch?.let { Text("Confidence ${it.confidence}% · Offline pack ${it.packId}") }
+                selectedMatch?.let { match ->
+                    Text(
+                        if (match.sourceSiteId != null) "Approx. tower site · Offline pack ${match.packId}"
+                        else "Offline pack ${match.packId}",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Text("Confidence ${match.confidence}%", style = MaterialTheme.typography.bodySmall)
+                }
             }
         }
         if (status.subscriptions.any { it.subscription != null }) {
@@ -298,7 +305,7 @@ private fun BrandHeader(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> 
             )
             Spacer(Modifier.width(10.dp))
             Text(
-                "See your approximate locality using cellular network information.",
+                "See the area of the cellular tower currently serving your phone.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontWeight = FontWeight.Medium,

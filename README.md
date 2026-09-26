@@ -116,18 +116,21 @@ Upload the **contents** of `keystore.b64.txt` as `KEYSTORE_BASE64`, then securel
 
 ## Offline data pack format
 
-A downloaded pack is a normal SQLite database with:
+A schema-v2 downloaded pack is a normal SQLite database with:
 
 ```sql
-area(id, area_name, district, state)
+tower_site(
+  id, source_site_id, latitude, longitude,
+  area_name, district, state, address, source
+)
 
 cell_lookup(
   mcc, mnc, radio, area_code, cell_id,
-  area_id, confidence, last_seen
+  tower_site_id, pci, arfcn, confidence, last_seen
 )
 ```
 
-Locality strings are normalized into `area`, so thousands of cells can reference the same area name without repeating the text. The app first performs an exact identity match. For LTE/5G only, it can fall back to the PLMN-scoped ECI/NCI without TAC if an exact TAC row is unavailable. GSM/WCDMA remain LAC-sensitive.
+Each cell references a physical `tower_site`; PCI and ARFCN are supporting diagnostics and do not participate in the primary match. The app first performs an exact identity match. For LTE/5G only, it can fall back to the PLMN-scoped ECI/NCI without TAC if an exact TAC row is unavailable. GSM/WCDMA remain LAC-sensitive. Existing schema-v1 packs remain readable during the pre-production transition.
 
 ### Manifest format
 
@@ -135,7 +138,7 @@ Locality strings are normalized into `area`, so thousands of cells can reference
 
 ```json
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "generatedAt": "2026-09-24T00:00:00Z",
   "packs": [
     {
@@ -155,11 +158,11 @@ Downloads are written to a temporary file, SHA-256 verified, gunzipped, SQLite `
 
 ## Building an offline pack
 
-`tools/db-builder/` contains the stable runtime schema and a builder. It expects an **already locality-enriched CSV** so the OpenCellID + OpenStreetMap enrichment pipeline can evolve independently of the Android app.
+`tools/db-builder/` contains the stable runtime schema and a builder. It accepts a cell-to-tower CSV and a tower-site CSV, so enrichment can evolve independently of the Android app.
 
 ```bash
 python3 tools/db-builder/build_pack.py \
-  my-enriched.csv TN.db \
+  my-cells.csv TN.db --towers my-towers.csv \
   --id TN --name 'Tamil Nadu' --version 1
 ```
 
@@ -170,6 +173,7 @@ A tiny synthetic example is included only for validating the builder:
 ```bash
 python3 tools/db-builder/build_pack.py \
   tools/db-builder/sample-enriched.csv /tmp/TN.db \
+  --towers tools/db-builder/sample-towers.csv \
   --id TN --name 'Tamil Nadu' --version 1
 ```
 

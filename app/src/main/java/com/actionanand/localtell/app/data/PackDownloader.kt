@@ -139,10 +139,13 @@ class PackDownloader(private val store: PackStore) {
             db.rawQuery("PRAGMA integrity_check", null).use { cursor ->
                 check(cursor.moveToFirst() && cursor.getString(0) == "ok") { "Downloaded SQLite database failed integrity check" }
             }
-            db.rawQuery("SELECT value FROM pack_meta WHERE key='schema_version'", null).use { cursor ->
-                check(cursor.moveToFirst() && cursor.getString(0) == "1") { "Unsupported offline pack schema" }
+            val schemaVersion = db.rawQuery("SELECT value FROM pack_meta WHERE key='schema_version'", null).use { cursor ->
+                check(cursor.moveToFirst()) { "Offline pack schema is missing" }
+                cursor.getString(0).toIntOrNull()
             }
+            check(schemaVersion != null && schemaVersion in 1..2) { "Unsupported offline pack schema" }
             db.rawQuery("SELECT 1 FROM cell_lookup LIMIT 1", null).close()
+            if (schemaVersion == 2) db.rawQuery("SELECT 1 FROM tower_site LIMIT 1", null).close()
         } finally {
             db.close()
         }
