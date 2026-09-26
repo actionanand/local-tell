@@ -9,4 +9,4 @@ for spec in a.packs:
     with open(f,'rb') as hf:
         for chunk in iter(lambda: hf.read(1024*1024), b''): h.update(chunk)
     result.append({'id':id_,'name':name,'version':int(version),'downloadUrl':a.base_url.rstrip('/')+'/'+f.name,'sha256':h.hexdigest(),'compressedBytes':f.stat().st_size,'uncompressedBytes':db.stat().st_size if db and db.exists() else None})
-print(json.dumps({'schemaVersion':1,'generatedAt':a.generated_at,'packs':result},indent=2))
+print(json.dumps({'schemaVersion':2,'generatedAt':a.generated_at,'packs':result},indent=2))
