@@ -18,6 +18,7 @@ fun quoted(value: String) = "\"${value.replace("\\", "\\\\").replace("\"", "\\\"
 val configuredApplicationId = appConfig["applicationId"] as String
 val configuredAppName = appConfig["appName"] as String
 val configuredManifestUrl = appConfig["dataManifestUrl"] as String
+val configuredTowerSurvey = appConfig["enableTowerSurvey"] as? Boolean ?: false
 
 android {
     namespace = "com.actionanand.localtell.app" // source/R namespace; applicationId remains configurable
@@ -32,6 +33,7 @@ android {
         versionName = versionConfig["versionName"] as String
 
         buildConfigField("String", "DATA_MANIFEST_URL", quoted(configuredManifestUrl))
+        buildConfigField("Boolean", "ENABLE_TOWER_SURVEY", configuredTowerSurvey.toString())
         resValue("string", "app_name", configuredAppName)
     }
 

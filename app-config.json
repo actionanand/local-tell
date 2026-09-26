@@ -2,5 +2,6 @@
   "applicationId": "com.actionanand.localtell.app",
   "appName": "LocalTell",
   "releaseBaseName": "LocalTell",
-  "dataManifestUrl": "https://github.com/actionanand/localtell-data/releases/latest/download/manifest.json"
+  "dataManifestUrl": "https://github.com/actionanand/localtell-data/releases/latest/download/manifest.json",
+  "enableTowerSurvey": false
 }
