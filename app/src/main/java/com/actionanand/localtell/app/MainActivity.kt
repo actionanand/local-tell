@@ -75,6 +75,7 @@ import com.actionanand.localtell.app.journey.JourneyForegroundService
 import com.actionanand.localtell.app.journey.JourneyPoint
 import com.actionanand.localtell.app.model.RadioCell
 import com.actionanand.localtell.app.model.SubscriptionCells
+import com.actionanand.localtell.app.survey.TowerSurveyScreen
 import com.actionanand.localtell.app.ui.theme.LocalTellTheme
 import com.actionanand.localtell.app.ui.theme.ThemeMode
 import java.text.DateFormat
@@ -109,7 +110,7 @@ class MainActivity : ComponentActivity() {
     fun requestLocationEnable(onEnabled: () -> Unit) = locationEnablement.requestEnable(onEnabled)
 }
 
-private enum class Tab { HOME, PACKS, JOURNEY }
+private enum class Tab { HOME, PACKS, JOURNEY, SURVEY }
 
 @Composable
 private fun LocalTellApp(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit) {
@@ -119,6 +120,9 @@ private fun LocalTellApp(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) ->
             NavigationBarItem(tab == Tab.HOME, { tab = Tab.HOME }, { Icon(Icons.Default.Home, null) }, label = { Text("Home") })
             NavigationBarItem(tab == Tab.PACKS, { tab = Tab.PACKS }, { Icon(Icons.Default.Download, null) }, label = { Text("Offline data") })
             NavigationBarItem(tab == Tab.JOURNEY, { tab = Tab.JOURNEY }, { Icon(Icons.Default.Route, null) }, label = { Text("Journey") })
+            if (BuildConfig.ENABLE_TOWER_SURVEY) {
+                NavigationBarItem(tab == Tab.SURVEY, { tab = Tab.SURVEY }, { Icon(Icons.Default.Route, null) }, label = { Text("Tower Survey") })
+            }
         }
     }) { padding ->
         Box(Modifier.padding(padding)) {
@@ -126,6 +130,7 @@ private fun LocalTellApp(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) ->
                 Tab.HOME -> HomeScreen(themeMode, onThemeModeChange)
                 Tab.PACKS -> PacksScreen()
                 Tab.JOURNEY -> JourneyScreen()
+                Tab.SURVEY -> if (BuildConfig.ENABLE_TOWER_SURVEY) TowerSurveyScreen() else HomeScreen(themeMode, onThemeModeChange)
             }
         }
     }
