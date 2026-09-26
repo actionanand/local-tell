@@ -317,10 +317,33 @@ private fun PermissionToggle(label: String, onEnable: () -> Unit) {
 }
 
 @Composable
-private fun CellCard(heading: String, cell: RadioCell) = InfoCard(
-    heading,
-    "${cell.radio} · ${if (cell.registered) "Registered" else "Available"}\nMCC ${cell.mcc} · MNC ${cell.mnc} · PLMN ${cell.plmn}\nTAC/LAC ${cell.areaCode ?: "—"} · Cell ${cell.cellId}\nSignal ${cell.dbm?.let { "$it dBm" } ?: "—"}",
-)
+private fun CellCard(heading: String, cell: RadioCell) {
+    val cellIdentityLabel = if (cell.radio == "NR") "NCI" else "Cell"
+    val areaLabel = if (cell.radio == "NR") "TAC" else "TAC/LAC"
+    val channelLabel = if (cell.radio == "NR") "NRARFCN" else "EARFCN"
+    val radioMeasurements = buildList {
+        cell.pci?.let { add("PCI $it") }
+        cell.channelNumber?.let { add("$channelLabel $it") }
+        if (cell.bands.isNotEmpty()) {
+            add(cell.bands.joinToString(" · ") { band -> "Band ${if (cell.radio == "NR") "n$band" else band}" })
+        }
+    }
+    val signalMeasurements = buildList {
+        cell.rsrp?.let { add("${if (cell.radio == "NR") "SS-RSRP" else "RSRP"} $it dBm") }
+        cell.rsrq?.let { add("${if (cell.radio == "NR") "SS-RSRQ" else "RSRQ"} $it dB") }
+        cell.sinr?.let { add("${if (cell.radio == "NR") "SS-SINR" else "RSSNR"} $it dB") }
+    }
+    val details = buildList {
+        add("${cell.radio} · ${if (cell.registered) "Registered" else "Available"}")
+        add("MCC ${cell.mcc} · MNC ${cell.mnc} · PLMN ${cell.plmn}")
+        add("$areaLabel ${cell.areaCode ?: "—"} · $cellIdentityLabel ${cell.cellId}")
+        if (radioMeasurements.isNotEmpty()) add(radioMeasurements.joinToString(" · "))
+        if (signalMeasurements.isNotEmpty()) add(signalMeasurements.joinToString(" · "))
+        else cell.dbm?.let { add("Signal $it dBm") }
+        cell.timingAdvance?.let { add("Timing advance $it") }
+    }.joinToString("\n")
+    InfoCard(heading, details)
+}
 
 @Composable
 private fun PacksScreen(vm: PacksViewModel = viewModel()) {

@@ -8,6 +8,14 @@ data class RadioCell(
     val cellId: Long,
     val dbm: Int?,
     val registered: Boolean,
+    /** Radio measurements used only for diagnostics; they are never persisted in offline packs. */
+    val pci: Int? = null,
+    val channelNumber: Int? = null,
+    val bands: List<Int> = emptyList(),
+    val rsrp: Int? = null,
+    val rsrq: Int? = null,
+    val sinr: Int? = null,
+    val timingAdvance: Int? = null,
     /** Metadata used only to present diagnostics; it is never persisted in offline packs. */
     val subscriptionId: Int? = null,
     val simSlotIndex: Int? = null,

@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.telephony.CellIdentityGsm
 import android.telephony.CellIdentityLte
+import android.telephony.CellIdentityNr
 import android.telephony.CellIdentityWcdma
 import android.telephony.CellInfo
 import android.telephony.CellInfoGsm
@@ -122,11 +123,43 @@ class CellReader(private val context: Context) {
     private fun List<CellInfo>.toRadioCells(subscription: ActiveSubscription?): List<RadioCell> = mapNotNull { info ->
         val cell = when {
             info is CellInfoLte -> info.cellIdentity.let { id ->
-                validCell("LTE", id.compatMcc(), id.compatMnc(), id.tac.unavailableIntToLong(), id.ci.unavailableIntToLong(), info.cellSignalStrength.dbm, info.isRegistered)
+                val signal = info.cellSignalStrength
+                validCell(
+                    radio = "LTE",
+                    mcc = id.compatMcc(),
+                    mnc = id.compatMnc(),
+                    areaCode = id.tac.unavailableIntToLong(),
+                    cellId = id.ci.unavailableIntToLong(),
+                    dbm = signal.dbm,
+                    registered = info.isRegistered,
+                    pci = id.pci.unavailableIntToNull(),
+                    channelNumber = id.earfcn.unavailableIntToNull(),
+                    bands = id.compatBands(),
+                    rsrp = signal.rsrp.unavailableIntToNull(),
+                    rsrq = signal.rsrq.unavailableIntToNull(),
+                    sinr = signal.rssnr.unavailableIntToNull(),
+                    timingAdvance = signal.timingAdvance.unavailableIntToNull(),
+                )
             }
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && info is CellInfoNr ->
-                (info.cellIdentity as? android.telephony.CellIdentityNr)?.let { id ->
-                    validCell("NR", id.mccString, id.mncString, id.tac.unavailableIntToLong(), id.nci.takeIf { it != CellInfo.UNAVAILABLE_LONG }, (info.cellSignalStrength as? CellSignalStrengthNr)?.dbm, info.isRegistered)
+                (info.cellIdentity as? CellIdentityNr)?.let { id ->
+                    val signal = info.cellSignalStrength as? CellSignalStrengthNr
+                    validCell(
+                        radio = "NR",
+                        mcc = id.mccString,
+                        mnc = id.mncString,
+                        areaCode = id.tac.unavailableIntToLong(),
+                        cellId = id.nci.takeIf { it != CellInfo.UNAVAILABLE_LONG },
+                        dbm = signal?.dbm,
+                        registered = info.isRegistered,
+                        pci = id.pci.unavailableIntToNull(),
+                        channelNumber = id.nrarfcn.unavailableIntToNull(),
+                        bands = id.compatBands(),
+                        rsrp = signal?.ssRsrp?.unavailableIntToNull(),
+                        rsrq = signal?.ssRsrq?.unavailableIntToNull(),
+                        sinr = signal?.ssSinr?.unavailableIntToNull(),
+                        timingAdvance = signal?.compatTimingAdvance(),
+                    )
                 }
             info is CellInfoWcdma -> info.cellIdentity.let { id ->
                 validCell("WCDMA", id.compatMcc(), id.compatMnc(), id.lac.unavailableIntToLong(), id.cid.unavailableIntToLong(), info.cellSignalStrength.dbm, info.isRegistered)
@@ -155,14 +188,54 @@ class CellReader(private val context: Context) {
     @Suppress("DEPRECATION")
     private fun CellIdentityGsm.compatMnc(): String? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) validMnc(mncString) else validMnc(mnc)
 
+    private fun CellIdentityLte.compatBands(): List<Int> =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) bands.toList() else emptyList()
+
+    private fun CellIdentityNr.compatBands(): List<Int> =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) bands.toList() else emptyList()
+
+    private fun CellSignalStrengthNr.compatTimingAdvance(): Int? =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) timingAdvanceMicros.unavailableIntToNull() else null
+
     private fun Int.unavailableIntToLong(): Long? = takeIf { it != CellInfo.UNAVAILABLE }?.toLong()
+    private fun Int.unavailableIntToNull(): Int? = takeIf { it != CellInfo.UNAVAILABLE }
     private fun validMcc(value: String?): String? = value?.takeIf { it.toIntOrNull() in 100..999 }
     private fun validMcc(value: Int): String? = value.takeIf { it in 100..999 }?.toString()
     private fun validMnc(value: String?): String? = value?.takeIf { it.toIntOrNull() in 0..999 }
     private fun validMnc(value: Int): String? = value.takeIf { it in 0..999 }?.toString()
 
-    private fun validCell(radio: String, mcc: String?, mnc: String?, areaCode: Long?, cellId: Long?, dbm: Int?, registered: Boolean): RadioCell? {
+    private fun validCell(
+        radio: String,
+        mcc: String?,
+        mnc: String?,
+        areaCode: Long?,
+        cellId: Long?,
+        dbm: Int?,
+        registered: Boolean,
+        pci: Int? = null,
+        channelNumber: Int? = null,
+        bands: List<Int> = emptyList(),
+        rsrp: Int? = null,
+        rsrq: Int? = null,
+        sinr: Int? = null,
+        timingAdvance: Int? = null,
+    ): RadioCell? {
         if (mcc.isNullOrBlank() || mnc.isNullOrBlank() || cellId == null || cellId < 0) return null
-        return RadioCell(radio, mcc, mnc, areaCode, cellId, dbm?.takeIf { it in -160..-20 }, registered)
+        return RadioCell(
+            radio = radio,
+            mcc = mcc,
+            mnc = mnc,
+            areaCode = areaCode,
+            cellId = cellId,
+            dbm = dbm?.takeIf { it in -160..-20 },
+            registered = registered,
+            pci = pci,
+            channelNumber = channelNumber,
+            bands = bands,
+            rsrp = rsrp,
+            rsrq = rsrq,
+            sinr = sinr,
+            timingAdvance = timingAdvance,
+        )
     }
 }
