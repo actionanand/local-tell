@@ -70,6 +70,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.actionanand.localtell.app.data.InstalledPack
 import com.actionanand.localtell.app.data.RemotePack
 import com.actionanand.localtell.app.journey.JourneyForegroundService
 import com.actionanand.localtell.app.journey.JourneyPoint
@@ -207,7 +208,7 @@ private fun HomeScreen(
         item {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
                 Button(enabled = permissionGranted, onClick = { if (locationEnabled) vm.refresh() else requestLocation() }) {
-                    Icon(Icons.Default.Refresh, null); Spacer(Modifier.padding(3.dp)); Text("Refresh cell")
+                    Icon(Icons.Default.Refresh, null); Spacer(Modifier.padding(3.dp)); Text("Refresh locality")
                 }
             }
         }
@@ -387,6 +388,8 @@ private fun CellCard(heading: String, cell: RadioCell) {
 @Composable
 private fun PacksScreen(vm: PacksViewModel = viewModel()) {
     val state by vm.state.collectAsStateWithLifecycle()
+    val remoteIds = state.remote.mapTo(mutableSetOf()) { it.id }
+    val installedOnly = state.installed.values.filter { it.id !in remoteIds }.sortedBy { it.name }
     androidx.compose.runtime.LaunchedEffect(Unit) { vm.refresh() }
     LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
@@ -396,9 +399,19 @@ private fun PacksScreen(vm: PacksViewModel = viewModel()) {
             OutlinedButton(onClick = vm::refresh) { Icon(Icons.Default.Refresh, null); Spacer(Modifier.padding(3.dp)); Text("Refresh list") }
         }
         if (state.loading) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
-        state.error?.let { error -> item { InfoCard("Data source", error) } }
         items(state.remote, key = RemotePack::id) { pack -> PackItem(pack, state.installed[pack.id]?.version, state.progress[pack.id], vm) }
-        if (!state.loading && state.remote.isEmpty() && state.error == null) item { InfoCard("No manifest loaded", "Create the LocalTell data release repository and publish manifest.json at the URL configured in app-config.json.") }
+        items(installedOnly, key = { it.id }) { pack -> InstalledPackItem(pack, vm) }
+        state.error?.let { error ->
+            item {
+                InfoCard(
+                    "Data source",
+                    "Unable to refresh the online pack list. Installed packs remain available offline.\n$error",
+                )
+            }
+        }
+        if (!state.loading && state.remote.isEmpty() && state.installed.isEmpty() && state.error == null) {
+            item { InfoCard("No manifest loaded", "Create the LocalTell data release repository and publish manifest.json at the URL configured in app-config.json.") }
+        }
     }
 }
 
@@ -413,6 +426,20 @@ private fun PackItem(pack: RemotePack, installedVersion: Long?, progress: Int?, 
                 installedVersion == null -> Button(onClick = { vm.download(pack) }) { Text("Download") }
                 installedVersion < pack.version -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { Button(onClick = { vm.download(pack) }) { Text("Update") }; OutlinedButton(onClick = { vm.remove(pack.id) }) { Text("Remove") } }
                 else -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) { Text("Installed", fontWeight = FontWeight.SemiBold); OutlinedButton(onClick = { vm.remove(pack.id) }) { Text("Remove") } }
+            }
+        }
+    }
+}
+
+@Composable
+private fun InstalledPackItem(pack: InstalledPack, vm: PacksViewModel) {
+    ElevatedCard(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+            Text(pack.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text("Version ${pack.version} · Installed offline")
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("Installed", fontWeight = FontWeight.SemiBold)
+                OutlinedButton(onClick = { vm.remove(pack.id) }) { Text("Remove") }
             }
         }
     }
