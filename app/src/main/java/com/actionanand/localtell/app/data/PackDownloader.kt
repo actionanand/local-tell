@@ -143,11 +143,20 @@ class PackDownloader(private val store: PackStore) {
                 check(cursor.moveToFirst()) { "Offline pack schema is missing" }
                 cursor.getString(0).toIntOrNull()
             }
-            check(schemaVersion != null && schemaVersion in 1..2) { "Unsupported offline pack schema" }
-            db.rawQuery("SELECT 1 FROM cell_lookup LIMIT 1", null).close()
-            if (schemaVersion == 2) db.rawQuery("SELECT 1 FROM tower_site LIMIT 1", null).close()
+            val schema = OfflinePackSchema.fromVersion(schemaVersion)
+            check(schema != null) { "Unsupported offline pack schema" }
+            requireTables(db, *schema.requiredTables.toTypedArray())
         } finally {
             db.close()
+        }
+    }
+
+    private fun requireTables(db: SQLiteDatabase, vararg tables: String) {
+        tables.forEach { table ->
+            db.rawQuery(
+                "SELECT 1 FROM sqlite_master WHERE type IN ('table','virtual table') AND name=?",
+                arrayOf(table),
+            ).use { cursor -> check(cursor.moveToFirst()) { "Offline pack is missing required table: $table" } }
         }
     }
 }
