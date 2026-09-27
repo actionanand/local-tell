@@ -29,7 +29,12 @@ class PacksViewModel(app: Application) : AndroidViewModel(app) {
             _state.value = _state.value.copy(loading = true, error = null, installed = store.all().associateBy { it.id })
             runCatching { manifestRepository.fetch() }
                 .onSuccess { _state.value = _state.value.copy(loading = false, remote = it.packs, installed = store.all().associateBy { p -> p.id }) }
-                .onFailure { _state.value = _state.value.copy(loading = false, error = it.message ?: "Unable to load pack list") }
+                .onFailure {
+                    _state.value = _state.value.copy(
+                        loading = false,
+                        error = "Unable to refresh offline data right now. Installed packs remain available offline.",
+                    )
+                }
         }
     }
 
@@ -46,7 +51,10 @@ class PacksViewModel(app: Application) : AndroidViewModel(app) {
                     progress = _state.value.progress - pack.id,
                 )
             }.onFailure {
-                _state.value = _state.value.copy(error = it.message ?: "Download failed", progress = _state.value.progress - pack.id)
+                _state.value = _state.value.copy(
+                    error = "Unable to download this offline data pack. Check your internet connection and try again.",
+                    progress = _state.value.progress - pack.id,
+                )
             }
         }
     }
