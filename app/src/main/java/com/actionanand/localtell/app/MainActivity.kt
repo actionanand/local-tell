@@ -178,12 +178,12 @@ private fun HomeScreen(
         }
         if (!permissionGranted) item {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                InfoCard("Permission needed", "Android protects Cell IDs as location-sensitive data. LocalTell requests precise-location permission only to read cellular identities; it never requests GPS coordinates.")
+                InfoCard("Permission needed", "LocalTell uses an on-device GNSS fix when needed to determine your locality. Coordinates are processed locally and are not uploaded.")
                 Button(onClick = { permissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION)) }) { Text("Allow cell access") }
             }
         } else if (!locationEnabled) item {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                InfoCard("Android Location setting is off", "Android requires the Location switch to expose cellular identity. LocalTell does not read GPS coordinates.")
+                InfoCard("Android Location setting is off", "Android requires the Location switch for cellular identity and an on-device GNSS fix when locality needs refreshing.")
                 PermissionToggle("Enable Location", requestLocation)
             }
         }
@@ -196,7 +196,10 @@ private fun HomeScreen(
         item {
             when (val current = status) {
                 HomeStatus.Idle -> Text("Ready")
-                HomeStatus.Loading -> LinearProgressIndicator(Modifier.fillMaxWidth())
+                is HomeStatus.Loading -> {
+                    LinearProgressIndicator(Modifier.fillMaxWidth())
+                    Text(localityProgressText(current.state), style = MaterialTheme.typography.bodySmall)
+                }
                 is HomeStatus.Error -> InfoCard("Unable to resolve", current.message)
                 is HomeStatus.Ready -> HomeResults(current, selectedSubscriptionId) { selectedSubscriptionId = it }
             }
@@ -208,7 +211,7 @@ private fun HomeScreen(
                 }
             }
         }
-        item { InfoCard("Offline by design", "After a state/India pack is downloaded, area lookup uses only the serving cellular identity and local SQLite data. Internet is used only for optional pack downloads/updates.") }
+        item { InfoCard("Offline by design", "LocalTell resolves an on-device GNSS fix using downloaded geographic data. Coordinates stay on this device; internet is used only for optional pack downloads and updates.") }
     }
 }
 
@@ -217,21 +220,21 @@ private fun HomeResults(status: HomeStatus.Ready, selectedSubscriptionId: Int?, 
     val context = LocalContext.current
     val selected = status.subscriptions.filter { selectedSubscriptionId == null || it.subscription?.subscriptionId == selectedSubscriptionId }
     val displayedCells = selected.flatMap(SubscriptionCells::cells)
-    val selectedMatch = if (selectedSubscriptionId == null) status.match else status.subscriptionMatches[selectedSubscriptionId]
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         ElevatedCard(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Serving tower area", style = MaterialTheme.typography.labelLarge)
-                Text(selectedMatch?.areaName ?: if (displayedCells.any(RadioCell::registered)) "Unknown area" else "No serving cell", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
-                selectedMatch?.district?.let { Text(listOfNotNull(it, selectedMatch.state).joinToString(", ")) }
-                selectedMatch?.let { match ->
-                    Text(
-                        if (match.sourceSiteId != null) "Approx. tower site · Offline pack ${match.packId}"
-                        else "Offline pack ${match.packId}",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                    Text("Confidence ${match.confidence}%", style = MaterialTheme.typography.bodySmall)
+                Text("Current locality", style = MaterialTheme.typography.labelLarge)
+                Text(status.locality?.localityName ?: localityEmptyTitle(status.localityState, displayedCells.any(RadioCell::registered)), style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
+                status.locality?.let { match ->
+                    listOfNotNull(match.subDistrict, match.district, match.state).distinct().takeIf { it.isNotEmpty() }?.let { Text(it.joinToString(", ")) }
+                    Text("Offline pack ${match.packId} · ${match.sourceQuality.replace('-', ' ')}", style = MaterialTheme.typography.bodySmall)
+                    if (status.localityState == LocalityState.USING_RECENT_OFFLINE_LOCALITY) Text("Recent offline locality", style = MaterialTheme.typography.bodySmall)
                 }
+                if (status.localityState == LocalityState.NO_GEOGRAPHIC_PACK) {
+                    Text("Download a geographic locality pack to resolve your current locality offline.", style = MaterialTheme.typography.bodySmall)
+                    status.legacyMatch?.let { Text("Legacy cell-pack estimate: ${it.areaName}", style = MaterialTheme.typography.bodySmall) }
+                }
+                localityStateMessage(status.localityState)?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
             }
         }
         if (status.subscriptions.any { it.subscription != null }) {
@@ -249,16 +252,40 @@ private fun HomeResults(status: HomeStatus.Ready, selectedSubscriptionId: Int?, 
             if (group.cells.isEmpty()) InfoCard(heading, "No cellular identity available")
             group.cells.forEach { cell -> CellCard(heading, cell) }
         }
-        selectedMatch?.let { match ->
+        status.locality?.let { match ->
             OutlinedButton(onClick = {
-                val text = "My approximate area is ${match.areaName}${match.district?.let { ", $it" } ?: ""}. (LocalTell cellular estimate)"
+                val text = "My locality is ${match.localityName}${match.district?.let { ", $it" } ?: ""}. (LocalTell offline locality)"
                 context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
                     type = "text/plain"
                     putExtra(Intent.EXTRA_TEXT, text)
-                }, "Share approximate area"))
+                }, "Share locality"))
             }) { Icon(Icons.Default.Share, null); Spacer(Modifier.padding(3.dp)); Text("Share") }
         }
     }
+}
+
+private fun localityProgressText(state: LocalityState): String = when (state) {
+    LocalityState.READING_CELLULAR -> "Reading cellular diagnostics"
+    LocalityState.ACQUIRING_GNSS -> "Acquiring a short on-device GNSS fix"
+    LocalityState.RESOLVING_OFFLINE_LOCALITY -> "Resolving locality from offline geographic data"
+    else -> "Working offline"
+}
+
+private fun localityEmptyTitle(state: LocalityState, hasServingCell: Boolean): String = when (state) {
+    LocalityState.NO_GEOGRAPHIC_PACK -> "Geographic pack needed"
+    LocalityState.GNSS_TIMEOUT -> "GNSS fix timed out"
+    LocalityState.GPS_DISABLED -> "GPS is off"
+    LocalityState.PERMISSION_MISSING -> "Permission needed"
+    LocalityState.NO_LOCALITY_MATCH -> "No locality match"
+    else -> if (hasServingCell) "Locality unavailable" else "No serving cell"
+}
+
+private fun localityStateMessage(state: LocalityState): String? = when (state) {
+    LocalityState.GNSS_TIMEOUT -> "Try again outdoors or where the sky is more visible."
+    LocalityState.GPS_DISABLED -> "Enable GPS to acquire a one-shot locality fix."
+    LocalityState.PERMISSION_MISSING -> "Fine location permission is required for the on-device GNSS fix."
+    LocalityState.NO_LOCALITY_MATCH -> "This geographic pack has no matching locality for the current coordinate."
+    else -> null
 }
 
 @Composable
@@ -310,7 +337,7 @@ private fun BrandHeader(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> 
             )
             Spacer(Modifier.width(10.dp))
             Text(
-                "See the area of the cellular tower currently serving your phone.",
+                "See your locality offline using cellular changes and on-device GNSS.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontWeight = FontWeight.Medium,
@@ -410,7 +437,7 @@ private fun JourneyScreen(vm: JourneyViewModel = viewModel()) {
             Text("Journey", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
             Text("Records an entry only when the resolved locality changes.")
             if (!hasFineLocation) { Spacer(Modifier.height(8.dp)); InfoCard("Cell permission required", "Allow cell access on the Home tab before starting Journey mode.") }
-            else if (!locationEnabled) { Spacer(Modifier.height(8.dp)); InfoCard("Location setting required", "Android requires the Location switch to expose cellular identity. LocalTell does not read GPS coordinates.") }
+            else if (!locationEnabled) { Spacer(Modifier.height(8.dp)); InfoCard("Location setting required", "Android requires the Location switch for cellular identity and on-device GNSS locality fixes.") }
             Spacer(Modifier.height(10.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(enabled = hasFineLocation, onClick = {
