@@ -15,13 +15,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -30,6 +28,7 @@ import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LightMode
+import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Route
@@ -57,7 +56,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.LocalContext
@@ -224,7 +222,15 @@ private fun HomeResults(status: HomeStatus.Ready, selectedSubscriptionId: Int?, 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         ElevatedCard(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Current locality", style = MaterialTheme.typography.labelLarge)
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(
+                        Icons.Default.LocationOn,
+                        contentDescription = "Current locality",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(22.dp),
+                    )
+                    Text("Current locality", style = MaterialTheme.typography.labelLarge)
+                }
                 Text(status.locality?.localityName ?: localityEmptyTitle(status.localityState, displayedCells.any(RadioCell::registered)), style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
                 status.locality?.let { match ->
                     listOfNotNull(match.subDistrict, match.district, match.state).distinct().takeIf { it.isNotEmpty() }?.let { Text(it.joinToString(", ")) }
@@ -328,15 +334,7 @@ private fun BrandHeader(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> 
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         shape = RoundedCornerShape(12.dp),
     ) {
-        Row(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                Modifier
-                    .width(3.dp)
-                    .height(44.dp)
-                    .clip(RoundedCornerShape(2.dp))
-                    .background(MaterialTheme.colorScheme.primary),
-            )
-            Spacer(Modifier.width(10.dp))
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 13.dp)) {
             Text(
                 "See your locality offline using cellular changes and on-device GNSS.",
                 style = MaterialTheme.typography.bodyMedium,
@@ -401,16 +399,9 @@ private fun PacksScreen(vm: PacksViewModel = viewModel()) {
         if (state.loading) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
         items(state.remote, key = RemotePack::id) { pack -> PackItem(pack, state.installed[pack.id]?.version, state.progress[pack.id], vm) }
         items(installedOnly, key = { it.id }) { pack -> InstalledPackItem(pack, vm) }
-        state.error?.let { error ->
-            item {
-                InfoCard(
-                    "Data source",
-                    "Unable to refresh the online pack list. Installed packs remain available offline.\n$error",
-                )
-            }
-        }
+        state.error?.let { error -> item { InfoCard("Offline data", error) } }
         if (!state.loading && state.remote.isEmpty() && state.installed.isEmpty() && state.error == null) {
-            item { InfoCard("No manifest loaded", "Create the LocalTell data release repository and publish manifest.json at the URL configured in app-config.json.") }
+            item { InfoCard("No offline data packs", "No offline data packs are currently available. Try refreshing the list later.") }
         }
     }
 }
