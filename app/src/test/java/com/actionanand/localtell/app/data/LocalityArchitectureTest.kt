@@ -39,4 +39,47 @@ class LocalityArchitectureTest {
         assertTrue(PointInPolygon.contains(5.0, 5.0, square))
         assertFalse(PointInPolygon.contains(12.0, 5.0, square))
     }
+
+    @Test fun `neighbourhood wins over village district and state polygons`() {
+        val resolved = firstContaining(
+            Candidate("state", "state", 1000.0, 4),
+            Candidate("district", "administrative_boundary", 100.0, 3),
+            Candidate("village", "village", 10.0, 2),
+            Candidate("neighbourhood", "neighbourhood", 1.0, 1),
+        )
+        assertEquals("neighbourhood", resolved?.name)
+    }
+
+    @Test fun `village wins over district and state when no neighbourhood contains coordinate`() {
+        val resolved = firstContaining(
+            Candidate("state", "state", 1000.0, 3),
+            Candidate("district", "administrative_boundary", 100.0, 2),
+            Candidate("village", "village", 10.0, 1),
+        )
+        assertEquals("village", resolved?.name)
+    }
+
+    @Test fun `nearest fallback excludes administrative boundaries`() {
+        assertFalse(LocalityLookupRules.nearestPlaceTypes.contains("administrative_boundary"))
+        assertFalse(LocalityLookupRules.nearestPlaceTypes.contains("district"))
+        assertTrue(LocalityLookupRules.nearestPlaceTypes.contains("city"))
+    }
+
+    @Test fun `smaller administrative polygon is ordered before larger one`() {
+        val smaller = LocalityLookupRules.polygonOrder("administrative_boundary", 10.0, 2, 2)
+        val larger = LocalityLookupRules.polygonOrder("administrative_boundary", 100.0, 1, 1)
+        assertTrue(smaller < larger)
+    }
+
+    private fun firstContaining(vararg candidates: Candidate): Candidate? = candidates
+        .filter { PointInPolygon.contains(5.0, 5.0, it.geometry) }
+        .minByOrNull { LocalityLookupRules.polygonOrder(it.type, it.area, it.id, it.id) }
+
+    private data class Candidate(
+        val name: String,
+        val type: String,
+        val area: Double,
+        val id: Long,
+        val geometry: String = "0,0;0,10;10,10;10,0",
+    )
 }
