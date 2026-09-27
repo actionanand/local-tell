@@ -34,6 +34,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Route
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.FilterChip
@@ -72,6 +73,7 @@ import com.actionanand.localtell.app.data.InstalledPack
 import com.actionanand.localtell.app.data.RemotePack
 import com.actionanand.localtell.app.journey.JourneyForegroundService
 import com.actionanand.localtell.app.journey.JourneyPoint
+import com.actionanand.localtell.app.journey.JourneyTrackingMode
 import com.actionanand.localtell.app.model.RadioCell
 import com.actionanand.localtell.app.model.SubscriptionCells
 import com.actionanand.localtell.app.survey.TowerSurveyScreen
@@ -386,6 +388,7 @@ private fun CellCard(heading: String, cell: RadioCell) {
 @Composable
 private fun PacksScreen(vm: PacksViewModel = viewModel()) {
     val state by vm.state.collectAsStateWithLifecycle()
+    var pendingRemoval by remember { mutableStateOf<PackRemoval?>(null) }
     val remoteIds = state.remote.mapTo(mutableSetOf()) { it.id }
     val installedOnly = state.installed.values.filter { it.id !in remoteIds }.sortedBy { it.name }
     androidx.compose.runtime.LaunchedEffect(Unit) { vm.refresh() }
@@ -397,17 +400,30 @@ private fun PacksScreen(vm: PacksViewModel = viewModel()) {
             OutlinedButton(onClick = vm::refresh) { Icon(Icons.Default.Refresh, null); Spacer(Modifier.padding(3.dp)); Text("Refresh list") }
         }
         if (state.loading) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
-        items(state.remote, key = RemotePack::id) { pack -> PackItem(pack, state.installed[pack.id]?.version, state.progress[pack.id], vm) }
-        items(installedOnly, key = { it.id }) { pack -> InstalledPackItem(pack, vm) }
+        items(state.remote, key = RemotePack::id) { pack ->
+            PackItem(pack, state.installed[pack.id]?.version, state.progress[pack.id], vm) { pendingRemoval = PackRemoval(pack.id, pack.name) }
+        }
+        items(installedOnly, key = { it.id }) { pack ->
+            InstalledPackItem(pack) { pendingRemoval = PackRemoval(pack.id, pack.name) }
+        }
         state.error?.let { error -> item { InfoCard("Offline data", error) } }
         if (!state.loading && state.remote.isEmpty() && state.installed.isEmpty() && state.error == null) {
             item { InfoCard("No offline data packs", "No offline data packs are currently available. Try refreshing the list later.") }
         }
     }
+    pendingRemoval?.let { pack ->
+        ConfirmationDialog(
+            title = "Remove offline data?",
+            message = "Remove the downloaded offline data for ${pack.name}? You will need to download it again to use locality lookup offline.",
+            confirmLabel = "Remove",
+            onDismiss = { pendingRemoval = null },
+            onConfirm = { vm.remove(pack.id); pendingRemoval = null },
+        )
+    }
 }
 
 @Composable
-private fun PackItem(pack: RemotePack, installedVersion: Long?, progress: Int?, vm: PacksViewModel) {
+private fun PackItem(pack: RemotePack, installedVersion: Long?, progress: Int?, vm: PacksViewModel, onRemoveRequested: () -> Unit) {
     ElevatedCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
             Text(pack.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
@@ -415,22 +431,22 @@ private fun PackItem(pack: RemotePack, installedVersion: Long?, progress: Int?, 
             when {
                 progress != null -> { LinearProgressIndicator(progress = { progress / 100f }, modifier = Modifier.fillMaxWidth()); Text("Downloading $progress%") }
                 installedVersion == null -> Button(onClick = { vm.download(pack) }) { Text("Download") }
-                installedVersion < pack.version -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { Button(onClick = { vm.download(pack) }) { Text("Update") }; OutlinedButton(onClick = { vm.remove(pack.id) }) { Text("Remove") } }
-                else -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) { Text("Installed", fontWeight = FontWeight.SemiBold); OutlinedButton(onClick = { vm.remove(pack.id) }) { Text("Remove") } }
+                installedVersion < pack.version -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { Button(onClick = { vm.download(pack) }) { Text("Update") }; OutlinedButton(onClick = onRemoveRequested) { Text("Remove") } }
+                else -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) { Text("Installed", fontWeight = FontWeight.SemiBold); OutlinedButton(onClick = onRemoveRequested) { Text("Remove") } }
             }
         }
     }
 }
 
 @Composable
-private fun InstalledPackItem(pack: InstalledPack, vm: PacksViewModel) {
+private fun InstalledPackItem(pack: InstalledPack, onRemoveRequested: () -> Unit) {
     ElevatedCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
             Text(pack.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             Text("Version ${pack.version} · Installed offline")
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("Installed", fontWeight = FontWeight.SemiBold)
-                OutlinedButton(onClick = { vm.remove(pack.id) }) { Text("Remove") }
+                OutlinedButton(onClick = onRemoveRequested) { Text("Remove") }
             }
         }
     }
@@ -441,11 +457,26 @@ private fun JourneyScreen(vm: JourneyViewModel = viewModel()) {
     val context = LocalContext.current
     val activity = context as? MainActivity
     val points by vm.points.collectAsStateWithLifecycle()
+    val tracking by vm.tracking.collectAsStateWithLifecycle()
     val hasFineLocation = hasPermission(context, Manifest.permission.ACCESS_FINE_LOCATION)
     var locationEnabled by remember { mutableStateOf(activity?.isLocationEnabled() == true) }
     var hasNotifications by remember { mutableStateOf(Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU || hasPermission(context, Manifest.permission.POST_NOTIFICATIONS)) }
-    val startService = { ContextCompat.startForegroundService(context, Intent(context, JourneyForegroundService::class.java).setAction(JourneyForegroundService.ACTION_START)) }
-    val notificationLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted -> if (granted) startService() }
+    var confirmClear by remember { mutableStateOf(false) }
+    val trackingIsRunning = tracking.mode in setOf(
+        JourneyTrackingMode.STARTING,
+        JourneyTrackingMode.ACQUIRING_LOCALITY,
+        JourneyTrackingMode.ACTIVE,
+        JourneyTrackingMode.WAITING_FOR_LOCALITY,
+        JourneyTrackingMode.GPS_DISABLED,
+    )
+    val startService = {
+        vm.markStarting()
+        ContextCompat.startForegroundService(context, Intent(context, JourneyForegroundService::class.java).setAction(JourneyForegroundService.ACTION_START))
+    }
+    val notificationLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        hasNotifications = granted
+        if (granted) startService()
+    }
     val beginJourney = {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !hasNotifications) notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS) else startService()
     }
@@ -456,18 +487,85 @@ private fun JourneyScreen(vm: JourneyViewModel = viewModel()) {
             Text("Records an entry only when the resolved locality changes.")
             if (!hasFineLocation) { Spacer(Modifier.height(8.dp)); InfoCard("Cell permission required", "Allow cell access on the Home tab before starting Journey mode.") }
             else if (!locationEnabled) { Spacer(Modifier.height(8.dp)); InfoCard("Location setting required", "Android requires the Location switch for cellular identity and on-device GNSS locality fixes.") }
+            if (tracking.mode != JourneyTrackingMode.STOPPED) {
+                Spacer(Modifier.height(8.dp))
+                TrackingStatusCard(tracking.mode, tracking.localityName, tracking.lastCheckedAt, tracking.detail)
+            }
             Spacer(Modifier.height(10.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(enabled = hasFineLocation, onClick = {
+                Button(enabled = hasFineLocation && !trackingIsRunning, onClick = {
                     if (locationEnabled) beginJourney() else activity?.requestLocationEnable { locationEnabled = activity.isLocationEnabled(); if (locationEnabled) beginJourney() }
                 }) { Icon(Icons.Default.PlayArrow, null); Spacer(Modifier.padding(2.dp)); Text("Start") }
-                OutlinedButton(onClick = { context.startService(Intent(context, JourneyForegroundService::class.java).setAction(JourneyForegroundService.ACTION_STOP)); vm.refresh() }) { Icon(Icons.Default.Stop, null); Spacer(Modifier.padding(2.dp)); Text("Stop") }
-                TextButton(onClick = vm::clear) { Text("Clear") }
+                OutlinedButton(enabled = trackingIsRunning, onClick = {
+                    vm.markStopped()
+                    context.startService(Intent(context, JourneyForegroundService::class.java).setAction(JourneyForegroundService.ACTION_STOP))
+                }) { Icon(Icons.Default.Stop, null); Spacer(Modifier.padding(2.dp)); Text("Stop") }
+                TextButton(onClick = { confirmClear = true }) { Text("Clear") }
             }
         }
-        if (points.isEmpty()) item { InfoCard("No journey entries", "Start Journey after installing an offline data pack. Cell checks run about every 20 seconds while the foreground service is active.") }
-        items(points, key = JourneyPoint::id) { point -> ElevatedCard(Modifier.fillMaxWidth()) { Column(Modifier.padding(14.dp)) { Text(point.areaName, fontWeight = FontWeight.Bold); Text(DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(point.timestamp))); Text("${point.radio} · ${point.plmn} · confidence ${point.confidence}%", style = MaterialTheme.typography.bodySmall) } } }
+        if (points.isEmpty()) item { InfoCard("No journey entries", "Start Journey after installing an offline data pack. Locality checks run about every 20 seconds while tracking is active.") }
+        items(points, key = JourneyPoint::id) { point ->
+            ElevatedCard(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(point.areaName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    listOfNotNull(point.district, point.state).distinct().takeIf { it.isNotEmpty() }?.let { Text(it.joinToString(", "), style = MaterialTheme.typography.bodyMedium) }
+                    Text(formatJourneyTimestamp(point.timestamp), style = MaterialTheme.typography.bodySmall)
+                    Text("${point.radio} · ${point.plmn}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
     }
+    if (confirmClear) ConfirmationDialog(
+        title = "Clear journey history?",
+        message = "This will permanently remove all saved journey entries.",
+        confirmLabel = "Clear",
+        onDismiss = { confirmClear = false },
+        onConfirm = { vm.clear(); confirmClear = false },
+    )
+}
+
+@Composable
+private fun TrackingStatusCard(mode: JourneyTrackingMode, localityName: String?, lastCheckedAt: Long?, detail: String?) {
+    ElevatedCard(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                when (mode) {
+                    JourneyTrackingMode.STARTING -> "Starting…"
+                    JourneyTrackingMode.ACQUIRING_LOCALITY -> "Acquiring locality…"
+                    JourneyTrackingMode.ACTIVE -> "Tracking active"
+                    JourneyTrackingMode.WAITING_FOR_LOCALITY -> "Waiting for locality…"
+                    JourneyTrackingMode.GPS_DISABLED -> "Location disabled"
+                    JourneyTrackingMode.PERMISSION_REQUIRED -> "Permission required"
+                    JourneyTrackingMode.STOPPED -> "Journey stopped"
+                },
+                fontWeight = FontWeight.Bold,
+            )
+            localityName?.let { Text("Current locality: $it") }
+            lastCheckedAt?.let { Text("Last checked: ${DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(it))}", style = MaterialTheme.typography.bodySmall) }
+            detail?.takeUnless { it == "Acquiring locality…" }?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+        }
+    }
+}
+
+private fun formatJourneyTimestamp(timestamp: Long): String {
+    val now = java.util.Calendar.getInstance()
+    val then = java.util.Calendar.getInstance().apply { timeInMillis = timestamp }
+    val sameDay = now.get(java.util.Calendar.YEAR) == then.get(java.util.Calendar.YEAR) && now.get(java.util.Calendar.DAY_OF_YEAR) == then.get(java.util.Calendar.DAY_OF_YEAR)
+    return if (sameDay) DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(timestamp))
+    else DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(timestamp))
+}
+
+private data class PackRemoval(val id: String, val name: String)
+
+@Composable
+private fun ConfirmationDialog(title: String, message: String, confirmLabel: String, onDismiss: () -> Unit, onConfirm: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = { Text(message) },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        confirmButton = { TextButton(onClick = onConfirm) { Text(confirmLabel, color = MaterialTheme.colorScheme.error) } },
+    )
 }
 
 @Composable
