@@ -23,14 +23,14 @@ class OfflineLocalityResolver(private val store: PackStore) {
     }
 
     fun resolve(latitude: Double, longitude: Double): LocalityMatch? {
+        require(latitude in -90.0..90.0 && longitude in -180.0..180.0) { "Invalid GNSS coordinate" }
         store.all().forEach { pack ->
-            runCatching {
-                SQLiteDatabase.openDatabase(pack.filePath, null, SQLiteDatabase.OPEN_READONLY).use { db ->
-                    if (schemaVersion(db) != 3 || !hasTables(db, "place", "place_geometry", "place_geometry_rtree") || !hasColumn(db, "place", "admin_level")) return@use null
-                    if (!isInsidePackState(db, latitude, longitude)) return@use null
-                    resolvePolygon(db, pack, latitude, longitude) ?: resolveNearestPlace(db, pack, latitude, longitude)
-                }
-            }.getOrNull()?.let { return it }
+            val match = SQLiteDatabase.openDatabase(pack.filePath, null, SQLiteDatabase.OPEN_READONLY).use { db ->
+                if (schemaVersion(db) != 3 || !hasTables(db, "place", "place_geometry", "place_geometry_rtree") || !hasColumn(db, "place", "admin_level")) return@use null
+                if (!isInsidePackState(db, latitude, longitude)) return@use null
+                resolvePolygon(db, pack, latitude, longitude) ?: resolveNearestPlace(db, pack, latitude, longitude)
+            }
+            if (match != null) return match
         }
         return null
     }
@@ -56,17 +56,21 @@ class OfflineLocalityResolver(private val store: PackStore) {
             null
         }
 
-    /** A schema-v3 pack may only resolve coordinates inside its level-4 state extent. */
+    /**
+     * A schema-v3 pack may only resolve coordinates inside its level-4 state extent.
+     *
+     * State boundaries are few, so read their geometry directly instead of using the RTree
+     * as a pre-filter. This makes the authoritative coverage gate independent of RTree
+     * floating-point bounding-box behaviour across Android SQLite versions.
+     */
     private fun isInsidePackState(db: SQLiteDatabase, latitude: Double, longitude: Double): Boolean =
         db.rawQuery(
             """SELECT g.geometry
-               FROM place_geometry_rtree r
-               JOIN place_geometry g ON g.id=r.id
+               FROM place_geometry g
                JOIN place p ON p.id=g.place_id
-               WHERE r.min_lat<=? AND r.max_lat>=? AND r.min_lng<=? AND r.max_lng>=?
-                 AND lower(p.place_type)='administrative_boundary' AND p.admin_level='4'
-               ORDER BY r.id ASC""".trimIndent(),
-            arrayOf(latitude.toString(), latitude.toString(), longitude.toString(), longitude.toString()),
+               WHERE lower(p.place_type)='administrative_boundary' AND p.admin_level='4'
+               ORDER BY g.id ASC""".trimIndent(),
+            null,
         ).use { cursor ->
             while (cursor.moveToNext()) {
                 if (PointInPolygon.contains(latitude, longitude, cursor.getString(0))) return@use true
@@ -157,12 +161,20 @@ object PointInPolygon {
             pair.split(',').takeIf { it.size == 2 }?.let { it[0].trim().toDoubleOrNull()?.let { lat -> it[1].trim().toDoubleOrNull()?.let { lng -> lat to lng } } }
         }
         if (points.size < 3) return false
+
+        // Keep this ray-casting form aligned with
+        // localtell-data/scripts/test_locality_lookup.py, which validates release packs.
         var inside = false
         var previous = points.last()
         points.forEach { current ->
-            if ((current.second > longitude) != (previous.second > longitude) &&
-                latitude < (previous.first - current.first) * (longitude - current.second) / (previous.second - current.second) + current.first
-            ) inside = !inside
+            val lat1 = previous.first
+            val lon1 = previous.second
+            val lat2 = current.first
+            val lon2 = current.second
+            if ((lat1 > latitude) != (lat2 > latitude)) {
+                val crossingLongitude = (lon2 - lon1) * (latitude - lat1) / (lat2 - lat1) + lon1
+                if (longitude < crossingLongitude) inside = !inside
+            }
             previous = current
         }
         return inside
