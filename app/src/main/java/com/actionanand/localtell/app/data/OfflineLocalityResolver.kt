@@ -40,7 +40,10 @@ class OfflineLocalityResolver(private val store: PackStore) {
                FROM place_geometry_rtree r
                JOIN place_geometry g ON g.id=r.id
                JOIN place p ON p.id=g.place_id
-               WHERE r.min_lat<=? AND r.max_lat>=? AND r.min_lng<=? AND r.max_lng>=?""".trimIndent(),
+               WHERE r.min_lat<=? AND r.max_lat>=? AND r.min_lng<=? AND r.max_lng>=?
+               ORDER BY ${LocalityLookupRules.polygonPrioritySql("p.place_type")},
+                   ((r.max_lat-r.min_lat)*(r.max_lng-r.min_lng)) ASC,
+                   r.id ASC, p.id ASC""".trimIndent(),
             arrayOf(latitude.toString(), latitude.toString(), longitude.toString(), longitude.toString()),
         ).use { cursor ->
             while (cursor.moveToNext()) {
@@ -53,27 +56,31 @@ class OfflineLocalityResolver(private val store: PackStore) {
 
     private fun resolveNearestPlace(db: SQLiteDatabase, pack: InstalledPack, latitude: Double, longitude: Double): LocalityMatch? =
         db.rawQuery(
-            """SELECT name,place_type,sub_district,district,state,state_code,latitude,longitude
+            """SELECT id,name,place_type,sub_district,district,state,state_code,latitude,longitude
                FROM place WHERE latitude IS NOT NULL AND longitude IS NOT NULL
-               ORDER BY ((latitude-?)*(latitude-?))+((longitude-?)*(longitude-?)) LIMIT 16""".trimIndent(),
+                   AND lower(place_type) IN (${LocalityLookupRules.nearestPlaceTypes.joinToString(",") { "'$it'" }})
+               ORDER BY ((latitude-?)*(latitude-?))+((longitude-?)*(longitude-?)), id LIMIT 16""".trimIndent(),
             arrayOf(latitude.toString(), latitude.toString(), longitude.toString(), longitude.toString()),
         ).use { cursor ->
             var nearest: LocalityMatch? = null
             var nearestDistance = Double.MAX_VALUE
+            var nearestId = Long.MAX_VALUE
             while (cursor.moveToNext()) {
-                val distance = haversineMetres(latitude, longitude, cursor.getDouble(6), cursor.getDouble(7))
-                if (distance < nearestDistance) {
+                val id = cursor.getLong(0)
+                val distance = haversineMetres(latitude, longitude, cursor.getDouble(7), cursor.getDouble(8))
+                if (distance < nearestDistance || (distance == nearestDistance && id < nearestId)) {
                     nearestDistance = distance
-                    nearest = cursor.toMatch(pack, "nearest-place")
+                    nearestId = id
+                    nearest = cursor.toMatch(pack, "nearest-place", 1)
                 }
             }
             nearest
         }
 
-    private fun android.database.Cursor.toMatch(pack: InstalledPack, quality: String) = LocalityMatch(
-        localityName = getString(0), localityType = getString(1).takeIf { !it.isNullOrBlank() },
-        subDistrict = getString(2).takeIf { !it.isNullOrBlank() }, district = getString(3).takeIf { !it.isNullOrBlank() },
-        state = getString(4).takeIf { !it.isNullOrBlank() }, stateCode = getString(5).takeIf { !it.isNullOrBlank() },
+    private fun android.database.Cursor.toMatch(pack: InstalledPack, quality: String, offset: Int = 0) = LocalityMatch(
+        localityName = getString(offset), localityType = getString(offset + 1).takeIf { !it.isNullOrBlank() },
+        subDistrict = getString(offset + 2).takeIf { !it.isNullOrBlank() }, district = getString(offset + 3).takeIf { !it.isNullOrBlank() },
+        state = getString(offset + 4).takeIf { !it.isNullOrBlank() }, stateCode = getString(offset + 5).takeIf { !it.isNullOrBlank() },
         sourceQuality = quality, packId = pack.id, packVersion = pack.version,
     )
 
@@ -91,6 +98,32 @@ class OfflineLocalityResolver(private val store: PackStore) {
         val a = sin(dLat / 2) * sin(dLat / 2) + cos(Math.toRadians(lat1)) * cos(Math.toRadians(lat2)) * sin(dLng / 2) * sin(dLng / 2)
         return 6_371_000.0 * 2 * atan2(sqrt(a), sqrt(1 - a))
     }
+}
+
+/** Place-type rules shared by geographic lookup SQL and its unit tests. */
+internal object LocalityLookupRules {
+    val nearestPlaceTypes = listOf("neighbourhood", "suburb", "locality", "hamlet", "village", "town", "city")
+    private val polygonPlaceTypes = nearestPlaceTypes + "administrative_boundary"
+
+    fun polygonPriority(type: String?): Int = polygonPlaceTypes.indexOf(type?.lowercase()).let { index -> if (index < 0) polygonPlaceTypes.size + 1 else index + 1 }
+
+    fun polygonPrioritySql(column: String): String = buildString {
+        append("CASE lower(coalesce($column,''))")
+        polygonPlaceTypes.forEachIndexed { index, type -> append(" WHEN '$type' THEN ${index + 1}") }
+        append(" ELSE ${polygonPlaceTypes.size + 1} END")
+    }
+
+    fun polygonOrder(type: String?, boundingBoxArea: Double, stableGeometryId: Long, stablePlaceId: Long) =
+        PolygonOrder(polygonPriority(type), boundingBoxArea, stableGeometryId, stablePlaceId)
+}
+
+internal data class PolygonOrder(
+    val priority: Int,
+    val boundingBoxArea: Double,
+    val geometryId: Long,
+    val placeId: Long,
+) : Comparable<PolygonOrder> {
+    override fun compareTo(other: PolygonOrder): Int = compareValuesBy(this, other, PolygonOrder::priority, PolygonOrder::boundingBoxArea, PolygonOrder::geometryId, PolygonOrder::placeId)
 }
 
 object PointInPolygon {
