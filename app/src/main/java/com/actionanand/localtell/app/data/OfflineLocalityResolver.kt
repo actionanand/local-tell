@@ -17,7 +17,7 @@ class OfflineLocalityResolver(private val store: PackStore) {
     fun hasGeographicPack(): Boolean = store.all().any { pack ->
         runCatching {
             SQLiteDatabase.openDatabase(pack.filePath, null, SQLiteDatabase.OPEN_READONLY).use { db ->
-                schemaVersion(db) == 3 && hasTables(db, "place", "place_geometry", "place_geometry_rtree")
+                schemaVersion(db) == 3 && hasTables(db, "place", "place_geometry", "place_geometry_rtree") && hasColumn(db, "place", "admin_level")
             }
         }.getOrDefault(false)
     }
@@ -26,7 +26,8 @@ class OfflineLocalityResolver(private val store: PackStore) {
         store.all().forEach { pack ->
             runCatching {
                 SQLiteDatabase.openDatabase(pack.filePath, null, SQLiteDatabase.OPEN_READONLY).use { db ->
-                    if (schemaVersion(db) != 3 || !hasTables(db, "place", "place_geometry", "place_geometry_rtree")) return@use null
+                    if (schemaVersion(db) != 3 || !hasTables(db, "place", "place_geometry", "place_geometry_rtree") || !hasColumn(db, "place", "admin_level")) return@use null
+                    if (!isInsidePackState(db, latitude, longitude)) return@use null
                     resolvePolygon(db, pack, latitude, longitude) ?: resolveNearestPlace(db, pack, latitude, longitude)
                 }
             }.getOrNull()?.let { return it }
@@ -41,6 +42,7 @@ class OfflineLocalityResolver(private val store: PackStore) {
                JOIN place_geometry g ON g.id=r.id
                JOIN place p ON p.id=g.place_id
                WHERE r.min_lat<=? AND r.max_lat>=? AND r.min_lng<=? AND r.max_lng>=?
+                   AND lower(p.place_type) IN (${LocalityLookupRules.polygonPlaceTypes.joinToString(",") { "'$it'" }})
                ORDER BY ${LocalityLookupRules.polygonPrioritySql("p.place_type")},
                    ((r.max_lat-r.min_lat)*(r.max_lng-r.min_lng)) ASC,
                    r.id ASC, p.id ASC""".trimIndent(),
@@ -52,6 +54,24 @@ class OfflineLocalityResolver(private val store: PackStore) {
                 }
             }
             null
+        }
+
+    /** A schema-v3 pack may only resolve coordinates inside its level-4 state extent. */
+    private fun isInsidePackState(db: SQLiteDatabase, latitude: Double, longitude: Double): Boolean =
+        db.rawQuery(
+            """SELECT g.geometry
+               FROM place_geometry_rtree r
+               JOIN place_geometry g ON g.id=r.id
+               JOIN place p ON p.id=g.place_id
+               WHERE r.min_lat<=? AND r.max_lat>=? AND r.min_lng<=? AND r.max_lng>=?
+                 AND lower(p.place_type)='administrative_boundary' AND p.admin_level='4'
+               ORDER BY r.id ASC""".trimIndent(),
+            arrayOf(latitude.toString(), latitude.toString(), longitude.toString(), longitude.toString()),
+        ).use { cursor ->
+            while (cursor.moveToNext()) {
+                if (PointInPolygon.contains(latitude, longitude, cursor.getString(0))) return@use true
+            }
+            false
         }
 
     private fun resolveNearestPlace(db: SQLiteDatabase, pack: InstalledPack, latitude: Double, longitude: Double): LocalityMatch? =
@@ -92,6 +112,11 @@ class OfflineLocalityResolver(private val store: PackStore) {
         db.rawQuery("SELECT 1 FROM sqlite_master WHERE type IN ('table','virtual table') AND name=?", arrayOf(table)).use { it.moveToFirst() }
     }
 
+    private fun hasColumn(db: SQLiteDatabase, table: String, column: String): Boolean =
+        db.rawQuery("PRAGMA table_info($table)", null).use { cursor ->
+            generateSequence { if (cursor.moveToNext()) cursor.getString(1) else null }.any { it == column }
+        }
+
     private fun haversineMetres(lat1: Double, lng1: Double, lat2: Double, lng2: Double): Double {
         val dLat = Math.toRadians(lat2 - lat1)
         val dLng = Math.toRadians(lng2 - lng1)
@@ -103,7 +128,7 @@ class OfflineLocalityResolver(private val store: PackStore) {
 /** Place-type rules shared by geographic lookup SQL and its unit tests. */
 internal object LocalityLookupRules {
     val nearestPlaceTypes = listOf("neighbourhood", "suburb", "locality", "hamlet", "village", "town", "city")
-    private val polygonPlaceTypes = nearestPlaceTypes + "administrative_boundary"
+    val polygonPlaceTypes = nearestPlaceTypes
 
     fun polygonPriority(type: String?): Int = polygonPlaceTypes.indexOf(type?.lowercase()).let { index -> if (index < 0) polygonPlaceTypes.size + 1 else index + 1 }
 
