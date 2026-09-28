@@ -24,6 +24,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BrightnessAuto
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.ExpandLess
@@ -34,6 +35,7 @@ import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Route
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.AlertDialog
@@ -47,6 +49,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -56,6 +59,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -396,9 +400,13 @@ private fun PacksScreen(vm: PacksViewModel = viewModel()) {
     val state by vm.state.collectAsStateWithLifecycle()
     var pendingRemoval by remember { mutableStateOf<PackRemoval?>(null) }
     var expandedRegions by remember { mutableStateOf(emptySet<IndiaRegion>()) }
+    var searchQuery by rememberSaveable { mutableStateOf("") }
     val remoteIds = state.remote.mapTo(mutableSetOf()) { it.id }
     val installedOnly = state.installed.values.filter { it.id !in remoteIds }.sortedBy { it.name }
     val regions = PackCatalog.regions(state.remote)
+    val searchEnabled = !state.loading && state.remote.isNotEmpty()
+    val searchActive = searchQuery.isNotBlank()
+    val displayedRegions = if (state.loading) emptyList() else PackCatalog.filterRegions(regions, searchQuery)
     androidx.compose.runtime.LaunchedEffect(Unit) { vm.refresh() }
     LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
@@ -406,26 +414,43 @@ private fun PacksScreen(vm: PacksViewModel = viewModel()) {
             Text("Download offline locality data for all India, a region, or individual State/UT.")
             Spacer(Modifier.height(8.dp))
             OutlinedButton(enabled = state.batch == null, onClick = vm::refresh) { Icon(Icons.Default.Refresh, null); Spacer(Modifier.padding(3.dp)); Text("Refresh list") }
+            Spacer(Modifier.height(10.dp))
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                enabled = searchEnabled,
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                placeholder = { Text(if (state.loading) "Loading offline resources…" else "Search State / UT or region") },
+                leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search offline resources") },
+                trailingIcon = if (searchQuery.isNotEmpty()) {
+                    { IconButton(onClick = { searchQuery = "" }) { Icon(Icons.Default.Close, "Clear search") } }
+                } else {
+                    null
+                },
+            )
         }
         if (state.loading) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
-        if (state.remote.isNotEmpty()) {
+        if (!state.loading && state.remote.isNotEmpty() && !searchActive) {
             item { IndiaDownloadCard(regions, state, vm) }
         }
-        regions.forEach { regionPacks ->
-            val expanded = regionPacks.region in expandedRegions
-            item(key = "region-${regionPacks.region.manifestKey}") {
+        displayedRegions.forEach { displayedRegion ->
+            val fullRegion = regions.first { it.region == displayedRegion.region }
+            val expanded = searchActive || displayedRegion.region in expandedRegions
+            item(key = "region-${displayedRegion.region.manifestKey}") {
                 RegionDownloadCard(
-                    regionPacks = regionPacks,
+                    regionPacks = fullRegion,
                     state = state,
                     expanded = expanded,
+                    expandable = !searchActive,
                     onToggle = {
-                        expandedRegions = if (expanded) expandedRegions - regionPacks.region else expandedRegions + regionPacks.region
+                        expandedRegions = if (displayedRegion.region in expandedRegions) expandedRegions - displayedRegion.region else expandedRegions + displayedRegion.region
                     },
-                    onDownload = { vm.downloadRegion(regionPacks.packs, regionPacks.region.displayName) },
+                    onDownload = { vm.downloadRegion(fullRegion.packs, fullRegion.region.displayName) },
                 )
             }
             if (expanded) {
-                items(regionPacks.packs, key = RemotePack::id) { pack ->
+                items(displayedRegion.packs, key = RemotePack::id) { pack ->
                     StatePackRow(
                         pack = pack,
                         installedVersion = state.installed[pack.id]?.version,
@@ -437,8 +462,13 @@ private fun PacksScreen(vm: PacksViewModel = viewModel()) {
                 }
             }
         }
-        items(installedOnly, key = { it.id }) { pack ->
-            InstalledOnlyPackRow(pack, state.batch != null) { pendingRemoval = PackRemoval(pack.id, pack.name) }
+        if (!state.loading && !searchActive) {
+            items(installedOnly, key = { it.id }) { pack ->
+                InstalledOnlyPackRow(pack, state.batch != null) { pendingRemoval = PackRemoval(pack.id, pack.name) }
+            }
+        }
+        if (!state.loading && searchEnabled && searchActive && displayedRegions.isEmpty()) {
+            item { InfoCard("No offline resources found", "No offline resources found for \"${searchQuery.trim()}\".") }
         }
         state.error?.let { error -> item { InfoCard("Offline data", error) } }
         if (!state.loading && state.remote.isEmpty() && state.installed.isEmpty() && state.error == null) {
@@ -477,7 +507,7 @@ private fun IndiaDownloadCard(regions: List<RegionPacks>, state: PackUiState, vm
 }
 
 @Composable
-private fun RegionDownloadCard(regionPacks: RegionPacks, state: PackUiState, expanded: Boolean, onToggle: () -> Unit, onDownload: () -> Unit) {
+private fun RegionDownloadCard(regionPacks: RegionPacks, state: PackUiState, expanded: Boolean, expandable: Boolean, onToggle: () -> Unit, onDownload: () -> Unit) {
     val required = PackCatalog.requiredPacks(regionPacks.packs, state.installed)
     ElevatedCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
@@ -486,8 +516,10 @@ private fun RegionDownloadCard(regionPacks: RegionPacks, state: PackUiState, exp
                     Text(regionPacks.region.displayName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     Text("${regionPacks.packs.size} State/UT packs · ${packSizeSummary(regionPacks.totals)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                IconButton(onClick = onToggle) {
-                    Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, if (expanded) "Collapse ${regionPacks.region.displayName}" else "Expand ${regionPacks.region.displayName}")
+                if (expandable) {
+                    IconButton(onClick = onToggle) {
+                        Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, if (expanded) "Collapse ${regionPacks.region.displayName}" else "Expand ${regionPacks.region.displayName}")
+                    }
                 }
             }
             BatchStatus(state.batch, regionPacks.region.displayName)

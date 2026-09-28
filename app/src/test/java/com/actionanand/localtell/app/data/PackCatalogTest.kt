@@ -93,6 +93,64 @@ class PackCatalogTest {
         assertNull(PackCatalog.batchFailureMessage(emptyList()))
     }
 
+    @Test
+    fun `blank search returns the original complete regional grouping`() {
+        val regions = catalogRegions()
+
+        assertEquals(regions, PackCatalog.filterRegions(regions, "  "))
+    }
+
+    @Test
+    fun `state searches are partial and case insensitive`() {
+        val regions = catalogRegions()
+
+        assertEquals(listOf("Tamil Nadu"), PackCatalog.filterRegions(regions, "TAMIL NADU").single().packs.map(RemotePack::name))
+        assertEquals(listOf("Karnataka"), PackCatalog.filterRegions(regions, "kar").single().packs.map(RemotePack::name))
+        assertEquals(listOf("Tamil Nadu"), PackCatalog.filterRegions(regions, "tn").single().packs.map(RemotePack::name))
+    }
+
+    @Test
+    fun `region display name and key return every pack in that region`() {
+        val regions = catalogRegions()
+
+        assertEquals(listOf("Kerala", "Tamil Nadu", "Karnataka"), PackCatalog.filterRegions(regions, "South").single().packs.map(RemotePack::name))
+        assertEquals(listOf("Kerala", "Tamil Nadu", "Karnataka"), PackCatalog.filterRegions(regions, "south").single().packs.map(RemotePack::name))
+    }
+
+    @Test
+    fun `north east spelling variants match the North-East region`() {
+        val regions = catalogRegions()
+
+        listOf("North East", "north-east", "northeast").forEach { query ->
+            assertEquals("North-East India", PackCatalog.filterRegions(regions, query).single().region.displayName)
+        }
+    }
+
+    @Test
+    fun `search can return matching packs in fixed region order without mutating the source`() {
+        val regions = catalogRegions()
+        val sourceNames = regions.map { it.packs.map(RemotePack::name) }
+
+        val results = PackCatalog.filterRegions(regions, "pradesh")
+
+        assertEquals(listOf("Central India", "North India", "North-East India"), results.map { it.region.displayName })
+        assertEquals(listOf("Madhya Pradesh", "Uttar Pradesh"), results[0].packs.map(RemotePack::name))
+        assertEquals(sourceNames, regions.map { it.packs.map(RemotePack::name) })
+        assertTrue(PackCatalog.filterRegions(regions, "no such place").isEmpty())
+    }
+
+    private fun catalogRegions() = PackCatalog.regions(
+        listOf(
+            remote("tn", "Tamil Nadu", "south", 2),
+            remote("kl", "Kerala", "south", 1),
+            remote("ka", "Karnataka", "south", 3),
+            remote("mp", "Madhya Pradesh", "central", 1),
+            remote("up", "Uttar Pradesh", "central", 2),
+            remote("hp", "Himachal Pradesh", "north", 1),
+            remote("ar", "Arunachal Pradesh", "northeast", 1),
+        ),
+    )
+
     private fun remote(
         id: String,
         name: String,

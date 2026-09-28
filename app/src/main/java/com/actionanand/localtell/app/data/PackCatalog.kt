@@ -37,9 +37,33 @@ object PackCatalog {
     fun requiredPacks(packs: Collection<RemotePack>, installed: Map<String, InstalledPack>): List<RemotePack> =
         packs.filter { needsDownload(it, installed) }
 
+    /** Filters a display projection only; the authoritative region lists remain unchanged. */
+    fun filterRegions(regions: List<RegionPacks>, query: String): List<RegionPacks> {
+        val normalizedQuery = normalizeSearch(query)
+        if (normalizedQuery.isEmpty()) return regions
+        return regions.mapNotNull { regionPacks ->
+            val regionMatches = matches(regionPacks.region.displayName, normalizedQuery) ||
+                matches(regionPacks.region.manifestKey, normalizedQuery)
+            val matchingPacks = if (regionMatches) {
+                regionPacks.packs
+            } else {
+                regionPacks.packs.filter { pack ->
+                    matches(pack.name, normalizedQuery) || matches(pack.id, normalizedQuery)
+                }
+            }
+            matchingPacks.takeIf { it.isNotEmpty() }?.let { RegionPacks(regionPacks.region, it) }
+        }
+    }
+
     fun batchFailureMessage(failures: List<String>): String? = failures.takeIf { it.isNotEmpty() }?.let {
         "Unable to download ${it.joinToString()}. Successfully downloaded packs remain available offline."
     }
+
+    private fun matches(value: String, normalizedQuery: String): Boolean =
+        normalizeSearch(value).contains(normalizedQuery)
+
+    private fun normalizeSearch(value: String): String =
+        value.trim().lowercase(Locale.ROOT).replace(Regex("[\\s-]+"), "")
 }
 
 fun formatPackBytes(bytes: Long?): String? = bytes?.let {
