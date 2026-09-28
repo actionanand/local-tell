@@ -4,6 +4,8 @@ data class RemotePack(
     val id: String,
     val name: String,
     val version: Long,
+    val region: String,
+    val displayOrder: Int,
     val downloadUrl: String,
     val sha256: String,
     val compressedBytes: Long?,
