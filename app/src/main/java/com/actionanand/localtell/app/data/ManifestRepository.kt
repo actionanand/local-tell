@@ -36,11 +36,16 @@ class ManifestRepository {
                 val id = p.getString("id")
                 val name = p.getString("name").trim()
                 val version = p.getLong("version")
+                val region = p.getString("region").trim().lowercase()
+                val displayOrder = p.getInt("displayOrder")
                 val downloadUrl = p.getString("downloadUrl")
                 val sha256 = p.getString("sha256").lowercase()
                 require(id.matches(Regex("[A-Za-z0-9._-]{1,64}"))) { "Invalid pack id: $id" }
                 require(name.isNotBlank() && name.length <= 120) { "Invalid pack name for $id" }
                 require(version >= 1) { "Invalid pack version for $id" }
+                require(region.isNotBlank()) { "Missing region for $id" }
+                require(IndiaRegion.values().any { it.manifestKey == region }) { "Unknown region for $id: $region" }
+                require(displayOrder >= 0) { "Invalid display order for $id" }
                 require(URL(downloadUrl).protocol.equals("https", ignoreCase = true)) { "Pack URL must use HTTPS: $id" }
                 require(sha256.matches(Regex("[0-9a-f]{64}"))) { "Invalid SHA-256 for $id" }
                 add(
@@ -48,6 +53,8 @@ class ManifestRepository {
                         id = id,
                         name = name,
                         version = version,
+                        region = region,
+                        displayOrder = displayOrder,
                         downloadUrl = downloadUrl,
                         sha256 = sha256,
                         compressedBytes = p.optLong("compressedBytes").takeIf { it > 0 },

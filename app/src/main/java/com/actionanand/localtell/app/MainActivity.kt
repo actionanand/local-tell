@@ -24,14 +24,18 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BrightnessAuto
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Route
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.AlertDialog
@@ -45,6 +49,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -54,6 +59,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -70,7 +76,11 @@ import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.actionanand.localtell.app.data.InstalledPack
+import com.actionanand.localtell.app.data.IndiaRegion
+import com.actionanand.localtell.app.data.PackCatalog
+import com.actionanand.localtell.app.data.RegionPacks
 import com.actionanand.localtell.app.data.RemotePack
+import com.actionanand.localtell.app.data.formatPackBytes
 import com.actionanand.localtell.app.journey.JourneyForegroundService
 import com.actionanand.localtell.app.journey.JourneyPoint
 import com.actionanand.localtell.app.journey.JourneyTrackingMode
@@ -389,22 +399,76 @@ private fun CellCard(heading: String, cell: RadioCell) {
 private fun PacksScreen(vm: PacksViewModel = viewModel()) {
     val state by vm.state.collectAsStateWithLifecycle()
     var pendingRemoval by remember { mutableStateOf<PackRemoval?>(null) }
+    var expandedRegions by remember { mutableStateOf(emptySet<IndiaRegion>()) }
+    var searchQuery by rememberSaveable { mutableStateOf("") }
     val remoteIds = state.remote.mapTo(mutableSetOf()) { it.id }
     val installedOnly = state.installed.values.filter { it.id !in remoteIds }.sortedBy { it.name }
+    val regions = PackCatalog.regions(state.remote)
+    val searchEnabled = !state.loading && state.remote.isNotEmpty()
+    val searchActive = searchQuery.isNotBlank()
+    val displayedRegions = if (state.loading) emptyList() else PackCatalog.filterRegions(regions, searchQuery)
     androidx.compose.runtime.LaunchedEffect(Unit) { vm.refresh() }
     LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
             Text("Offline data", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-            Text("Download only the states you need. Entire-India can be published as another pack later.")
+            Text("Download offline locality data for all India, a region, or individual State/UT.")
             Spacer(Modifier.height(8.dp))
-            OutlinedButton(onClick = vm::refresh) { Icon(Icons.Default.Refresh, null); Spacer(Modifier.padding(3.dp)); Text("Refresh list") }
+            OutlinedButton(enabled = state.batch == null, onClick = vm::refresh) { Icon(Icons.Default.Refresh, null); Spacer(Modifier.padding(3.dp)); Text("Refresh list") }
+            Spacer(Modifier.height(10.dp))
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                enabled = searchEnabled,
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                placeholder = { Text(if (state.loading) "Loading offline resources…" else "Search State / UT or region") },
+                leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search offline resources") },
+                trailingIcon = if (searchQuery.isNotEmpty()) {
+                    { IconButton(onClick = { searchQuery = "" }) { Icon(Icons.Default.Close, "Clear search") } }
+                } else {
+                    null
+                },
+            )
         }
         if (state.loading) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
-        items(state.remote, key = RemotePack::id) { pack ->
-            PackItem(pack, state.installed[pack.id]?.version, state.progress[pack.id], vm) { pendingRemoval = PackRemoval(pack.id, pack.name) }
+        if (!state.loading && state.remote.isNotEmpty() && !searchActive) {
+            item { IndiaDownloadCard(regions, state, vm) }
         }
-        items(installedOnly, key = { it.id }) { pack ->
-            InstalledPackItem(pack) { pendingRemoval = PackRemoval(pack.id, pack.name) }
+        displayedRegions.forEach { displayedRegion ->
+            val fullRegion = regions.first { it.region == displayedRegion.region }
+            val expanded = searchActive || displayedRegion.region in expandedRegions
+            item(key = "region-${displayedRegion.region.manifestKey}") {
+                RegionDownloadCard(
+                    regionPacks = fullRegion,
+                    state = state,
+                    expanded = expanded,
+                    expandable = !searchActive,
+                    onToggle = {
+                        expandedRegions = if (displayedRegion.region in expandedRegions) expandedRegions - displayedRegion.region else expandedRegions + displayedRegion.region
+                    },
+                    onDownload = { vm.downloadRegion(fullRegion.packs, fullRegion.region.displayName) },
+                )
+            }
+            if (expanded) {
+                items(displayedRegion.packs, key = RemotePack::id) { pack ->
+                    StatePackRow(
+                        pack = pack,
+                        installedVersion = state.installed[pack.id]?.version,
+                        progress = state.progress[pack.id],
+                        batchActive = state.batch != null,
+                        onDownload = { vm.download(pack) },
+                        onRemoveRequested = { pendingRemoval = PackRemoval(pack.id, pack.name) },
+                    )
+                }
+            }
+        }
+        if (!state.loading && !searchActive) {
+            items(installedOnly, key = { it.id }) { pack ->
+                InstalledOnlyPackRow(pack, state.batch != null) { pendingRemoval = PackRemoval(pack.id, pack.name) }
+            }
+        }
+        if (!state.loading && searchEnabled && searchActive && displayedRegions.isEmpty()) {
+            item { InfoCard("No offline resources found", "No offline resources found for \"${searchQuery.trim()}\".") }
         }
         state.error?.let { error -> item { InfoCard("Offline data", error) } }
         if (!state.loading && state.remote.isEmpty() && state.installed.isEmpty() && state.error == null) {
@@ -423,32 +487,117 @@ private fun PacksScreen(vm: PacksViewModel = viewModel()) {
 }
 
 @Composable
-private fun PackItem(pack: RemotePack, installedVersion: Long?, progress: Int?, vm: PacksViewModel, onRemoveRequested: () -> Unit) {
+private fun IndiaDownloadCard(regions: List<RegionPacks>, state: PackUiState, vm: PacksViewModel) {
+    val packs = regions.flatMap(RegionPacks::packs)
+    val required = PackCatalog.requiredPacks(packs, state.installed)
+    val totals = PackCatalog.totals(packs)
     ElevatedCard(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-            Text(pack.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            Text("Version ${pack.version}" + (pack.compressedBytes?.let { " · ${formatBytes(it)} download" } ?: ""))
-            when {
-                progress != null -> { LinearProgressIndicator(progress = { progress / 100f }, modifier = Modifier.fillMaxWidth()); Text("Downloading $progress%") }
-                installedVersion == null -> Button(onClick = { vm.download(pack) }) { Text("Download") }
-                installedVersion < pack.version -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { Button(onClick = { vm.download(pack) }) { Text("Update") }; OutlinedButton(onClick = onRemoveRequested) { Text("Remove") } }
-                else -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) { Text("Installed", fontWeight = FontWeight.SemiBold); OutlinedButton(onClick = onRemoveRequested) { Text("Remove") } }
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("India", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Text("${packs.size} State/UT packs", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(packSizeSummary(totals), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            BatchStatus(state.batch, "India")
+            if (required.isEmpty()) {
+                Text("All available packs are installed", fontWeight = FontWeight.SemiBold)
+            } else {
+                Button(enabled = state.batch == null, onClick = vm::downloadAll) { Text(batchActionLabel(packs, state.installed, "Download all")) }
             }
         }
     }
 }
 
 @Composable
-private fun InstalledPackItem(pack: InstalledPack, onRemoveRequested: () -> Unit) {
+private fun RegionDownloadCard(regionPacks: RegionPacks, state: PackUiState, expanded: Boolean, expandable: Boolean, onToggle: () -> Unit, onDownload: () -> Unit) {
+    val required = PackCatalog.requiredPacks(regionPacks.packs, state.installed)
     ElevatedCard(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-            Text(pack.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            Text("Version ${pack.version} · Installed offline")
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("Installed", fontWeight = FontWeight.SemiBold)
-                OutlinedButton(onClick = onRemoveRequested) { Text("Remove") }
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(regionPacks.region.displayName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text("${regionPacks.packs.size} State/UT packs · ${packSizeSummary(regionPacks.totals)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                if (expandable) {
+                    IconButton(onClick = onToggle) {
+                        Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, if (expanded) "Collapse ${regionPacks.region.displayName}" else "Expand ${regionPacks.region.displayName}")
+                    }
+                }
+            }
+            BatchStatus(state.batch, regionPacks.region.displayName)
+            if (required.isEmpty()) {
+                Text("Installed", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
+            } else {
+                OutlinedButton(enabled = state.batch == null, onClick = onDownload) { Text(batchActionLabel(regionPacks.packs, state.installed, "Download region")) }
             }
         }
+    }
+}
+
+@Composable
+private fun BatchStatus(batch: BatchDownloadProgress?, label: String) {
+    if (batch?.label == label) {
+        LinearProgressIndicator(progress = { batch.completed.toFloat() / batch.total }, modifier = Modifier.fillMaxWidth())
+        Text("Downloading ${batch.completed + 1} of ${batch.total}: ${batch.currentPackName}", style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+@Composable
+private fun StatePackRow(pack: RemotePack, installedVersion: Long?, progress: Int?, batchActive: Boolean, onDownload: () -> Unit, onRemoveRequested: () -> Unit) {
+    Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+        Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("${pack.name} · ${formatPackBytes(pack.compressedBytes) ?: "Size unavailable"} (V${pack.version})", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                PackAction(pack.version, installedVersion, progress, batchActive, onDownload, onRemoveRequested)
+                Text(formatPackBytes(pack.uncompressedBytes)?.let { "$it on device" } ?: "", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
+}
+
+@Composable
+private fun PackAction(remoteVersion: Long, installedVersion: Long?, progress: Int?, batchActive: Boolean, onDownload: () -> Unit, onRemoveRequested: () -> Unit) {
+    when {
+        progress != null -> {
+            Column {
+                LinearProgressIndicator(progress = { progress / 100f }, modifier = Modifier.fillMaxWidth(0.45f))
+                Text("Downloading $progress%", style = MaterialTheme.typography.bodySmall)
+            }
+        }
+        installedVersion == null -> Button(enabled = !batchActive, onClick = onDownload) { Text("Download") }
+        installedVersion < remoteVersion -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Button(enabled = !batchActive, onClick = onDownload) { Text("Update") }
+            OutlinedButton(enabled = !batchActive, onClick = onRemoveRequested) { Text("Remove") }
+        }
+        else -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("Installed", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
+            OutlinedButton(enabled = !batchActive, onClick = onRemoveRequested) { Text("Remove") }
+        }
+    }
+}
+
+@Composable
+private fun InstalledOnlyPackRow(pack: InstalledPack, batchActive: Boolean, onRemoveRequested: () -> Unit) {
+    Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+        Row(Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.weight(1f)) {
+                Text(pack.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                Text("V${pack.version} · Installed offline", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            OutlinedButton(enabled = !batchActive, onClick = onRemoveRequested) { Text("Remove") }
+        }
+    }
+}
+
+private fun packSizeSummary(totals: com.actionanand.localtell.app.data.PackTotals): String = listOfNotNull(
+    formatPackBytes(totals.compressedBytes)?.let { "$it download" },
+    formatPackBytes(totals.uncompressedBytes)?.let { "$it on device" },
+).joinToString(" · ")
+
+private fun batchActionLabel(packs: Collection<RemotePack>, installed: Map<String, InstalledPack>, default: String): String {
+    val required = PackCatalog.requiredPacks(packs, installed)
+    return when {
+        required.size == packs.size -> default
+        required.all { installed[it.id] != null } -> "Update all"
+        else -> "Download remaining"
     }
 }
 
@@ -572,4 +721,3 @@ private fun ConfirmationDialog(title: String, message: String, confirmLabel: Str
 private fun InfoCard(title: String, body: String) { ElevatedCard(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) { Text(title, fontWeight = FontWeight.Bold); Text(body) } } }
 
 private fun hasPermission(context: android.content.Context, permission: String): Boolean = ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
-private fun formatBytes(bytes: Long): String = when { bytes >= 1024L * 1024L * 1024L -> "%.1f GB".format(bytes / (1024.0 * 1024 * 1024)); bytes >= 1024L * 1024L -> "%.1f MB".format(bytes / (1024.0 * 1024)); else -> "%.1f KB".format(bytes / 1024.0) }
