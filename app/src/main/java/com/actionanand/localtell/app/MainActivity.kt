@@ -237,7 +237,7 @@ private fun EasyScreen(vm: EasyViewModel = viewModel()) {
             Button(enabled = !state.locating, onClick = ::requestLocation) { Text(if (state.locating) stringResource(R.string.easy_getting_location) else stringResource(R.string.easy_get_location)) }
         }
         state.currentLocation?.let { location -> item { EasyLocationCard(location, showAccuracy = true, onSpeak = {
-            if (ttsReady) speaker.speak(location.encoded.numericCode.filter(Char::isDigit).joinToString(" "), TextToSpeech.QUEUE_FLUSH, null, "localtell-number") else Toast.makeText(context, R.string.easy_tts_unavailable, Toast.LENGTH_SHORT).show()
+            if (ttsReady) speaker.speak(location.encoded.numericCode.filter(Char::isDigit).map { it.toString() }.joinToString(" "), TextToSpeech.QUEUE_FLUSH, null, "localtell-number") else Toast.makeText(context, R.string.easy_tts_unavailable, Toast.LENGTH_SHORT).show()
         }, onCopy = { copyText(context, location.encoded.numericCode) }, onShare = { shareEasyLocation(context, location) }) } }
         item {
             Text(stringResource(R.string.easy_find_title), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
