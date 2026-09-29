@@ -9,6 +9,12 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <queries>
+        <package android:name="com.ubercab" />
+        <package android:name="com.olacabs.customer" />
+        <package android:name="com.rapido.passenger" />
+    </queries>
+
     <application
         android:name=".LocalTellApplication"
         android:allowBackup="false"

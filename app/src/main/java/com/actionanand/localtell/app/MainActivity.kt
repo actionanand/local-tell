@@ -1,11 +1,15 @@
 package com.actionanand.localtell.app
 
 import android.Manifest
+import android.content.ClipData
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.speech.tts.TextToSpeech
+import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -32,12 +36,14 @@ import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Route
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ElevatedCard
@@ -56,6 +62,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -65,8 +72,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.Image
@@ -81,6 +90,12 @@ import com.actionanand.localtell.app.data.PackCatalog
 import com.actionanand.localtell.app.data.RegionPacks
 import com.actionanand.localtell.app.data.RemotePack
 import com.actionanand.localtell.app.data.formatPackBytes
+import com.actionanand.localtell.app.easy.EasyLocation
+import com.actionanand.localtell.app.easy.EasyError
+import com.actionanand.localtell.app.easy.EasyViewModel
+import com.actionanand.localtell.app.external.MapLinkBuilder
+import com.actionanand.localtell.app.external.RideDestination
+import com.actionanand.localtell.app.external.RideLinkBuilder
 import com.actionanand.localtell.app.journey.JourneyForegroundService
 import com.actionanand.localtell.app.journey.JourneyPoint
 import com.actionanand.localtell.app.journey.JourneyTrackingMode
@@ -91,6 +106,7 @@ import com.actionanand.localtell.app.ui.theme.LocalTellTheme
 import com.actionanand.localtell.app.ui.theme.ThemeMode
 import java.text.DateFormat
 import java.util.Date
+import java.util.Locale
 
 class MainActivity : ComponentActivity() {
     private lateinit var locationEnablement: LocationEnablement
@@ -103,7 +119,8 @@ class MainActivity : ComponentActivity() {
             val preferences = remember { getSharedPreferences("localtell_preferences", Context.MODE_PRIVATE) }
             var themeMode by remember { mutableStateOf(ThemeMode.fromPreference(preferences.getString("theme_mode", null))) }
             LocalTellTheme(themeMode) {
-                LocalTellApp(themeMode) { mode ->
+                val defaultTab = if (preferences.getString("default_root_tab", "HOME") == "EASY") RootTab.EASY else RootTab.HOME
+                LocalTellApp(defaultTab, themeMode) { mode ->
                     themeMode = mode
                     preferences.edit().putString("theme_mode", mode.name).apply()
                 }
@@ -121,30 +138,199 @@ class MainActivity : ComponentActivity() {
     fun requestLocationEnable(onEnabled: () -> Unit) = locationEnablement.requestEnable(onEnabled)
 }
 
-private enum class Tab { HOME, PACKS, JOURNEY, SURVEY }
+private enum class RootTab { HOME, EASY, MORE }
+private enum class MoreDestination { MENU, OFFLINE_DATA, JOURNEY, TOWER_SURVEY }
 
 @Composable
-private fun LocalTellApp(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit) {
-    var tab by remember { mutableStateOf(Tab.HOME) }
+private fun LocalTellApp(defaultTab: RootTab, themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit) {
+    var tab by remember { mutableStateOf(defaultTab) }
+    var moreDestination by remember { mutableStateOf(MoreDestination.MENU) }
+    BackHandler(enabled = tab == RootTab.MORE && moreDestination != MoreDestination.MENU) { moreDestination = MoreDestination.MENU }
     Scaffold(bottomBar = {
         NavigationBar {
-            NavigationBarItem(tab == Tab.HOME, { tab = Tab.HOME }, { Icon(Icons.Default.Home, null) }, label = { Text("Home") })
-            NavigationBarItem(tab == Tab.PACKS, { tab = Tab.PACKS }, { Icon(Icons.Default.Download, null) }, label = { Text("Offline data") })
-            NavigationBarItem(tab == Tab.JOURNEY, { tab = Tab.JOURNEY }, { Icon(Icons.Default.Route, null) }, label = { Text("Journey") })
-            if (BuildConfig.ENABLE_TOWER_SURVEY) {
-                NavigationBarItem(tab == Tab.SURVEY, { tab = Tab.SURVEY }, { Icon(Icons.Default.Route, null) }, label = { Text("Tower Survey") })
-            }
+            NavigationBarItem(tab == RootTab.HOME, { tab = RootTab.HOME }, { Icon(Icons.Default.Home, null) }, label = { Text(stringResource(R.string.nav_home)) })
+            NavigationBarItem(tab == RootTab.EASY, { tab = RootTab.EASY }, { Icon(Icons.Default.LocationOn, null) }, label = { Text(stringResource(R.string.nav_easy)) })
+            NavigationBarItem(tab == RootTab.MORE, { tab = RootTab.MORE; moreDestination = MoreDestination.MENU }, { Icon(Icons.Default.MoreHoriz, null) }, label = { Text(stringResource(R.string.nav_more)) })
         }
     }) { padding ->
         Box(Modifier.padding(padding)) {
             when (tab) {
-                Tab.HOME -> HomeScreen(themeMode, onThemeModeChange)
-                Tab.PACKS -> PacksScreen()
-                Tab.JOURNEY -> JourneyScreen()
-                Tab.SURVEY -> if (BuildConfig.ENABLE_TOWER_SURVEY) TowerSurveyScreen() else HomeScreen(themeMode, onThemeModeChange)
+                RootTab.HOME -> HomeScreen(themeMode, onThemeModeChange)
+                RootTab.EASY -> EasyScreen()
+                RootTab.MORE -> when (moreDestination) {
+                    MoreDestination.MENU -> MoreScreen { moreDestination = it }
+                    MoreDestination.OFFLINE_DATA -> MoreChild(onBack = { moreDestination = MoreDestination.MENU }) { PacksScreen() }
+                    MoreDestination.JOURNEY -> MoreChild(onBack = { moreDestination = MoreDestination.MENU }) { JourneyScreen() }
+                    MoreDestination.TOWER_SURVEY -> if (BuildConfig.ENABLE_TOWER_SURVEY) MoreChild(onBack = { moreDestination = MoreDestination.MENU }) { TowerSurveyScreen() } else MoreScreen { moreDestination = it }
+                }
             }
         }
     }
+}
+
+@Composable
+private fun MoreChild(onBack: () -> Unit, content: @Composable () -> Unit) {
+    Column(Modifier.fillMaxSize()) {
+        TextButton(onClick = onBack) { Text(stringResource(R.string.more_back)) }
+        Box(Modifier.weight(1f)) { content() }
+    }
+}
+
+@Composable
+private fun MoreScreen(onOpen: (MoreDestination) -> Unit) {
+    LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        item { Text(stringResource(R.string.more_title), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold) }
+        item { MoreRow(Icons.Default.Route, stringResource(R.string.more_journey), stringResource(R.string.more_journey_description)) { onOpen(MoreDestination.JOURNEY) } }
+        item { MoreRow(Icons.Default.Download, stringResource(R.string.more_offline), stringResource(R.string.more_offline_description)) { onOpen(MoreDestination.OFFLINE_DATA) } }
+        if (BuildConfig.ENABLE_TOWER_SURVEY) item { MoreRow(Icons.Default.LocationOn, stringResource(R.string.more_survey), stringResource(R.string.more_survey_description)) { onOpen(MoreDestination.TOWER_SURVEY) } }
+    }
+}
+
+@Composable
+private fun MoreRow(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, description: String, onClick: () -> Unit) {
+    ElevatedCard(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
+        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            Icon(icon, null, tint = MaterialTheme.colorScheme.primary)
+            Column(Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Icon(Icons.Default.ChevronRight, null)
+        }
+    }
+}
+
+@Composable
+private fun EasyScreen(vm: EasyViewModel = viewModel()) {
+    val context = LocalContext.current
+    val activity = context as? MainActivity
+    val state by vm.state.collectAsStateWithLifecycle()
+    val preferences = remember { context.getSharedPreferences("localtell_preferences", Context.MODE_PRIVATE) }
+    var defaultEasy by remember { mutableStateOf(preferences.getString("default_root_tab", "HOME") == "EASY") }
+    var findInput by rememberSaveable { mutableStateOf("") }
+    var ttsReady by remember { mutableStateOf(false) }
+    val speaker = remember { TextToSpeech(context.applicationContext) { ttsReady = it == TextToSpeech.SUCCESS } }
+    DisposableEffect(speaker) { onDispose { speaker.shutdown() } }
+    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
+        if (granted[Manifest.permission.ACCESS_FINE_LOCATION] == true) vm.getMyLocation()
+    }
+    fun requestLocation() {
+        when {
+            !hasPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) -> permissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION))
+            activity?.isLocationEnabled() == false -> activity.requestLocationEnable { if (activity.isLocationEnabled()) vm.getMyLocation() }
+            else -> vm.getMyLocation()
+        }
+    }
+    LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        item {
+            Text(stringResource(R.string.easy_title), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(stringResource(R.string.easy_default_tab), style = MaterialTheme.typography.bodyMedium)
+                Switch(checked = defaultEasy, onCheckedChange = { enabled ->
+                    defaultEasy = enabled
+                    preferences.edit().putString("default_root_tab", if (enabled) "EASY" else "HOME").apply()
+                })
+            }
+        }
+        item {
+            Text(stringResource(R.string.easy_share_title), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Button(enabled = !state.locating, onClick = ::requestLocation) { Text(if (state.locating) stringResource(R.string.easy_getting_location) else stringResource(R.string.easy_get_location)) }
+        }
+        state.currentLocation?.let { location -> item { EasyLocationCard(location, showAccuracy = true, onSpeak = {
+            if (ttsReady) speaker.speak(location.encoded.numericCode.filter(Char::isDigit).joinToString(" "), TextToSpeech.QUEUE_FLUSH, null, "localtell-number") else Toast.makeText(context, R.string.easy_tts_unavailable, Toast.LENGTH_SHORT).show()
+        }, onCopy = { copyText(context, location.encoded.numericCode) }, onShare = { shareEasyLocation(context, location) }) } }
+        item {
+            Text(stringResource(R.string.easy_find_title), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            OutlinedTextField(value = findInput, onValueChange = { findInput = it }, modifier = Modifier.fillMaxWidth(), singleLine = true, placeholder = { Text(stringResource(R.string.easy_find_placeholder)) }, leadingIcon = { Icon(Icons.Default.Search, stringResource(R.string.easy_search_icon)) }, trailingIcon = if (findInput.isNotEmpty()) ({ IconButton(onClick = { findInput = "" }) { Icon(Icons.Default.Close, stringResource(R.string.easy_clear_input)) } }) else null)
+            Spacer(Modifier.height(8.dp))
+            Button(onClick = { vm.find(findInput) }) { Text(stringResource(R.string.easy_find)) }
+        }
+        state.resolvedLocation?.let { location -> item { EasyLocationCard(location, showAccuracy = false, onSpeak = null, onCopy = { copyText(context, MapLinkBuilder.googleMaps(location.encoded.latitude, location.encoded.longitude).toString()) }, onShare = { shareEasyLocation(context, location) }) } }
+        state.resolvedLocation?.let { location -> item { RideActions(context, location) } }
+        state.error?.let { error -> item { InfoCard(stringResource(R.string.easy_title), easyErrorText(error)) } }
+    }
+}
+
+@Composable
+private fun EasyLocationCard(location: EasyLocation, showAccuracy: Boolean, onSpeak: (() -> Unit)?, onCopy: () -> Unit, onShare: () -> Unit) {
+    val context = LocalContext.current
+    ElevatedCard(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(if (showAccuracy) stringResource(R.string.easy_current_location) else stringResource(R.string.easy_resolved_location), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text(stringResource(R.string.easy_latitude, coordinateDisplay(location.encoded.latitude)))
+            Text(stringResource(R.string.easy_longitude, coordinateDisplay(location.encoded.longitude)))
+            if (showAccuracy) location.accuracyMetres?.let { Text(stringResource(R.string.easy_accuracy, it.toInt())) }
+            Text(stringResource(R.string.easy_number), style = MaterialTheme.typography.labelLarge)
+            Text(location.encoded.numericCode, style = MaterialTheme.typography.titleLarge, fontFamily = FontFamily.Monospace)
+            Text(stringResource(R.string.easy_short_code), style = MaterialTheme.typography.labelLarge)
+            Text(location.encoded.shortCode, style = MaterialTheme.typography.titleLarge, fontFamily = FontFamily.Monospace)
+            location.locality?.let { match -> Text(listOfNotNull(match.localityName, match.subDistrict, match.district, match.state).distinct().joinToString(", "), style = MaterialTheme.typography.bodyMedium) } ?: Text(stringResource(R.string.easy_offline_unavailable), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (onSpeak != null) OutlinedButton(onClick = onSpeak) { Text(stringResource(R.string.easy_read_aloud)) }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = onCopy) { Text(stringResource(R.string.easy_copy)) }
+                Button(onClick = onShare) { Icon(Icons.Default.Share, null); Spacer(Modifier.padding(2.dp)); Text(stringResource(R.string.easy_share)) }
+            }
+            if (!showAccuracy) {
+                OutlinedButton(onClick = { openMaps(context, location) }) { Text(stringResource(R.string.easy_open_maps)) }
+                TextButton(onClick = { copyText(context, MapLinkBuilder.googleMaps(location.encoded.latitude, location.encoded.longitude).toString()) }) { Text(stringResource(R.string.easy_copy_maps)) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RideActions(context: Context, location: EasyLocation) {
+    val destination = RideDestination(location.encoded.latitude, location.encoded.longitude, context.getString(R.string.easy_location_label), location.locality?.localityName ?: MapLinkBuilder.coordinateText(location.encoded.latitude, location.encoded.longitude))
+    val uberName = stringResource(R.string.easy_uber)
+    val olaName = stringResource(R.string.easy_ola)
+    val rapidoName = stringResource(R.string.easy_rapido)
+    ElevatedCard(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(stringResource(R.string.easy_ride_title), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = { launchUber(context, destination) }) { Text(uberName) }
+                OutlinedButton(onClick = { launchCopyThenApp(context, RideLinkBuilder.OLA_PACKAGE, olaName, destination) }) { Text(olaName) }
+                OutlinedButton(onClick = { launchCopyThenApp(context, RideLinkBuilder.RAPIDO_PACKAGE, rapidoName, destination) }) { Text(rapidoName) }
+            }
+        }
+    }
+}
+
+private fun coordinateDisplay(value: Double) = String.format(Locale.US, "%.6f", value)
+
+@Composable
+private fun easyErrorText(error: EasyError): String = when (error) {
+    EasyError.TIMEOUT -> LocalContext.current.getString(R.string.easy_location_timeout)
+    EasyError.LOCATION_DISABLED -> LocalContext.current.getString(R.string.easy_location_disabled)
+    EasyError.PERMISSION_MISSING -> LocalContext.current.getString(R.string.easy_permission_needed)
+    EasyError.LOCATION_UNAVAILABLE -> LocalContext.current.getString(R.string.easy_location_error)
+    EasyError.INVALID_INPUT -> LocalContext.current.getString(R.string.easy_invalid)
+}
+
+private fun copyText(context: Context, text: String) {
+    context.getSystemService(android.content.ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("LocalTell", text))
+    Toast.makeText(context, R.string.easy_copied, Toast.LENGTH_SHORT).show()
+}
+
+private fun shareEasyLocation(context: Context, location: EasyLocation) {
+    val maps = MapLinkBuilder.googleMaps(location.encoded.latitude, location.encoded.longitude).toString()
+    val text = context.getString(R.string.easy_share_message, coordinateDisplay(location.encoded.latitude), coordinateDisplay(location.encoded.longitude), location.encoded.numericCode, location.encoded.shortCode, maps)
+    context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, text) }, context.getString(R.string.share_location_title)))
+}
+
+private fun openMaps(context: Context, location: EasyLocation) {
+    runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, MapLinkBuilder.googleMaps(location.encoded.latitude, location.encoded.longitude))) }.onFailure { Toast.makeText(context, R.string.easy_maps_unavailable, Toast.LENGTH_SHORT).show() }
+}
+
+private fun launchUber(context: Context, destination: RideDestination) {
+    runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, RideLinkBuilder.uber(destination)).setPackage(RideLinkBuilder.UBER_PACKAGE)) }.onFailure { Toast.makeText(context, context.getString(R.string.easy_ride_unavailable, context.getString(R.string.easy_uber)), Toast.LENGTH_SHORT).show() }
+}
+
+private fun launchCopyThenApp(context: Context, packageName: String, providerName: String, destination: RideDestination) {
+    copyText(context, "${MapLinkBuilder.coordinateText(destination.latitude, destination.longitude)}\n${MapLinkBuilder.googleMaps(destination.latitude, destination.longitude)}")
+    val launch = context.packageManager.getLaunchIntentForPackage(packageName)
+    if (launch != null) context.startActivity(launch) else Toast.makeText(context, context.getString(R.string.easy_ride_unavailable, providerName), Toast.LENGTH_SHORT).show()
+    Toast.makeText(context, context.getString(R.string.easy_destination_copied, providerName), Toast.LENGTH_SHORT).show()
 }
 
 @Composable
