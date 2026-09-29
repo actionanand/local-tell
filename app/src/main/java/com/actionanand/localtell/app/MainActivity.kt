@@ -300,11 +300,11 @@ private fun coordinateDisplay(value: Double) = String.format(Locale.US, "%.6f", 
 
 @Composable
 private fun easyErrorText(error: EasyError): String = when (error) {
-    EasyError.TIMEOUT -> LocalContext.current.getString(R.string.easy_location_timeout)
-    EasyError.LOCATION_DISABLED -> LocalContext.current.getString(R.string.easy_location_disabled)
-    EasyError.PERMISSION_MISSING -> LocalContext.current.getString(R.string.easy_permission_needed)
-    EasyError.LOCATION_UNAVAILABLE -> LocalContext.current.getString(R.string.easy_location_error)
-    EasyError.INVALID_INPUT -> LocalContext.current.getString(R.string.easy_invalid)
+    EasyError.TIMEOUT -> stringResource(R.string.easy_location_timeout)
+    EasyError.LOCATION_DISABLED -> stringResource(R.string.easy_location_disabled)
+    EasyError.PERMISSION_MISSING -> stringResource(R.string.easy_permission_needed)
+    EasyError.LOCATION_UNAVAILABLE -> stringResource(R.string.easy_location_error)
+    EasyError.INVALID_INPUT -> stringResource(R.string.easy_invalid)
 }
 
 private fun copyText(context: Context, text: String) {
