@@ -1,18 +1,16 @@
 package com.actionanand.localtell.app.external
 
 import android.net.Uri
+import java.net.URLEncoder
 import java.util.Locale
 
 data class RideDestination(val latitude: Double, val longitude: Double, val label: String, val address: String)
 
 object MapLinkBuilder {
-    fun googleMaps(latitude: Double, longitude: Double): Uri = Uri.Builder()
-        .scheme("https")
-        .authority("www.google.com")
-        .encodedPath("/maps/search/")
-        .appendQueryParameter("api", "1")
-        .appendQueryParameter("query", coordinateText(latitude, longitude))
-        .build()
+    fun googleMapsUrl(latitude: Double, longitude: Double): String =
+        "https://www.google.com/maps/search/?api=1&query=${URLEncoder.encode(coordinateText(latitude, longitude), "UTF-8")}"
+
+    fun googleMaps(latitude: Double, longitude: Double): Uri = Uri.parse(googleMapsUrl(latitude, longitude))
 
     fun coordinateText(latitude: Double, longitude: Double): String = String.format(Locale.US, "%.6f,%.6f", latitude, longitude)
 }
