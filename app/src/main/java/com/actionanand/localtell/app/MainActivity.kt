@@ -20,9 +20,12 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -32,6 +35,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.BrightnessAuto
@@ -82,6 +86,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
@@ -222,7 +227,11 @@ private fun MoreChild(onBack: () -> Unit, content: @Composable () -> Unit) {
 
 @Composable
 private fun MoreScreen(onOpen: (MoreDestination) -> Unit) {
-    LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(start = 20.dp, top = 20.dp, end = 20.dp, bottom = 32.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
         item { Text(stringResource(R.string.more_title), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold) }
         item { MoreRow(Icons.Default.Route, stringResource(R.string.more_journey), stringResource(R.string.more_journey_description)) { onOpen(MoreDestination.JOURNEY) } }
         item { MoreRow(Icons.Default.Download, stringResource(R.string.more_offline), stringResource(R.string.more_offline_description)) { onOpen(MoreDestination.OFFLINE_DATA) } }
@@ -320,7 +329,11 @@ private fun EasyScreen(vm: EasyViewModel = viewModel()) {
             },
         )
     }
-    LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(start = 20.dp, top = 20.dp, end = 20.dp, bottom = 32.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
         item {
             Text(stringResource(R.string.easy_title), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
@@ -591,7 +604,11 @@ private fun HomeScreen(
         )
     }
 
-    LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(start = 20.dp, top = 20.dp, end = 20.dp, bottom = 32.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
         item {
             BrandHeader(themeMode, onThemeModeChange)
         }
@@ -944,7 +961,10 @@ private fun PacksScreen(vm: PacksViewModel = viewModel()) {
     val state by vm.state.collectAsStateWithLifecycle()
     var pendingRemoval by remember { mutableStateOf<PackRemoval?>(null) }
     var expandedRegions by remember { mutableStateOf(emptySet<IndiaRegion>()) }
+    var expandedRegionToReveal by remember { mutableStateOf<IndiaRegion?>(null) }
     var searchQuery by rememberSaveable { mutableStateOf("") }
+    val packListState = rememberLazyListState()
+    val firstRowRevealDistance = with(LocalDensity.current) { 96.dp.toPx() }
     val remoteIds = state.remote.mapTo(mutableSetOf()) { it.id }
     val installedOnly = state.installed.values.filter { it.id !in remoteIds }.sortedBy { it.name }
     val regions = PackCatalog.regions(state.remote)
@@ -952,7 +972,29 @@ private fun PacksScreen(vm: PacksViewModel = viewModel()) {
     val searchActive = searchQuery.isNotBlank()
     val displayedRegions = if (state.loading) emptyList() else PackCatalog.filterRegions(regions, searchQuery)
     androidx.compose.runtime.LaunchedEffect(Unit) { vm.refresh() }
-    LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    androidx.compose.runtime.LaunchedEffect(expandedRegionToReveal) {
+        expandedRegionToReveal?.let { region ->
+            val regionHeader = packListState.layoutInfo.visibleItemsInfo.firstOrNull {
+                it.key == "region-${region.manifestKey}"
+            }
+            if (regionHeader != null) {
+                val scrollDistance = (
+                    regionHeader.offset + regionHeader.size + firstRowRevealDistance -
+                        packListState.layoutInfo.viewportEndOffset
+                    ).coerceAtLeast(0f)
+                if (scrollDistance > 0f) {
+                    packListState.animateScrollBy(scrollDistance)
+                }
+            }
+            expandedRegionToReveal = null
+        }
+    }
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        state = packListState,
+        contentPadding = PaddingValues(start = 20.dp, top = 20.dp, end = 20.dp, bottom = 32.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
         item {
             Text("Offline data", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
             Text("Download offline locality data for all India, a region, or individual State/UT.")
@@ -988,7 +1030,11 @@ private fun PacksScreen(vm: PacksViewModel = viewModel()) {
                     expanded = expanded,
                     expandable = !searchActive,
                     onToggle = {
-                        expandedRegions = if (displayedRegion.region in expandedRegions) expandedRegions - displayedRegion.region else expandedRegions + displayedRegion.region
+                        val wasExpanded = displayedRegion.region in expandedRegions
+                        expandedRegions = if (wasExpanded) expandedRegions - displayedRegion.region else expandedRegions + displayedRegion.region
+                        if (!wasExpanded) {
+                            expandedRegionToReveal = displayedRegion.region
+                        }
                     },
                     onDownload = { vm.downloadRegion(fullRegion.packs, fullRegion.region.displayName) },
                 )
@@ -1053,17 +1099,23 @@ private fun IndiaDownloadCard(regions: List<RegionPacks>, state: PackUiState, vm
 @Composable
 private fun RegionDownloadCard(regionPacks: RegionPacks, state: PackUiState, expanded: Boolean, expandable: Boolean, onToggle: () -> Unit, onDownload: () -> Unit) {
     val required = PackCatalog.requiredPacks(regionPacks.packs, state.installed)
+    val toggleLabel = if (expanded) "Collapse ${regionPacks.region.displayName}" else "Expand ${regionPacks.region.displayName}"
     ElevatedCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                modifier = if (expandable) {
+                    Modifier.fillMaxWidth().clickable(onClickLabel = toggleLabel, onClick = onToggle)
+                } else {
+                    Modifier.fillMaxWidth()
+                },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Column(Modifier.weight(1f)) {
                     Text(regionPacks.region.displayName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     Text("${regionPacks.packs.size} State/UT packs · ${packSizeSummary(regionPacks.totals)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 if (expandable) {
-                    IconButton(onClick = onToggle) {
-                        Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, if (expanded) "Collapse ${regionPacks.region.displayName}" else "Expand ${regionPacks.region.displayName}")
-                    }
+                    Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, contentDescription = toggleLabel)
                 }
             }
             BatchStatus(state.batch, regionPacks.region.displayName)
@@ -1198,7 +1250,11 @@ private fun JourneyScreen(vm: JourneyViewModel = viewModel()) {
             showLocationTurnOffReminder = activity?.takeLocationTurnOffReminder() == true
         }
     }
-    LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(start = 20.dp, top = 20.dp, end = 20.dp, bottom = 32.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
         item {
             Text("Journey", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
             Text("Records an entry only when the resolved locality changes.")
