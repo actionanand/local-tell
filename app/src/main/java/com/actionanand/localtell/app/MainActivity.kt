@@ -87,7 +87,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.core.content.ContextCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.actionanand.localtell.app.data.InstalledPack
 import com.actionanand.localtell.app.data.IndiaRegion
 import com.actionanand.localtell.app.data.PackCatalog
@@ -385,19 +388,30 @@ private fun HomeScreen(
     var phoneStateGranted by remember { mutableStateOf(hasPermission(context, Manifest.permission.READ_PHONE_STATE)) }
     var locationEnabled by remember { mutableStateOf(activity?.isLocationEnabled() == true) }
     var selectedSubscriptionId by remember { mutableStateOf<Int?>(null) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    fun syncLocationEnabled(): Boolean {
+        val enabledNow = activity?.isLocationEnabled() == true
+        locationEnabled = enabledNow
+        return enabledNow
+    }
+    DisposableEffect(lifecycleOwner, activity) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) syncLocationEnabled()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     val requestLocation: () -> Unit = {
         if (activity != null) {
             activity.requestLocationEnable {
-                locationEnabled = activity.isLocationEnabled()
-                if (locationEnabled) vm.refresh()
+                if (syncLocationEnabled()) vm.refresh()
             }
         }
     }
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
         permissionGranted = grants[Manifest.permission.ACCESS_FINE_LOCATION] == true
         if (permissionGranted) {
-            locationEnabled = activity?.isLocationEnabled() == true
-            if (locationEnabled) vm.refresh() else requestLocation()
+            if (syncLocationEnabled()) vm.refresh() else requestLocation()
         }
     }
     val phoneStateLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -405,10 +419,15 @@ private fun HomeScreen(
         vm.refresh()
     }
     val refreshLocality: () -> Unit = {
-        if (locationEnabled) vm.refresh() else requestLocation()
+        if (syncLocationEnabled()) vm.refresh() else requestLocation()
     }
     androidx.compose.runtime.LaunchedEffect(permissionGranted, locationEnabled) {
         if (permissionGranted && locationEnabled && status is HomeStatus.Idle) vm.refresh()
+    }
+    androidx.compose.runtime.LaunchedEffect((status as? HomeStatus.Ready)?.localityState) {
+        if ((status as? HomeStatus.Ready)?.localityState == LocalityState.GPS_DISABLED) {
+            locationEnabled = false
+        }
     }
     (status as? HomeStatus.AwaitingLocationChoice)?.let {
         ImproveLocationDialog(onUseAssisted = vm::useAssistedLocation, onStayOffline = vm::useApproximateLocation)
@@ -913,6 +932,19 @@ private fun JourneyScreen(vm: JourneyViewModel = viewModel()) {
     var locationEnabled by remember { mutableStateOf(activity?.isLocationEnabled() == true) }
     var hasNotifications by remember { mutableStateOf(Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU || hasPermission(context, Manifest.permission.POST_NOTIFICATIONS)) }
     var confirmClear by remember { mutableStateOf(false) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    fun syncLocationEnabled(): Boolean {
+        val enabledNow = activity?.isLocationEnabled() == true
+        locationEnabled = enabledNow
+        return enabledNow
+    }
+    DisposableEffect(lifecycleOwner, activity) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) syncLocationEnabled()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     val trackingIsRunning = tracking.mode in setOf(
         JourneyTrackingMode.STARTING,
         JourneyTrackingMode.ACQUIRING_LOCALITY,
@@ -932,6 +964,9 @@ private fun JourneyScreen(vm: JourneyViewModel = viewModel()) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !hasNotifications) notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS) else startService()
     }
     androidx.compose.runtime.LaunchedEffect(Unit) { vm.refresh() }
+    androidx.compose.runtime.LaunchedEffect(tracking.mode) {
+        if (tracking.mode == JourneyTrackingMode.GPS_DISABLED) locationEnabled = false
+    }
     LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
             Text("Journey", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
@@ -945,7 +980,11 @@ private fun JourneyScreen(vm: JourneyViewModel = viewModel()) {
             Spacer(Modifier.height(10.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(enabled = hasFineLocation && !trackingIsRunning, onClick = {
-                    if (locationEnabled) beginJourney() else activity?.requestLocationEnable { locationEnabled = activity.isLocationEnabled(); if (locationEnabled) beginJourney() }
+                    if (syncLocationEnabled()) {
+                        beginJourney()
+                    } else {
+                        activity?.requestLocationEnable { if (syncLocationEnabled()) beginJourney() }
+                    }
                 }) { Icon(Icons.Default.PlayArrow, null); Spacer(Modifier.padding(2.dp)); Text("Start") }
                 OutlinedButton(enabled = trackingIsRunning, onClick = {
                     vm.markStopped()
