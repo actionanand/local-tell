@@ -13,7 +13,7 @@ class LocationLinksTest {
 
     @Test
     fun `google maps search URL retains its trailing path slash`() {
-        val url = MapLinkBuilder.googleMaps(12.848793, 77.711493).toString()
+        val url = MapLinkBuilder.googleMapsUrl(12.848793, 77.711493)
 
         assertEquals("https://www.google.com/maps/search/?api=1&query=12.848793%2C77.711493", url)
         assertTrue(url.contains("/maps/search/?"))
