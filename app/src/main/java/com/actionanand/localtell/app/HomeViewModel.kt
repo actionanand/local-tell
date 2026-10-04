@@ -78,7 +78,7 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
 
     fun refresh() {
         if (!reader.hasPermission()) {
-            _status.value = HomeStatus.Error("Location permission is required by Android to expose cellular IDs and obtain an on-device GNSS fix when locality needs refreshing. Coordinates are processed locally and are not uploaded.")
+            _status.value = HomeStatus.Error(AppLanguageManager.getString(getApplication(), R.string.home_error_permission))
             return
         }
         viewModelScope.launch {
@@ -116,10 +116,10 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
                     GnssFixResult.Timeout -> HomeStatus.AwaitingLocationChoice(subscriptions, null)
                     GnssFixResult.ProviderDisabled -> HomeStatus.Ready(subscriptions, null, LocalityState.GPS_DISABLED)
                     GnssFixResult.PermissionMissing -> HomeStatus.Ready(subscriptions, null, LocalityState.PERMISSION_MISSING)
-                    is GnssFixResult.Error -> HomeStatus.Error(fix.cause?.message ?: "Unable to acquire an on-device GNSS fix")
+                    is GnssFixResult.Error -> HomeStatus.Error(AppLanguageManager.getString(getApplication(), R.string.home_error_gnss))
                 }
             }.onSuccess { _status.value = it }
-                .onFailure { _status.value = HomeStatus.Error(it.message ?: "Unable to read cellular diagnostics") }
+                .onFailure { _status.value = HomeStatus.Error(AppLanguageManager.getString(getApplication(), R.string.home_error_cellular)) }
         }
     }
 
@@ -149,7 +149,7 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
                         subscriptions = pending.subscriptions,
                         locality = null,
                         localityState = LocalityState.GNSS_TIMEOUT,
-                        locationNotice = getApplication<Application>().getString(R.string.location_connect_network),
+                        locationNotice = AppLanguageManager.getString(getApplication(), R.string.location_connect_network),
                     )
                 }
                 return@launch
