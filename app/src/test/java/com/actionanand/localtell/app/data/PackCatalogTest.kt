@@ -70,6 +70,28 @@ class PackCatalogTest {
     }
 
     @Test
+    fun `region removal selects only currently installed packs`() {
+        val tamilNadu = remote("tn", "Tamil Nadu", "south", 1)
+        val kerala = remote("kl", "Kerala", "south", 2)
+        val installed = mapOf("tn" to installed("tn", "Tamil Nadu", 1))
+
+        assertEquals(listOf("tn"), PackCatalog.installedPacks(listOf(tamilNadu, kerala), installed).map(RemotePack::id))
+        assertTrue(PackCatalog.installedPacks(listOf(tamilNadu, kerala), emptyMap()).isEmpty())
+    }
+
+    @Test
+    fun `fully installed region removal selects every region pack`() {
+        val tamilNadu = remote("tn", "Tamil Nadu", "south", 1)
+        val kerala = remote("kl", "Kerala", "south", 2)
+        val installed = mapOf(
+            "tn" to installed("tn", "Tamil Nadu", 1),
+            "kl" to installed("kl", "Kerala", 1),
+        )
+
+        assertEquals(listOf("tn", "kl"), PackCatalog.installedPacks(listOf(tamilNadu, kerala), installed).map(RemotePack::id))
+    }
+
+    @Test
     fun `a newer installed pack is not downgraded by a batch`() {
         val remote = remote("tn", "Tamil Nadu", "south", 1, version = 3)
         val installed = mapOf("tn" to installed("tn", "Tamil Nadu", 4))

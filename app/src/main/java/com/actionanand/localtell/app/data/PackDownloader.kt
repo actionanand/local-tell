@@ -3,10 +3,14 @@ package com.actionanand.localtell.app.data
 import android.database.sqlite.SQLiteDatabase
 import android.os.StatFs
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.io.InputStream
+import java.io.OutputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
@@ -14,8 +18,15 @@ import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.util.zip.GZIPInputStream
+import java.util.concurrent.ConcurrentHashMap
 
 class PackDownloader(private val store: PackStore) {
+    private val activeConnections = ConcurrentHashMap<String, HttpURLConnection>()
+
+    fun cancel(packId: String) {
+        activeConnections.remove(packId)?.disconnect()
+    }
+
     suspend fun download(pack: RemotePack, onProgress: (Int) -> Unit = {}): InstalledPack =
         withContext(Dispatchers.IO) {
             val compressed = File(store.directory, ".${pack.id}-${pack.version}.db.gz.part")
@@ -29,9 +40,10 @@ class PackDownloader(private val store: PackStore) {
                 downloadFile(pack, compressed, onProgress)
                 verifySha256(compressed, pack.sha256)
                 GZIPInputStream(FileInputStream(compressed)).use { input ->
-                    FileOutputStream(unpacked).use { output -> input.copyTo(output, 1024 * 1024) }
+                    FileOutputStream(unpacked).use { output -> copyWithCancellation(input, output) }
                 }
                 validateDatabase(unpacked)
+                currentCoroutineContext().ensureActive()
 
                 activateDatabase(unpacked, destination)
 
@@ -84,14 +96,16 @@ class PackDownloader(private val store: PackStore) {
         }
     }
 
-    private fun downloadFile(pack: RemotePack, file: File, onProgress: (Int) -> Unit) {
+    private suspend fun downloadFile(pack: RemotePack, file: File, onProgress: (Int) -> Unit) {
         val connection = (URL(pack.downloadUrl).openConnection() as HttpURLConnection).apply {
             connectTimeout = 30_000
             readTimeout = 90_000
             instanceFollowRedirects = true
             setRequestProperty("User-Agent", "LocalTell")
         }
+        activeConnections[pack.id] = connection
         try {
+            currentCoroutineContext().ensureActive()
             check(connection.responseCode in 200..299) { "Pack download failed: HTTP ${connection.responseCode}" }
             val total = connection.contentLengthLong.takeIf { it > 0 } ?: pack.compressedBytes ?: -1L
             connection.inputStream.use { input ->
@@ -100,6 +114,7 @@ class PackDownloader(private val store: PackStore) {
                     var copied = 0L
                     var lastProgress = -1
                     while (true) {
+                        currentCoroutineContext().ensureActive()
                         val count = input.read(buffer)
                         if (count < 0) break
                         output.write(buffer, 0, count)
@@ -114,16 +129,21 @@ class PackDownloader(private val store: PackStore) {
                     }
                 }
             }
+        } catch (e: Exception) {
+            currentCoroutineContext().ensureActive()
+            throw e
         } finally {
+            activeConnections.remove(pack.id, connection)
             connection.disconnect()
         }
     }
 
-    private fun verifySha256(file: File, expected: String) {
+    private suspend fun verifySha256(file: File, expected: String) {
         val digest = MessageDigest.getInstance("SHA-256")
         FileInputStream(file).use { input ->
             val buffer = ByteArray(1024 * 1024)
             while (true) {
+                currentCoroutineContext().ensureActive()
                 val count = input.read(buffer)
                 if (count < 0) break
                 digest.update(buffer, 0, count)
@@ -131,6 +151,16 @@ class PackDownloader(private val store: PackStore) {
         }
         val actual = digest.digest().joinToString("") { "%02x".format(it) }
         check(actual.equals(expected, ignoreCase = true)) { "SHA-256 mismatch for downloaded pack" }
+    }
+
+    private suspend fun copyWithCancellation(input: InputStream, output: OutputStream) {
+        val buffer = ByteArray(1024 * 1024)
+        while (true) {
+            currentCoroutineContext().ensureActive()
+            val count = input.read(buffer)
+            if (count < 0) return
+            output.write(buffer, 0, count)
+        }
     }
 
     private fun validateDatabase(file: File) {

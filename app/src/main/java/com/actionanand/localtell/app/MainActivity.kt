@@ -20,9 +20,13 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -32,6 +36,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.BrightnessAuto
@@ -53,6 +58,7 @@ import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -82,6 +88,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
@@ -222,7 +229,11 @@ private fun MoreChild(onBack: () -> Unit, content: @Composable () -> Unit) {
 
 @Composable
 private fun MoreScreen(onOpen: (MoreDestination) -> Unit) {
-    LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(start = 20.dp, top = 20.dp, end = 20.dp, bottom = 32.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
         item { Text(stringResource(R.string.more_title), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold) }
         item { MoreRow(Icons.Default.Route, stringResource(R.string.more_journey), stringResource(R.string.more_journey_description)) { onOpen(MoreDestination.JOURNEY) } }
         item { MoreRow(Icons.Default.Download, stringResource(R.string.more_offline), stringResource(R.string.more_offline_description)) { onOpen(MoreDestination.OFFLINE_DATA) } }
@@ -320,7 +331,11 @@ private fun EasyScreen(vm: EasyViewModel = viewModel()) {
             },
         )
     }
-    LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(start = 20.dp, top = 20.dp, end = 20.dp, bottom = 32.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
         item {
             Text(stringResource(R.string.easy_title), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
@@ -591,7 +606,11 @@ private fun HomeScreen(
         )
     }
 
-    LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(start = 20.dp, top = 20.dp, end = 20.dp, bottom = 32.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
         item {
             BrandHeader(themeMode, onThemeModeChange)
         }
@@ -943,8 +962,12 @@ private fun SignalStrengthIndicator(cell: RadioCell) {
 private fun PacksScreen(vm: PacksViewModel = viewModel()) {
     val state by vm.state.collectAsStateWithLifecycle()
     var pendingRemoval by remember { mutableStateOf<PackRemoval?>(null) }
+    var pendingRegionRemoval by remember { mutableStateOf<RegionRemoval?>(null) }
     var expandedRegions by remember { mutableStateOf(emptySet<IndiaRegion>()) }
+    var expandedRegionToReveal by remember { mutableStateOf<IndiaRegion?>(null) }
     var searchQuery by rememberSaveable { mutableStateOf("") }
+    val packListState = rememberLazyListState()
+    val firstRowRevealDistance = with(LocalDensity.current) { 132.dp.toPx() }
     val remoteIds = state.remote.mapTo(mutableSetOf()) { it.id }
     val installedOnly = state.installed.values.filter { it.id !in remoteIds }.sortedBy { it.name }
     val regions = PackCatalog.regions(state.remote)
@@ -952,7 +975,29 @@ private fun PacksScreen(vm: PacksViewModel = viewModel()) {
     val searchActive = searchQuery.isNotBlank()
     val displayedRegions = if (state.loading) emptyList() else PackCatalog.filterRegions(regions, searchQuery)
     androidx.compose.runtime.LaunchedEffect(Unit) { vm.refresh() }
-    LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    androidx.compose.runtime.LaunchedEffect(expandedRegionToReveal) {
+        expandedRegionToReveal?.let { region ->
+            val regionHeader = packListState.layoutInfo.visibleItemsInfo.firstOrNull {
+                it.key == "region-${region.manifestKey}"
+            }
+            if (regionHeader != null) {
+                val scrollDistance = (
+                    regionHeader.offset + regionHeader.size + firstRowRevealDistance -
+                        packListState.layoutInfo.viewportEndOffset
+                    ).coerceAtLeast(0f)
+                if (scrollDistance > 0f) {
+                    packListState.animateScrollBy(scrollDistance)
+                }
+            }
+            expandedRegionToReveal = null
+        }
+    }
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        state = packListState,
+        contentPadding = PaddingValues(start = 20.dp, top = 20.dp, end = 20.dp, bottom = 32.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
         item {
             Text("Offline data", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
             Text("Download offline locality data for all India, a region, or individual State/UT.")
@@ -981,6 +1026,8 @@ private fun PacksScreen(vm: PacksViewModel = viewModel()) {
         displayedRegions.forEach { displayedRegion ->
             val fullRegion = regions.first { it.region == displayedRegion.region }
             val expanded = searchActive || displayedRegion.region in expandedRegions
+            val installedRegionPacks = PackCatalog.installedPacks(fullRegion.packs, state.installed)
+            val regionBusy = state.batch != null || fullRegion.packs.any { state.activeDownloads.contains(it.id) }
             item(key = "region-${displayedRegion.region.manifestKey}") {
                 RegionDownloadCard(
                     regionPacks = fullRegion,
@@ -988,19 +1035,40 @@ private fun PacksScreen(vm: PacksViewModel = viewModel()) {
                     expanded = expanded,
                     expandable = !searchActive,
                     onToggle = {
-                        expandedRegions = if (displayedRegion.region in expandedRegions) expandedRegions - displayedRegion.region else expandedRegions + displayedRegion.region
+                        val wasExpanded = displayedRegion.region in expandedRegions
+                        expandedRegions = if (wasExpanded) expandedRegions - displayedRegion.region else expandedRegions + displayedRegion.region
+                        if (!wasExpanded) {
+                            expandedRegionToReveal = displayedRegion.region
+                        }
                     },
                     onDownload = { vm.downloadRegion(fullRegion.packs, fullRegion.region.displayName) },
+                    batchStartEnabled = state.batch == null && state.activeDownloads.isEmpty(),
+                    installedPackCount = installedRegionPacks.size,
+                    removeEnabled = !regionBusy,
+                    onRemoveRegion = installedRegionPacks.takeIf { it.isNotEmpty() }?.let { installedPacks ->
+                        { pendingRegionRemoval = RegionRemoval(fullRegion.region.displayName, installedPacks) }
+                    },
+                    onCancelBatch = vm::cancelBatchDownload,
                 )
             }
             if (expanded) {
+                item(key = "region-label-${displayedRegion.region.manifestKey}") {
+                    Text(
+                        text = "States / UTs in ${fullRegion.region.displayName}",
+                        modifier = Modifier.padding(start = 16.dp),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 items(displayedRegion.packs, key = RemotePack::id) { pack ->
                     StatePackRow(
                         pack = pack,
                         installedVersion = state.installed[pack.id]?.version,
                         progress = state.progress[pack.id],
+                        busy = state.activeDownloads.contains(pack.id),
                         batchActive = state.batch != null,
                         onDownload = { vm.download(pack) },
+                        onCancel = { vm.cancelDownload(pack.id) },
                         onRemoveRequested = { pendingRemoval = PackRemoval(pack.id, pack.name) },
                     )
                 }
@@ -1028,6 +1096,15 @@ private fun PacksScreen(vm: PacksViewModel = viewModel()) {
             onConfirm = { vm.remove(pack.id); pendingRemoval = null },
         )
     }
+    pendingRegionRemoval?.let { region ->
+        ConfirmationDialog(
+            title = "Remove ${region.name} data?",
+            message = "Remove the downloaded offline data for ${region.packs.size} State/UT ${if (region.packs.size == 1) "pack" else "packs"} in ${region.name}? You can download them again later.",
+            confirmLabel = "Remove",
+            onDismiss = { pendingRegionRemoval = null },
+            onConfirm = { vm.removeRegion(region.packs); pendingRegionRemoval = null },
+        )
+    }
 }
 
 @Composable
@@ -1040,57 +1117,95 @@ private fun IndiaDownloadCard(regions: List<RegionPacks>, state: PackUiState, vm
             Text("India", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             Text("${packs.size} State/UT packs", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(packSizeSummary(totals), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            BatchStatus(state.batch, "India")
+            BatchStatus(state.batch, "India", vm::cancelBatchDownload)
             if (required.isEmpty()) {
                 Text("All available packs are installed", fontWeight = FontWeight.SemiBold)
             } else {
-                Button(enabled = state.batch == null, onClick = vm::downloadAll) { Text(batchActionLabel(packs, state.installed, "Download all")) }
+                Button(enabled = state.batch == null && state.activeDownloads.isEmpty(), onClick = vm::downloadAll) { Text(batchActionLabel(packs, state.installed, "Download all")) }
             }
         }
     }
 }
 
 @Composable
-private fun RegionDownloadCard(regionPacks: RegionPacks, state: PackUiState, expanded: Boolean, expandable: Boolean, onToggle: () -> Unit, onDownload: () -> Unit) {
+private fun RegionDownloadCard(
+    regionPacks: RegionPacks,
+    state: PackUiState,
+    expanded: Boolean,
+    expandable: Boolean,
+    onToggle: () -> Unit,
+    onDownload: () -> Unit,
+    batchStartEnabled: Boolean,
+    installedPackCount: Int,
+    removeEnabled: Boolean,
+    onRemoveRegion: (() -> Unit)?,
+    onCancelBatch: () -> Unit,
+) {
     val required = PackCatalog.requiredPacks(regionPacks.packs, state.installed)
-    ElevatedCard(Modifier.fillMaxWidth()) {
+    val toggleLabel = if (expanded) "Collapse ${regionPacks.region.displayName}" else "Expand ${regionPacks.region.displayName}"
+    val containerColor = if (expanded) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerLow
+    val contentColor = if (expanded) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+    val supportingColor = if (expanded) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.78f) else MaterialTheme.colorScheme.onSurfaceVariant
+    ElevatedCard(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.elevatedCardColors(containerColor = containerColor, contentColor = contentColor),
+    ) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                modifier = if (expandable) {
+                    Modifier.fillMaxWidth().clickable(onClickLabel = toggleLabel, onClick = onToggle)
+                } else {
+                    Modifier.fillMaxWidth()
+                },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Column(Modifier.weight(1f)) {
                     Text(regionPacks.region.displayName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    Text("${regionPacks.packs.size} State/UT packs · ${packSizeSummary(regionPacks.totals)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("${regionPacks.packs.size} State/UT packs · ${packSizeSummary(regionPacks.totals)}", style = MaterialTheme.typography.bodySmall, color = supportingColor)
                 }
                 if (expandable) {
-                    IconButton(onClick = onToggle) {
-                        Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, if (expanded) "Collapse ${regionPacks.region.displayName}" else "Expand ${regionPacks.region.displayName}")
+                    Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, contentDescription = null)
+                }
+            }
+            BatchStatus(state.batch, regionPacks.region.displayName, onCancelBatch)
+            if (required.isEmpty()) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Installed", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
+                    onRemoveRegion?.let { OutlinedButton(enabled = removeEnabled, onClick = it) { Text("Remove region") } }
+                }
+            } else {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedButton(enabled = batchStartEnabled, onClick = onDownload) { Text(batchActionLabel(regionPacks.packs, state.installed, "Download region")) }
+                    if (installedPackCount > 0) {
+                        onRemoveRegion?.let { OutlinedButton(enabled = removeEnabled, onClick = it) { Text("Remove region") } }
                     }
                 }
             }
-            BatchStatus(state.batch, regionPacks.region.displayName)
-            if (required.isEmpty()) {
-                Text("Installed", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
-            } else {
-                OutlinedButton(enabled = state.batch == null, onClick = onDownload) { Text(batchActionLabel(regionPacks.packs, state.installed, "Download region")) }
-            }
         }
     }
 }
 
 @Composable
-private fun BatchStatus(batch: BatchDownloadProgress?, label: String) {
+private fun BatchStatus(batch: BatchDownloadProgress?, label: String, onCancel: () -> Unit) {
     if (batch?.label == label) {
         LinearProgressIndicator(progress = { batch.completed.toFloat() / batch.total }, modifier = Modifier.fillMaxWidth())
         Text("Downloading ${batch.completed + 1} of ${batch.total}: ${batch.currentPackName}", style = MaterialTheme.typography.bodySmall)
+        OutlinedButton(onClick = onCancel) { Text("Cancel download") }
     }
 }
 
 @Composable
-private fun StatePackRow(pack: RemotePack, installedVersion: Long?, progress: Int?, batchActive: Boolean, onDownload: () -> Unit, onRemoveRequested: () -> Unit) {
-    Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+private fun StatePackRow(pack: RemotePack, installedVersion: Long?, progress: Int?, busy: Boolean, batchActive: Boolean, onDownload: () -> Unit, onCancel: () -> Unit, onRemoveRequested: () -> Unit) {
+    Surface(
+        modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp),
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLowest,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+    ) {
         Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text("${pack.name} · ${formatPackBytes(pack.compressedBytes) ?: "Size unavailable"} (V${pack.version})", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                PackAction(pack.version, installedVersion, progress, batchActive, onDownload, onRemoveRequested)
+                PackAction(pack.version, installedVersion, progress, busy, batchActive, onDownload, onCancel, onRemoveRequested)
                 Text(formatPackBytes(pack.uncompressedBytes)?.let { "$it on device" } ?: "", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
@@ -1098,22 +1213,31 @@ private fun StatePackRow(pack: RemotePack, installedVersion: Long?, progress: In
 }
 
 @Composable
-private fun PackAction(remoteVersion: Long, installedVersion: Long?, progress: Int?, batchActive: Boolean, onDownload: () -> Unit, onRemoveRequested: () -> Unit) {
+private fun PackAction(remoteVersion: Long, installedVersion: Long?, progress: Int?, busy: Boolean, batchActive: Boolean, onDownload: () -> Unit, onCancel: () -> Unit, onRemoveRequested: () -> Unit) {
     when {
         progress != null -> {
-            Column {
-                LinearProgressIndicator(progress = { progress / 100f }, modifier = Modifier.fillMaxWidth(0.45f))
-                Text("Downloading $progress%", style = MaterialTheme.typography.bodySmall)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column {
+                    LinearProgressIndicator(progress = { progress / 100f }, modifier = Modifier.fillMaxWidth(0.45f))
+                    Text("Downloading $progress%", style = MaterialTheme.typography.bodySmall)
+                }
+                if (!batchActive) {
+                    OutlinedButton(onClick = onCancel) { Text("Cancel") }
+                }
             }
         }
-        installedVersion == null -> Button(enabled = !batchActive, onClick = onDownload) { Text("Download") }
+        busy && !batchActive -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("Starting download…", style = MaterialTheme.typography.bodySmall)
+            OutlinedButton(onClick = onCancel) { Text("Cancel") }
+        }
+        installedVersion == null -> Button(enabled = !batchActive && !busy, onClick = onDownload) { Text("Download") }
         installedVersion < remoteVersion -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Button(enabled = !batchActive, onClick = onDownload) { Text("Update") }
-            OutlinedButton(enabled = !batchActive, onClick = onRemoveRequested) { Text("Remove") }
+            Button(enabled = !batchActive && !busy, onClick = onDownload) { Text("Update") }
+            OutlinedButton(enabled = !batchActive && !busy, onClick = onRemoveRequested) { Text("Remove") }
         }
         else -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("Installed", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
-            OutlinedButton(enabled = !batchActive, onClick = onRemoveRequested) { Text("Remove") }
+            OutlinedButton(enabled = !batchActive && !busy, onClick = onRemoveRequested) { Text("Remove") }
         }
     }
 }
@@ -1198,7 +1322,11 @@ private fun JourneyScreen(vm: JourneyViewModel = viewModel()) {
             showLocationTurnOffReminder = activity?.takeLocationTurnOffReminder() == true
         }
     }
-    LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(start = 20.dp, top = 20.dp, end = 20.dp, bottom = 32.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
         item {
             Text("Journey", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
             Text("Records an entry only when the resolved locality changes.")
@@ -1298,6 +1426,7 @@ private fun formatJourneyTimestamp(timestamp: Long): String {
 }
 
 private data class PackRemoval(val id: String, val name: String)
+private data class RegionRemoval(val name: String, val packs: List<RemotePack>)
 
 @Composable
 private fun ConfirmationDialog(title: String, message: String, confirmLabel: String, onDismiss: () -> Unit, onConfirm: () -> Unit) {
