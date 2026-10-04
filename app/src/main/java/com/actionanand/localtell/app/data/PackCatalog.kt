@@ -37,6 +37,9 @@ object PackCatalog {
     fun requiredPacks(packs: Collection<RemotePack>, installed: Map<String, InstalledPack>): List<RemotePack> =
         packs.filter { needsDownload(it, installed) }
 
+    fun installedPacks(packs: Collection<RemotePack>, installed: Map<String, InstalledPack>): List<RemotePack> =
+        packs.filter { installed.containsKey(it.id) }
+
     /** Filters a display projection only; the authoritative region lists remain unchanged. */
     fun filterRegions(regions: List<RegionPacks>, query: String): List<RegionPacks> {
         val normalizedQuery = normalizeSearch(query)
