@@ -7,6 +7,8 @@ import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
 import android.os.Looper
+import android.os.SystemClock
+import android.util.Log
 import androidx.annotation.RequiresPermission
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -25,7 +27,10 @@ sealed interface GnssFixResult {
 class OneShotGnssLocator(private val context: Context) {
     companion object {
         const val MAX_ACCURACY_METRES = 50f
-        const val TIMEOUT_MS = 25_000L
+        const val RECENT_FIX_MAX_AGE_MS = 60_000L
+        const val TIMEOUT_MS = 45_000L
+        private const val NANOS_PER_MILLISECOND = 1_000_000L
+        private const val TAG = "OneShotGnssLocator"
     }
 
     private val manager = context.getSystemService(LocationManager::class.java)
@@ -40,6 +45,35 @@ class OneShotGnssLocator(private val context: Context) {
 
     @RequiresPermission(Manifest.permission.ACCESS_FINE_LOCATION)
     private suspend fun requestFixWithPermission(): GnssFixResult {
+        val lastKnown = try {
+            manager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
+        } catch (_: SecurityException) {
+            return GnssFixResult.PermissionMissing
+        } catch (error: Throwable) {
+            return GnssFixResult.Error(error)
+        }
+        lastKnown?.let { location ->
+            val nowNanos = SystemClock.elapsedRealtimeNanos()
+            val fixNanos = location.elapsedRealtimeNanos
+            val ageMillis = if (nowNanos > 0L && fixNanos > 0L && nowNanos >= fixNanos) {
+                (nowNanos - fixNanos) / NANOS_PER_MILLISECOND
+            } else {
+                null
+            }
+            if (GnssFixEligibility.isRecentPreciseFix(
+                    ageMillis = ageMillis,
+                    hasAccuracy = location.hasAccuracy(),
+                    accuracyMetres = location.accuracy,
+                    maxAccuracyMetres = MAX_ACCURACY_METRES,
+                    maxAgeMillis = RECENT_FIX_MAX_AGE_MS,
+                )
+            ) {
+                Log.d(TAG, "Recent GPS fix age=${ageMillis}ms accuracy=${location.accuracy}m; reused")
+                return GnssFixResult.Success(Location(location))
+            }
+            Log.d(TAG, "Last-known GPS fix not reusable; age=${ageMillis ?: "invalid"}ms accuracy=${if (location.hasAccuracy()) "${location.accuracy}m" else "unavailable"}")
+        }
+
         return withTimeoutOrNull(TIMEOUT_MS) {
             suspendCancellableCoroutine { continuation ->
                 lateinit var listener: LocationListener
@@ -50,7 +84,10 @@ class OneShotGnssLocator(private val context: Context) {
                 listener = object : LocationListener {
                     override fun onLocationChanged(location: Location) {
                         if (location.hasAccuracy() && location.accuracy <= MAX_ACCURACY_METRES) {
+                            Log.d(TAG, "GPS update accuracy=${location.accuracy}m; accepted")
                             finish(GnssFixResult.Success(Location(location)))
+                        } else {
+                            Log.d(TAG, "GPS update accuracy=${if (location.hasAccuracy()) "${location.accuracy}m" else "unavailable"}; waiting for <=${MAX_ACCURACY_METRES}m")
                         }
                     }
 
@@ -65,6 +102,9 @@ class OneShotGnssLocator(private val context: Context) {
                     finish(GnssFixResult.Error(error))
                 }
             }
-        } ?: GnssFixResult.Timeout
+        } ?: run {
+            Log.d(TAG, "GPS acquisition timed out after ${TIMEOUT_MS / 1_000L}s")
+            GnssFixResult.Timeout
+        }
     }
 }

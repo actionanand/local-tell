@@ -61,6 +61,7 @@
     <string name="home_sim_details_message">Allow phone access to show SIM slot and carrier details.</string>
     <string name="home_allow_sim_details">Allow SIM details</string>
     <string name="home_refresh_locality">Refresh locality</string>
+    <string name="home_accuracy">Accuracy ±%1$d m</string>
     <string name="home_loading_checking_location">Checking your location…</string>
     <string name="home_loading_finding_location">Finding your location…</string>
     <string name="home_loading_finding_locality">Finding your locality…</string>
@@ -71,4 +72,7 @@
     <string name="home_locality_unavailable_message">We couldn\'t identify the locality for this location.</string>
     <string name="home_offline_data_needed_title">Offline data needed</string>
     <string name="home_offline_data_needed_message">Download locality data for your State/UT from More → Offline Data.</string>
+    <string name="journey_waiting_precise_location">Waiting for a precise location…</string>
+    <string name="journey_location_off_tracking">Location is off. Turn on Location to continue tracking your locality.</string>
+    <string name="journey_location_setting_message">Turn on Location to continue tracking your locality.</string>
 </resources>

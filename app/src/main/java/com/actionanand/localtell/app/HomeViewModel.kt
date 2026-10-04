@@ -44,6 +44,7 @@ sealed interface HomeStatus {
         val locality: LocalityMatch?,
         val localityState: LocalityState,
         val legacyMatch: AreaMatch? = null,
+        val accuracyMetres: Float? = null,
     ) : HomeStatus {
         val cells: List<RadioCell> get() = subscriptions.flatMap(SubscriptionCells::cells)
     }
@@ -74,7 +75,12 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
                 val cached = localityCache.read()
                 val cachedPackInstalled = cached?.let { saved -> packs.all().any { it.id == saved.match.packId && it.version == saved.match.packVersion } } == true
                 if (LocalityCachePolicy.canReuse(cached, fingerprint, cachedPackInstalled)) {
-                    return@runCatching HomeStatus.Ready(subscriptions, cached!!.match, LocalityState.USING_RECENT_OFFLINE_LOCALITY)
+                    return@runCatching HomeStatus.Ready(
+                        subscriptions = subscriptions,
+                        locality = cached!!.match,
+                        localityState = LocalityState.USING_RECENT_OFFLINE_LOCALITY,
+                        accuracyMetres = cached.accuracyMetres,
+                    )
                 }
 
                 if (!withContext(Dispatchers.IO) { localityResolver.hasGeographicPack() }) {
@@ -88,7 +94,12 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
                         _status.value = HomeStatus.Loading(LocalityState.RESOLVING_OFFLINE_LOCALITY, subscriptions)
                         val locality = withContext(Dispatchers.IO) { localityResolver.resolve(fix.location.latitude, fix.location.longitude) }
                         if (locality != null && fingerprint != null) localityCache.save(locality, fix.location.accuracy, fingerprint)
-                        HomeStatus.Ready(subscriptions, locality, if (locality != null) LocalityState.LOCALITY_FOUND else LocalityState.NO_LOCALITY_MATCH)
+                        HomeStatus.Ready(
+                            subscriptions = subscriptions,
+                            locality = locality,
+                            localityState = if (locality != null) LocalityState.LOCALITY_FOUND else LocalityState.NO_LOCALITY_MATCH,
+                            accuracyMetres = fix.location.accuracy,
+                        )
                     }
                     GnssFixResult.Timeout -> HomeStatus.Ready(subscriptions, null, LocalityState.GNSS_TIMEOUT)
                     GnssFixResult.ProviderDisabled -> HomeStatus.Ready(subscriptions, null, LocalityState.GPS_DISABLED)
