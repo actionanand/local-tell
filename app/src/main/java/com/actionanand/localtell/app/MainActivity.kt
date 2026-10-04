@@ -111,6 +111,7 @@ import com.actionanand.localtell.app.ui.theme.ThemeMode
 import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.math.roundToInt
 
 class MainActivity : ComponentActivity() {
     private lateinit var locationEnablement: LocationEnablement
@@ -458,7 +459,16 @@ private fun HomeResults(
                 status.locality?.let { match ->
                     listOfNotNull(match.subDistrict, match.district, match.state).distinct().takeIf { it.isNotEmpty() }?.let { Text(it.joinToString(", ")) }
                     Text("Offline pack ${match.packId} · ${match.sourceQuality.replace('-', ' ')}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    if (status.localityState == LocalityState.USING_RECENT_OFFLINE_LOCALITY) Text("Recent offline locality", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                status.accuracyMetres?.let { accuracy ->
+                    Text(
+                        stringResource(R.string.home_accuracy, accuracy.roundToInt()),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (status.localityState == LocalityState.USING_RECENT_OFFLINE_LOCALITY) {
+                    Text("Recent offline locality", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 if (status.localityState == LocalityState.NO_GEOGRAPHIC_PACK) {
                     status.legacyMatch?.let { Text("Legacy cell-pack estimate: ${it.areaName}", style = MaterialTheme.typography.bodySmall) }
@@ -879,7 +889,7 @@ private fun JourneyScreen(vm: JourneyViewModel = viewModel()) {
             Text("Journey", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
             Text("Records an entry only when the resolved locality changes.")
             if (!hasFineLocation) { Spacer(Modifier.height(8.dp)); InfoCard("Cell permission required", "Allow cell access on the Home tab before starting Journey mode.") }
-            else if (!locationEnabled) { Spacer(Modifier.height(8.dp)); InfoCard("Location setting required", "Android requires the Location switch for cellular identity and on-device GNSS locality fixes.") }
+            else if (!locationEnabled) { Spacer(Modifier.height(8.dp)); InfoCard("Location setting required", stringResource(R.string.journey_location_setting_message)) }
             if (tracking.mode != JourneyTrackingMode.STOPPED) {
                 Spacer(Modifier.height(8.dp))
                 TrackingStatusCard(tracking.mode, tracking.localityName, tracking.lastCheckedAt, tracking.detail)

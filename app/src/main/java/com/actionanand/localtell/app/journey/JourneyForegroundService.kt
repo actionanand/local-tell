@@ -125,8 +125,8 @@ class JourneyForegroundService : Service() {
                     JourneyHistoryChanges.changed()
                 }
             }
-            GnssFixResult.Timeout -> publish(JourneyTrackingMode.WAITING_FOR_LOCALITY, "Waiting for a usable GNSS fix…")
-            GnssFixResult.ProviderDisabled -> publish(JourneyTrackingMode.GPS_DISABLED, "GPS is off. Enable Location to continue tracking.")
+            GnssFixResult.Timeout -> publish(JourneyTrackingMode.WAITING_FOR_LOCALITY, getString(R.string.journey_waiting_precise_location))
+            GnssFixResult.ProviderDisabled -> publish(JourneyTrackingMode.GPS_DISABLED, getString(R.string.journey_location_off_tracking))
             GnssFixResult.PermissionMissing -> publish(JourneyTrackingMode.PERMISSION_REQUIRED, "Fine location permission is required.")
             is GnssFixResult.Error -> publish(JourneyTrackingMode.WAITING_FOR_LOCALITY, "Waiting for locality…")
         }
