@@ -32,6 +32,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.BrightnessAuto
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DarkMode
@@ -179,7 +180,11 @@ private fun LocalTellApp(defaultTab: RootTab, themeMode: ThemeMode, onThemeModeC
 @Composable
 private fun MoreChild(onBack: () -> Unit, content: @Composable () -> Unit) {
     Column(Modifier.fillMaxSize()) {
-        TextButton(onClick = onBack) { Text(stringResource(R.string.more_back)) }
+        TextButton(onClick = onBack) {
+            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
+            Spacer(Modifier.padding(3.dp))
+            Text(stringResource(R.string.more_back))
+        }
         Box(Modifier.weight(1f)) { content() }
     }
 }
@@ -246,6 +251,12 @@ private fun EasyScreen(vm: EasyViewModel = viewModel()) {
         item {
             Text(stringResource(R.string.easy_share_title), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             Button(enabled = !state.locating, onClick = ::requestLocation) { Text(if (state.locating) stringResource(R.string.easy_getting_location) else stringResource(R.string.easy_get_location)) }
+            if (state.locating) {
+                LocationWaitingAnimation(
+                    message = stringResource(R.string.home_loading_finding_location),
+                    modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                )
+            }
         }
         state.currentLocation?.let { location -> item { EasyLocationCard(location, showAccuracy = true, onSpeak = {
             if (ttsReady) speaker.speak(location.encoded.numericCode.filter(Char::isDigit).map { it.toString() }.joinToString(" "), TextToSpeech.QUEUE_FLUSH, null, "localtell-number") else Toast.makeText(context, R.string.easy_tts_unavailable, Toast.LENGTH_SHORT).show()
@@ -583,6 +594,16 @@ private fun RefreshLocalityButton(enabled: Boolean, onRefresh: () -> Unit) {
 
 @Composable
 private fun LocationLoadingState(state: LocalityState) {
+    ElevatedCard(Modifier.fillMaxWidth()) {
+        LocationWaitingAnimation(
+            message = localityProgressText(state),
+            modifier = Modifier.padding(22.dp),
+        )
+    }
+}
+
+@Composable
+private fun LocationWaitingAnimation(message: String, modifier: Modifier = Modifier) {
     val transition = rememberInfiniteTransition(label = "location_loading")
     val lineFraction by transition.animateFloat(
         initialValue = 0.28f,
@@ -590,28 +611,26 @@ private fun LocationLoadingState(state: LocalityState) {
         animationSpec = infiniteRepeatable(animation = tween(900), repeatMode = RepeatMode.Reverse),
         label = "location_loading_line",
     )
-    ElevatedCard(Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(22.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Icon(
-                imageVector = Icons.Default.LocationOn,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(28.dp),
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Icon(
+            imageVector = Icons.Default.LocationOn,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(28.dp),
+        )
+        Box(Modifier.fillMaxWidth().height(6.dp), contentAlignment = Alignment.Center) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(lineFraction).height(3.dp),
+                color = MaterialTheme.colorScheme.primary,
+                shape = RoundedCornerShape(2.dp),
+                content = {},
             )
-            Box(Modifier.fillMaxWidth().height(6.dp), contentAlignment = Alignment.Center) {
-                Surface(
-                    modifier = Modifier.fillMaxWidth(lineFraction).height(3.dp),
-                    color = MaterialTheme.colorScheme.primary,
-                    shape = RoundedCornerShape(2.dp),
-                    content = {},
-                )
-            }
-            Text(localityProgressText(state), style = MaterialTheme.typography.bodyMedium)
         }
+        Text(message, style = MaterialTheme.typography.bodyMedium)
     }
 }
 
@@ -1030,6 +1049,17 @@ private fun TrackingStatusCard(mode: JourneyTrackingMode, localityName: String?,
                 },
                 fontWeight = FontWeight.Bold,
             )
+            if (mode in setOf(
+                    JourneyTrackingMode.STARTING,
+                    JourneyTrackingMode.ACQUIRING_LOCALITY,
+                    JourneyTrackingMode.WAITING_FOR_LOCALITY,
+                )
+            ) {
+                LocationWaitingAnimation(
+                    message = stringResource(R.string.home_loading_finding_location),
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                )
+            }
             localityName?.let { Text("Current locality: $it") }
             lastCheckedAt?.let { Text("Last checked: ${DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(it))}", style = MaterialTheme.typography.bodySmall) }
             detail?.takeUnless { it == "Acquiring locality…" }?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
