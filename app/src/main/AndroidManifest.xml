@@ -12,8 +12,6 @@
 
     <queries>
         <package android:name="com.ubercab" />
-        <package android:name="com.olacabs.customer" />
-        <package android:name="com.rapido.passenger" />
     </queries>
 
     <application

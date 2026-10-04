@@ -76,6 +76,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -112,6 +113,8 @@ import com.actionanand.localtell.app.model.SubscriptionCells
 import com.actionanand.localtell.app.survey.TowerSurveyScreen
 import com.actionanand.localtell.app.ui.theme.LocalTellTheme
 import com.actionanand.localtell.app.ui.theme.ThemeMode
+import com.actionanand.localtell.app.ui.SignalQuality
+import com.actionanand.localtell.app.ui.signalVisual
 import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
@@ -333,18 +336,34 @@ private fun EasyLocationCard(location: EasyLocation, showAccuracy: Boolean, onSp
 @Composable
 private fun RideActions(context: Context, location: EasyLocation) {
     val destination = RideDestination(location.encoded.latitude, location.encoded.longitude, context.getString(R.string.easy_location_label), location.locality?.localityName ?: MapLinkBuilder.coordinateText(location.encoded.latitude, location.encoded.longitude))
-    val uberName = stringResource(R.string.easy_uber)
-    val olaName = stringResource(R.string.easy_ola)
-    val rapidoName = stringResource(R.string.easy_rapido)
+    var showUberChoice by remember { mutableStateOf(false) }
     ElevatedCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(stringResource(R.string.easy_ride_title), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = { launchUber(context, destination) }) { Text(uberName) }
-                OutlinedButton(onClick = { launchCopyThenApp(context, RideLinkBuilder.OLA_PACKAGE, olaName, destination) }) { Text(olaName) }
-                OutlinedButton(onClick = { launchCopyThenApp(context, RideLinkBuilder.RAPIDO_PACKAGE, rapidoName, destination) }) { Text(rapidoName) }
-            }
+            OutlinedButton(onClick = { showUberChoice = true }) { Text(stringResource(R.string.easy_uber)) }
         }
+    }
+    if (showUberChoice) {
+        AlertDialog(
+            onDismissRequest = { showUberChoice = false },
+            title = { Text(stringResource(R.string.easy_uber_choice_title)) },
+            text = { Text(stringResource(R.string.easy_uber_choice_message)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    showUberChoice = false
+                    launchUberAsDestination(context, destination)
+                }) { Text(stringResource(R.string.easy_uber_destination)) }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(onClick = {
+                        showUberChoice = false
+                        launchUberAsPickup(context, destination)
+                    }) { Text(stringResource(R.string.easy_uber_pickup)) }
+                    TextButton(onClick = { showUberChoice = false }) { Text(stringResource(R.string.cancel)) }
+                }
+            },
+        )
     }
 }
 
@@ -375,15 +394,23 @@ private fun openMaps(context: Context, location: EasyLocation) {
     runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, MapLinkBuilder.googleMaps(location.encoded.latitude, location.encoded.longitude))) }.onFailure { Toast.makeText(context, R.string.easy_maps_unavailable, Toast.LENGTH_SHORT).show() }
 }
 
-private fun launchUber(context: Context, destination: RideDestination) {
-    runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, RideLinkBuilder.uber(destination)).setPackage(RideLinkBuilder.UBER_PACKAGE)) }.onFailure { Toast.makeText(context, context.getString(R.string.easy_ride_unavailable, context.getString(R.string.easy_uber)), Toast.LENGTH_SHORT).show() }
+private fun launchUberAsDestination(context: Context, destination: RideDestination) {
+    launchUber(context, RideLinkBuilder.uberAsDestination(destination))
 }
 
-private fun launchCopyThenApp(context: Context, packageName: String, providerName: String, destination: RideDestination) {
-    copyText(context, "${MapLinkBuilder.coordinateText(destination.latitude, destination.longitude)}\n${MapLinkBuilder.googleMaps(destination.latitude, destination.longitude)}")
-    val launch = context.packageManager.getLaunchIntentForPackage(packageName)
-    if (launch != null) context.startActivity(launch) else Toast.makeText(context, context.getString(R.string.easy_ride_unavailable, providerName), Toast.LENGTH_SHORT).show()
-    Toast.makeText(context, context.getString(R.string.easy_destination_copied, providerName), Toast.LENGTH_SHORT).show()
+private fun launchUberAsPickup(context: Context, location: RideDestination) {
+    launchUber(context, RideLinkBuilder.uberAsPickup(location))
+}
+
+private fun launchUber(context: Context, uri: android.net.Uri) {
+    runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, uri).setPackage(RideLinkBuilder.UBER_PACKAGE)) }
+        .onFailure {
+            Toast.makeText(
+                context,
+                context.getString(R.string.easy_ride_unavailable, context.getString(R.string.easy_uber)),
+                Toast.LENGTH_SHORT,
+            ).show()
+        }
 }
 
 @Composable
@@ -724,15 +751,61 @@ private fun CellCard(heading: String, cell: RadioCell) {
         cell.sinr?.let { add("${if (cell.radio == "NR") "SS-SINR" else "RSSNR"} $it dB") }
     }
     val details = buildList {
-        add("${cell.radio} · ${if (cell.registered) "Registered" else "Available"}")
         add("MCC ${cell.mcc} · MNC ${cell.mnc} · PLMN ${cell.plmn}")
         add("$areaLabel ${cell.areaCode ?: "—"} · $cellIdentityLabel ${cell.cellId}")
         if (radioMeasurements.isNotEmpty()) add(radioMeasurements.joinToString(" · "))
         if (signalMeasurements.isNotEmpty()) add(signalMeasurements.joinToString(" · "))
         else cell.dbm?.let { add("Signal $it dBm") }
         cell.timingAdvance?.let { add("Timing advance $it") }
-    }.joinToString("\n")
-    InfoCard(heading, details)
+    }
+    ElevatedCard(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(heading, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text("${cell.radio} · ${if (cell.registered) "Registered" else "Available"}")
+            SignalStrengthIndicator(cell)
+            details.forEach { Text(it) }
+        }
+    }
+}
+
+@Composable
+private fun SignalStrengthIndicator(cell: RadioCell) {
+    val signal = signalVisual(cell) ?: return
+    val color = when (signal.quality) {
+        SignalQuality.EXCELLENT -> Color(0xFF1B5E20)
+        SignalQuality.GOOD -> Color(0xFF2E7D32)
+        SignalQuality.FAIR -> Color(0xFFF9A825)
+        SignalQuality.WEAK -> Color(0xFFEF6C00)
+        SignalQuality.VERY_WEAK -> Color(0xFFC62828)
+    }
+    val qualityText = when (signal.quality) {
+        SignalQuality.EXCELLENT -> stringResource(R.string.signal_excellent)
+        SignalQuality.GOOD -> stringResource(R.string.signal_good)
+        SignalQuality.FAIR -> stringResource(R.string.signal_fair)
+        SignalQuality.WEAK -> stringResource(R.string.signal_weak)
+        SignalQuality.VERY_WEAK -> stringResource(R.string.signal_very_weak)
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(stringResource(R.string.signal_strength), style = MaterialTheme.typography.labelLarge)
+        Text(
+            text = "$qualityText · ${signal.dbm} dBm",
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Box(Modifier.fillMaxWidth().height(6.dp)) {
+            Surface(
+                modifier = Modifier.fillMaxSize(),
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                shape = RoundedCornerShape(3.dp),
+                content = {},
+            )
+            Surface(
+                modifier = Modifier.fillMaxWidth(signal.progress).height(6.dp),
+                color = color,
+                shape = RoundedCornerShape(3.dp),
+                content = {},
+            )
+        }
+    }
 }
 
 @Composable

@@ -17,17 +17,32 @@ object MapLinkBuilder {
 
 object RideLinkBuilder {
     const val UBER_PACKAGE = "com.ubercab"
-    const val OLA_PACKAGE = "com.olacabs.customer"
-    const val RAPIDO_PACKAGE = "com.rapido.passenger"
 
-    /** Standard Uber set-pickup link: pickup=my_location lets Uber choose the rider's pickup. */
-    fun uber(destination: RideDestination): Uri = Uri.Builder()
-        .scheme("uber")
-        .authority("riderequest")
-        .appendQueryParameter("pickup", "my_location")
-        .appendQueryParameter("dropoff[latitude]", destination.latitude.toString())
-        .appendQueryParameter("dropoff[longitude]", destination.longitude.toString())
-        .appendQueryParameter("dropoff[nickname]", destination.label)
-        .appendQueryParameter("dropoff[formatted_address]", destination.address)
-        .build()
+    /** Lets Uber determine the rider's pickup and uses the LocalTell location as destination. */
+    fun uberAsDestination(destination: RideDestination): Uri = Uri.parse(uberAsDestinationUrl(destination))
+
+    /** Uses the LocalTell location as Uber pickup, leaving destination selection to the rider. */
+    fun uberAsPickup(location: RideDestination): Uri = Uri.parse(uberAsPickupUrl(location))
+
+    fun uberAsDestinationUrl(destination: RideDestination): String = uberUrl(
+        "pickup" to "my_location",
+        "dropoff[latitude]" to destination.latitude.toString(),
+        "dropoff[longitude]" to destination.longitude.toString(),
+        "dropoff[nickname]" to destination.label,
+        "dropoff[formatted_address]" to destination.address,
+    )
+
+    fun uberAsPickupUrl(location: RideDestination): String = uberUrl(
+        "pickup[latitude]" to location.latitude.toString(),
+        "pickup[longitude]" to location.longitude.toString(),
+        "pickup[nickname]" to location.label,
+        "pickup[formatted_address]" to location.address,
+    )
+
+    private fun uberUrl(vararg parameters: Pair<String, String>): String =
+        "uber://riderequest?" + parameters.joinToString("&") { (name, value) ->
+            val encodedName = URLEncoder.encode(name, "UTF-8")
+            val encodedValue = URLEncoder.encode(value, "UTF-8")
+            "$encodedName=$encodedValue"
+        }
 }
