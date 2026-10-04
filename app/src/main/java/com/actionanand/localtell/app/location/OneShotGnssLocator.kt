@@ -13,10 +13,12 @@ import androidx.annotation.RequiresPermission
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.coroutines.resume
 
 sealed interface GnssFixResult {
-    data class Success(val location: Location) : GnssFixResult
+    data class Precise(val location: Location) : GnssFixResult
+    data class Approximate(val location: Location) : GnssFixResult
     data object Timeout : GnssFixResult
     data object ProviderDisabled : GnssFixResult
     data object PermissionMissing : GnssFixResult
@@ -52,6 +54,7 @@ class OneShotGnssLocator(private val context: Context) {
         } catch (error: Throwable) {
             return GnssFixResult.Error(error)
         }
+        var recentApproximate: Location? = null
         lastKnown?.let { location ->
             val nowNanos = SystemClock.elapsedRealtimeNanos()
             val fixNanos = location.elapsedRealtimeNanos
@@ -69,11 +72,19 @@ class OneShotGnssLocator(private val context: Context) {
                 )
             ) {
                 Log.d(TAG, "Recent GPS fix age=${ageMillis}ms accuracy=${location.accuracy}m; reused")
-                return GnssFixResult.Success(Location(location))
+                return GnssFixResult.Precise(Location(location))
+            }
+            if (
+                ageMillis != null && ageMillis in 0..RECENT_FIX_MAX_AGE_MS &&
+                LocationAccuracy.classify(location.hasAccuracy(), location.accuracy) == LocationQuality.APPROXIMATE
+            ) {
+                recentApproximate = Location(location)
+                Log.d(TAG, "Recent GPS fix age=${ageMillis}ms accuracy=${location.accuracy}m; retained as approximate candidate")
             }
             Log.d(TAG, "Last-known GPS fix not reusable; age=${ageMillis ?: "invalid"}ms accuracy=${if (location.hasAccuracy()) "${location.accuracy}m" else "unavailable"}")
         }
 
+        val bestApproximate = AtomicReference(recentApproximate)
         return withTimeoutOrNull(TIMEOUT_MS) {
             suspendCancellableCoroutine { continuation ->
                 lateinit var listener: LocationListener
@@ -83,11 +94,19 @@ class OneShotGnssLocator(private val context: Context) {
                 }
                 listener = object : LocationListener {
                     override fun onLocationChanged(location: Location) {
-                        if (location.hasAccuracy() && location.accuracy <= MAX_ACCURACY_METRES) {
-                            Log.d(TAG, "GPS update accuracy=${location.accuracy}m; accepted")
-                            finish(GnssFixResult.Success(Location(location)))
-                        } else {
-                            Log.d(TAG, "GPS update accuracy=${if (location.hasAccuracy()) "${location.accuracy}m" else "unavailable"}; waiting for <=${MAX_ACCURACY_METRES}m")
+                        when (LocationAccuracy.classify(location.hasAccuracy(), location.accuracy)) {
+                            LocationQuality.PRECISE -> {
+                                Log.d(TAG, "GPS update accuracy=${location.accuracy}m; precise location accepted")
+                                finish(GnssFixResult.Precise(Location(location)))
+                            }
+                            LocationQuality.APPROXIMATE -> {
+                                val current = bestApproximate.get()
+                                if (LocationAccuracy.isBetterApproximate(location.accuracy, current?.accuracy)) {
+                                    bestApproximate.set(Location(location))
+                                    Log.d(TAG, "GPS update accuracy=${location.accuracy}m; retained as approximate candidate")
+                                }
+                            }
+                            null -> Log.d(TAG, "GPS update accuracy=${if (location.hasAccuracy()) "${location.accuracy}m" else "unavailable"}; rejected")
                         }
                     }
 
@@ -104,7 +123,7 @@ class OneShotGnssLocator(private val context: Context) {
             }
         } ?: run {
             Log.d(TAG, "GPS acquisition timed out after ${TIMEOUT_MS / 1_000L}s")
-            GnssFixResult.Timeout
+            bestApproximate.get()?.let(GnssFixResult::Approximate) ?: GnssFixResult.Timeout
         }
     }
 }

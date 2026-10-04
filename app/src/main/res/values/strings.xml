@@ -75,4 +75,14 @@
     <string name="journey_waiting_precise_location">Waiting for a precise location…</string>
     <string name="journey_location_off_tracking">Location is off. Turn on Location to continue tracking your locality.</string>
     <string name="journey_location_setting_message">Turn on Location to continue tracking your locality.</string>
+    <string name="location_approximate_locality">Approximate locality</string>
+    <string name="location_source">Source: %1$s</string>
+    <string name="location_source_gps">GPS</string>
+    <string name="location_source_assisted">Assisted location</string>
+    <string name="location_improve_title">Improve location accuracy?</string>
+    <string name="location_improve_message">We couldn\'t determine your location precisely. Connect to Wi-Fi or mobile data to improve indoor location detection.</string>
+    <string name="location_use_assisted">Use assisted location</string>
+    <string name="location_stay_offline">Stay offline</string>
+    <string name="location_assisted_fallback">Could not improve location. Showing the best available offline estimate.</string>
+    <string name="location_connect_network">Connect to Wi-Fi or mobile data to improve indoor location detection.</string>
 </resources>
