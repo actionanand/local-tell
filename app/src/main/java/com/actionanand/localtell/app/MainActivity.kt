@@ -1144,18 +1144,18 @@ private fun PacksScreen(vm: PacksViewModel = viewModel()) {
     }
     pendingRemoval?.let { pack ->
         ConfirmationDialog(
-            title = "Remove offline data?",
-            message = "Remove the downloaded offline data for ${pack.name}? You will need to download it again to use locality lookup offline.",
-            confirmLabel = "Remove",
+            title = stringResource(R.string.offline_remove_pack_title),
+            message = stringResource(R.string.offline_remove_pack_message, pack.name),
+            confirmLabel = stringResource(R.string.offline_remove),
             onDismiss = { pendingRemoval = null },
             onConfirm = { vm.remove(pack.id); pendingRemoval = null },
         )
     }
     pendingRegionRemoval?.let { region ->
         ConfirmationDialog(
-            title = "Remove ${region.name} data?",
-            message = "Remove the downloaded offline data for ${region.packs.size} State/UT ${if (region.packs.size == 1) "pack" else "packs"} in ${region.name}? You can download them again later.",
-            confirmLabel = "Remove",
+            title = stringResource(R.string.offline_remove_region_title, region.name),
+            message = stringResource(R.string.offline_remove_region_message, region.packs.size, region.name),
+            confirmLabel = stringResource(R.string.offline_remove),
             onDismiss = { pendingRegionRemoval = null },
             onConfirm = { vm.removeRegion(region.packs); pendingRegionRemoval = null },
         )

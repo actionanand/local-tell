@@ -162,4 +162,8 @@
     <string name="offline_error_refresh">Unable to refresh offline data right now. Installed packs remain available offline.</string>
     <string name="offline_error_download">Unable to download this offline data pack. Check your internet connection and try again.</string>
     <string name="offline_error_batch">Unable to download %1$s. Successfully downloaded packs remain available offline.</string>
+    <string name="offline_remove_pack_title">Remove offline data?</string>
+    <string name="offline_remove_pack_message">Remove the downloaded offline data for %1$s? You will need to download it again to use locality lookup offline.</string>
+    <string name="offline_remove_region_title">Remove %1$s data?</string>
+    <string name="offline_remove_region_message">Remove the downloaded offline data for %1$d State/UT packs in %2$s? You can download them again later.</string>
 </resources>

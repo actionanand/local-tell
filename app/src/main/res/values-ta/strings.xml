@@ -162,4 +162,8 @@
     <string name="offline_error_refresh">இப்போது இணையமில்லா தரவைப் புதுப்பிக்க முடியவில்லை. நிறுவிய தொகுப்புகள் இணையமில்லாமல் கிடைக்கும்.</string>
     <string name="offline_error_download">இந்த இணையமில்லா தரவுத் தொகுப்பைப் பதிவிறக்க முடியவில்லை. இணைய இணைப்பைச் சரிபார்த்து மீண்டும் முயற்சிக்கவும்.</string>
     <string name="offline_error_batch">%1$s-ஐ பதிவிறக்க முடியவில்லை. வெற்றிகரமாகப் பதிவிறக்கிய தொகுப்புகள் இணையமில்லாமல் கிடைக்கும்.</string>
+    <string name="offline_remove_pack_title">இணையமில்லா தரவை அகற்றவா?</string>
+    <string name="offline_remove_pack_message">%1$s-க்கான பதிவிறக்கிய இணையமில்லா தரவை அகற்றவா? இணையமில்லா பகுதி தேடலுக்காக இதை மீண்டும் பதிவிறக்க வேண்டும்.</string>
+    <string name="offline_remove_region_title">%1$s தரவை அகற்றவா?</string>
+    <string name="offline_remove_region_message">%2$s-இல் உள்ள %1$d மாநிலம்/UT தொகுப்புகளின் பதிவிறக்கிய இணையமில்லா தரவை அகற்றவா? அவற்றை பின்னர் மீண்டும் பதிவிறக்கலாம்.</string>
 </resources>
