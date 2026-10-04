@@ -7,6 +7,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.speech.tts.TextToSpeech
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
@@ -32,6 +33,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.BrightnessAuto
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DarkMode
@@ -75,6 +77,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -111,6 +114,8 @@ import com.actionanand.localtell.app.model.SubscriptionCells
 import com.actionanand.localtell.app.survey.TowerSurveyScreen
 import com.actionanand.localtell.app.ui.theme.LocalTellTheme
 import com.actionanand.localtell.app.ui.theme.ThemeMode
+import com.actionanand.localtell.app.ui.SignalQuality
+import com.actionanand.localtell.app.ui.signalVisual
 import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
@@ -118,6 +123,8 @@ import kotlin.math.roundToInt
 
 class MainActivity : ComponentActivity() {
     private lateinit var locationEnablement: LocationEnablement
+    var locationWasEnabledByLocalTell by mutableStateOf(false)
+        private set
 
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
@@ -139,11 +146,36 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         if (::locationEnablement.isInitialized) locationEnablement.onResume()
+        if (::locationEnablement.isInitialized && !locationEnablement.isEnabled()) {
+            locationWasEnabledByLocalTell = false
+        }
     }
 
     fun isLocationEnabled(): Boolean = locationEnablement.isEnabled()
 
-    fun requestLocationEnable(onEnabled: () -> Unit) = locationEnablement.requestEnable(onEnabled)
+    fun requestLocationEnable(onEnabled: () -> Unit) {
+        val locationWasOff = !isLocationEnabled()
+        locationEnablement.requestEnable {
+            if (locationWasOff && isLocationEnabled()) {
+                locationWasEnabledByLocalTell = true
+            }
+            onEnabled()
+        }
+    }
+
+    fun takeLocationTurnOffReminder(): Boolean {
+        if (!isLocationEnabled()) {
+            locationWasEnabledByLocalTell = false
+            return false
+        }
+        if (!locationWasEnabledByLocalTell) return false
+        locationWasEnabledByLocalTell = false
+        return true
+    }
+
+    fun openLocationSettings() {
+        startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
+    }
 }
 
 private enum class RootTab { HOME, EASY, MORE }
@@ -179,7 +211,11 @@ private fun LocalTellApp(defaultTab: RootTab, themeMode: ThemeMode, onThemeModeC
 @Composable
 private fun MoreChild(onBack: () -> Unit, content: @Composable () -> Unit) {
     Column(Modifier.fillMaxSize()) {
-        TextButton(onClick = onBack) { Text(stringResource(R.string.more_back)) }
+        TextButton(onClick = onBack) {
+            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
+            Spacer(Modifier.padding(3.dp))
+            Text(stringResource(R.string.more_back))
+        }
         Box(Modifier.weight(1f)) { content() }
     }
 }
@@ -217,20 +253,72 @@ private fun EasyScreen(vm: EasyViewModel = viewModel()) {
     var defaultEasy by remember { mutableStateOf(preferences.getString("default_root_tab", "HOME") == "EASY") }
     var findInput by rememberSaveable { mutableStateOf("") }
     var ttsReady by remember { mutableStateOf(false) }
+    var locationRequestAwaitingResult by remember { mutableStateOf(false) }
+    var locationRequestObservedInFlight by remember { mutableStateOf(false) }
+    var locationBeforeRequest by remember { mutableStateOf<EasyLocation?>(null) }
+    var showLocationTurnOffReminder by remember { mutableStateOf(false) }
     val speaker = remember { TextToSpeech(context.applicationContext) { ttsReady = it == TextToSpeech.SUCCESS } }
     DisposableEffect(speaker) { onDispose { speaker.shutdown() } }
+    fun beginLocationRequest() {
+        locationBeforeRequest = state.currentLocation
+        locationRequestAwaitingResult = true
+        locationRequestObservedInFlight = false
+        vm.getMyLocation()
+    }
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
-        if (granted[Manifest.permission.ACCESS_FINE_LOCATION] == true) vm.getMyLocation()
+        if (granted[Manifest.permission.ACCESS_FINE_LOCATION] == true) {
+            beginLocationRequest()
+        }
     }
     fun requestLocation() {
         when {
             !hasPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) -> permissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION))
-            activity?.isLocationEnabled() == false -> activity.requestLocationEnable { if (activity.isLocationEnabled()) vm.getMyLocation() }
-            else -> vm.getMyLocation()
+            activity?.isLocationEnabled() == false -> activity.requestLocationEnable {
+                if (activity.isLocationEnabled()) {
+                    beginLocationRequest()
+                }
+            }
+            else -> beginLocationRequest()
+        }
+    }
+    androidx.compose.runtime.LaunchedEffect(
+        state.locating,
+        state.currentLocation,
+        state.pendingLocationChoice,
+        state.error,
+        locationRequestAwaitingResult,
+        locationRequestObservedInFlight,
+    ) {
+        if (!locationRequestAwaitingResult) return@LaunchedEffect
+        if (state.locating) {
+            locationRequestObservedInFlight = true
+            return@LaunchedEffect
+        }
+        if (state.pendingLocationChoice != null) return@LaunchedEffect
+        if (state.currentLocation !== locationBeforeRequest) {
+            locationRequestAwaitingResult = false
+            locationRequestObservedInFlight = false
+            locationBeforeRequest = null
+            showLocationTurnOffReminder = activity?.takeLocationTurnOffReminder() == true
+        } else if (!locationRequestObservedInFlight) {
+            return@LaunchedEffect
+        } else if (state.error != null) {
+            locationRequestAwaitingResult = false
+            locationRequestObservedInFlight = false
+            locationBeforeRequest = null
         }
     }
     state.pendingLocationChoice?.let {
         ImproveLocationDialog(onUseAssisted = vm::useAssistedLocation, onStayOffline = vm::useApproximateLocation)
+    }
+    if (showLocationTurnOffReminder) {
+        LocationTurnOffReminder(
+            onKeepOn = { showLocationTurnOffReminder = false },
+            onOpenSettings = {
+                showLocationTurnOffReminder = false
+                activity?.openLocationSettings()
+            },
+        )
     }
     LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item {
@@ -246,6 +334,12 @@ private fun EasyScreen(vm: EasyViewModel = viewModel()) {
         item {
             Text(stringResource(R.string.easy_share_title), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             Button(enabled = !state.locating, onClick = ::requestLocation) { Text(if (state.locating) stringResource(R.string.easy_getting_location) else stringResource(R.string.easy_get_location)) }
+            if (state.locating) {
+                LocationWaitingAnimation(
+                    message = stringResource(R.string.home_loading_finding_location),
+                    modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                )
+            }
         }
         state.currentLocation?.let { location -> item { EasyLocationCard(location, showAccuracy = true, onSpeak = {
             if (ttsReady) speaker.speak(location.encoded.numericCode.filter(Char::isDigit).map { it.toString() }.joinToString(" "), TextToSpeech.QUEUE_FLUSH, null, "localtell-number") else Toast.makeText(context, R.string.easy_tts_unavailable, Toast.LENGTH_SHORT).show()
@@ -322,18 +416,34 @@ private fun EasyLocationCard(location: EasyLocation, showAccuracy: Boolean, onSp
 @Composable
 private fun RideActions(context: Context, location: EasyLocation) {
     val destination = RideDestination(location.encoded.latitude, location.encoded.longitude, context.getString(R.string.easy_location_label), location.locality?.localityName ?: MapLinkBuilder.coordinateText(location.encoded.latitude, location.encoded.longitude))
-    val uberName = stringResource(R.string.easy_uber)
-    val olaName = stringResource(R.string.easy_ola)
-    val rapidoName = stringResource(R.string.easy_rapido)
+    var showUberChoice by remember { mutableStateOf(false) }
     ElevatedCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(stringResource(R.string.easy_ride_title), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = { launchUber(context, destination) }) { Text(uberName) }
-                OutlinedButton(onClick = { launchCopyThenApp(context, RideLinkBuilder.OLA_PACKAGE, olaName, destination) }) { Text(olaName) }
-                OutlinedButton(onClick = { launchCopyThenApp(context, RideLinkBuilder.RAPIDO_PACKAGE, rapidoName, destination) }) { Text(rapidoName) }
-            }
+            OutlinedButton(onClick = { showUberChoice = true }) { Text(stringResource(R.string.easy_uber)) }
         }
+    }
+    if (showUberChoice) {
+        AlertDialog(
+            onDismissRequest = { showUberChoice = false },
+            title = { Text(stringResource(R.string.easy_uber_choice_title)) },
+            text = { Text(stringResource(R.string.easy_uber_choice_message)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    showUberChoice = false
+                    launchUberAsDestination(context, destination)
+                }) { Text(stringResource(R.string.easy_uber_destination)) }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(onClick = {
+                        showUberChoice = false
+                        launchUberAsPickup(context, destination)
+                    }) { Text(stringResource(R.string.easy_uber_pickup)) }
+                    TextButton(onClick = { showUberChoice = false }) { Text(stringResource(R.string.cancel)) }
+                }
+            },
+        )
     }
 }
 
@@ -364,15 +474,23 @@ private fun openMaps(context: Context, location: EasyLocation) {
     runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, MapLinkBuilder.googleMaps(location.encoded.latitude, location.encoded.longitude))) }.onFailure { Toast.makeText(context, R.string.easy_maps_unavailable, Toast.LENGTH_SHORT).show() }
 }
 
-private fun launchUber(context: Context, destination: RideDestination) {
-    runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, RideLinkBuilder.uber(destination)).setPackage(RideLinkBuilder.UBER_PACKAGE)) }.onFailure { Toast.makeText(context, context.getString(R.string.easy_ride_unavailable, context.getString(R.string.easy_uber)), Toast.LENGTH_SHORT).show() }
+private fun launchUberAsDestination(context: Context, destination: RideDestination) {
+    launchUber(context, RideLinkBuilder.uberAsDestination(destination))
 }
 
-private fun launchCopyThenApp(context: Context, packageName: String, providerName: String, destination: RideDestination) {
-    copyText(context, "${MapLinkBuilder.coordinateText(destination.latitude, destination.longitude)}\n${MapLinkBuilder.googleMaps(destination.latitude, destination.longitude)}")
-    val launch = context.packageManager.getLaunchIntentForPackage(packageName)
-    if (launch != null) context.startActivity(launch) else Toast.makeText(context, context.getString(R.string.easy_ride_unavailable, providerName), Toast.LENGTH_SHORT).show()
-    Toast.makeText(context, context.getString(R.string.easy_destination_copied, providerName), Toast.LENGTH_SHORT).show()
+private fun launchUberAsPickup(context: Context, location: RideDestination) {
+    launchUber(context, RideLinkBuilder.uberAsPickup(location))
+}
+
+private fun launchUber(context: Context, uri: android.net.Uri) {
+    runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, uri).setPackage(RideLinkBuilder.UBER_PACKAGE)) }
+        .onFailure {
+            Toast.makeText(
+                context,
+                context.getString(R.string.easy_ride_unavailable, context.getString(R.string.easy_uber)),
+                Toast.LENGTH_SHORT,
+            ).show()
+        }
 }
 
 @Composable
@@ -388,6 +506,10 @@ private fun HomeScreen(
     var phoneStateGranted by remember { mutableStateOf(hasPermission(context, Manifest.permission.READ_PHONE_STATE)) }
     var locationEnabled by remember { mutableStateOf(activity?.isLocationEnabled() == true) }
     var selectedSubscriptionId by remember { mutableStateOf<Int?>(null) }
+    var homeRequestAwaitingCompletion by remember { mutableStateOf(false) }
+    var homeRequestObservedActiveState by remember { mutableStateOf(false) }
+    var homeStatusBeforeRequest by remember { mutableStateOf<HomeStatus?>(null) }
+    var showLocationTurnOffReminder by remember { mutableStateOf(false) }
     val lifecycleOwner = LocalLifecycleOwner.current
     fun syncLocationEnabled(): Boolean {
         val enabledNow = activity?.isLocationEnabled() == true
@@ -401,10 +523,16 @@ private fun HomeScreen(
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
+    fun beginHomeRefreshAfterLocationEnablement() {
+        homeStatusBeforeRequest = status
+        homeRequestAwaitingCompletion = true
+        homeRequestObservedActiveState = false
+        vm.refresh()
+    }
     val requestLocation: () -> Unit = {
         if (activity != null) {
             activity.requestLocationEnable {
-                if (syncLocationEnabled()) vm.refresh()
+                if (syncLocationEnabled()) beginHomeRefreshAfterLocationEnablement()
             }
         }
     }
@@ -429,8 +557,38 @@ private fun HomeScreen(
             locationEnabled = false
         }
     }
+    androidx.compose.runtime.LaunchedEffect(
+        status,
+        homeRequestAwaitingCompletion,
+        homeRequestObservedActiveState,
+    ) {
+        if (!homeRequestAwaitingCompletion) return@LaunchedEffect
+        when (status) {
+            is HomeStatus.Loading,
+            is HomeStatus.AwaitingLocationChoice -> homeRequestObservedActiveState = true
+
+            is HomeStatus.Ready,
+            is HomeStatus.Error -> if (homeRequestObservedActiveState || status !== homeStatusBeforeRequest) {
+                homeRequestAwaitingCompletion = false
+                homeRequestObservedActiveState = false
+                homeStatusBeforeRequest = null
+                showLocationTurnOffReminder = activity?.takeLocationTurnOffReminder() == true
+            }
+
+            HomeStatus.Idle -> Unit
+        }
+    }
     (status as? HomeStatus.AwaitingLocationChoice)?.let {
         ImproveLocationDialog(onUseAssisted = vm::useAssistedLocation, onStayOffline = vm::useApproximateLocation)
+    }
+    if (showLocationTurnOffReminder) {
+        LocationTurnOffReminder(
+            onKeepOn = { showLocationTurnOffReminder = false },
+            onOpenSettings = {
+                showLocationTurnOffReminder = false
+                activity?.openLocationSettings()
+            },
+        )
     }
 
     LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -571,6 +729,17 @@ private fun ImproveLocationDialog(onUseAssisted: () -> Unit, onStayOffline: () -
 }
 
 @Composable
+private fun LocationTurnOffReminder(onKeepOn: () -> Unit, onOpenSettings: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onKeepOn,
+        title = { Text(stringResource(R.string.location_turn_off_title)) },
+        text = { Text(stringResource(R.string.location_turn_off_message)) },
+        confirmButton = { TextButton(onClick = onOpenSettings) { Text(stringResource(R.string.location_settings)) } },
+        dismissButton = { TextButton(onClick = onKeepOn) { Text(stringResource(R.string.location_keep_on)) } },
+    )
+}
+
+@Composable
 private fun RefreshLocalityButton(enabled: Boolean, onRefresh: () -> Unit) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
         Button(enabled = enabled, onClick = onRefresh) {
@@ -583,6 +752,16 @@ private fun RefreshLocalityButton(enabled: Boolean, onRefresh: () -> Unit) {
 
 @Composable
 private fun LocationLoadingState(state: LocalityState) {
+    ElevatedCard(Modifier.fillMaxWidth()) {
+        LocationWaitingAnimation(
+            message = localityProgressText(state),
+            modifier = Modifier.padding(22.dp),
+        )
+    }
+}
+
+@Composable
+private fun LocationWaitingAnimation(message: String, modifier: Modifier = Modifier) {
     val transition = rememberInfiniteTransition(label = "location_loading")
     val lineFraction by transition.animateFloat(
         initialValue = 0.28f,
@@ -590,28 +769,26 @@ private fun LocationLoadingState(state: LocalityState) {
         animationSpec = infiniteRepeatable(animation = tween(900), repeatMode = RepeatMode.Reverse),
         label = "location_loading_line",
     )
-    ElevatedCard(Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(22.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Icon(
-                imageVector = Icons.Default.LocationOn,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(28.dp),
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Icon(
+            imageVector = Icons.Default.LocationOn,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(28.dp),
+        )
+        Box(Modifier.fillMaxWidth().height(6.dp), contentAlignment = Alignment.Center) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(lineFraction).height(3.dp),
+                color = MaterialTheme.colorScheme.primary,
+                shape = RoundedCornerShape(2.dp),
+                content = {},
             )
-            Box(Modifier.fillMaxWidth().height(6.dp), contentAlignment = Alignment.Center) {
-                Surface(
-                    modifier = Modifier.fillMaxWidth(lineFraction).height(3.dp),
-                    color = MaterialTheme.colorScheme.primary,
-                    shape = RoundedCornerShape(2.dp),
-                    content = {},
-                )
-            }
-            Text(localityProgressText(state), style = MaterialTheme.typography.bodyMedium)
         }
+        Text(message, style = MaterialTheme.typography.bodyMedium)
     }
 }
 
@@ -705,15 +882,61 @@ private fun CellCard(heading: String, cell: RadioCell) {
         cell.sinr?.let { add("${if (cell.radio == "NR") "SS-SINR" else "RSSNR"} $it dB") }
     }
     val details = buildList {
-        add("${cell.radio} · ${if (cell.registered) "Registered" else "Available"}")
         add("MCC ${cell.mcc} · MNC ${cell.mnc} · PLMN ${cell.plmn}")
         add("$areaLabel ${cell.areaCode ?: "—"} · $cellIdentityLabel ${cell.cellId}")
         if (radioMeasurements.isNotEmpty()) add(radioMeasurements.joinToString(" · "))
         if (signalMeasurements.isNotEmpty()) add(signalMeasurements.joinToString(" · "))
         else cell.dbm?.let { add("Signal $it dBm") }
         cell.timingAdvance?.let { add("Timing advance $it") }
-    }.joinToString("\n")
-    InfoCard(heading, details)
+    }
+    ElevatedCard(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(heading, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text("${cell.radio} · ${if (cell.registered) "Registered" else "Available"}")
+            SignalStrengthIndicator(cell)
+            details.forEach { Text(it) }
+        }
+    }
+}
+
+@Composable
+private fun SignalStrengthIndicator(cell: RadioCell) {
+    val signal = signalVisual(cell) ?: return
+    val color = when (signal.quality) {
+        SignalQuality.EXCELLENT -> Color(0xFF1B5E20)
+        SignalQuality.GOOD -> Color(0xFF2E7D32)
+        SignalQuality.FAIR -> Color(0xFFF9A825)
+        SignalQuality.WEAK -> Color(0xFFEF6C00)
+        SignalQuality.VERY_WEAK -> Color(0xFFC62828)
+    }
+    val qualityText = when (signal.quality) {
+        SignalQuality.EXCELLENT -> stringResource(R.string.signal_excellent)
+        SignalQuality.GOOD -> stringResource(R.string.signal_good)
+        SignalQuality.FAIR -> stringResource(R.string.signal_fair)
+        SignalQuality.WEAK -> stringResource(R.string.signal_weak)
+        SignalQuality.VERY_WEAK -> stringResource(R.string.signal_very_weak)
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(stringResource(R.string.signal_strength), style = MaterialTheme.typography.labelLarge)
+        Text(
+            text = "$qualityText · ${signal.dbm} dBm",
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Box(Modifier.fillMaxWidth().height(6.dp)) {
+            Surface(
+                modifier = Modifier.fillMaxSize(),
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                shape = RoundedCornerShape(3.dp),
+                content = {},
+            )
+            Surface(
+                modifier = Modifier.fillMaxWidth(signal.progress).height(6.dp),
+                color = color,
+                shape = RoundedCornerShape(3.dp),
+                content = {},
+            )
+        }
+    }
 }
 
 @Composable
@@ -932,6 +1155,8 @@ private fun JourneyScreen(vm: JourneyViewModel = viewModel()) {
     var locationEnabled by remember { mutableStateOf(activity?.isLocationEnabled() == true) }
     var hasNotifications by remember { mutableStateOf(Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU || hasPermission(context, Manifest.permission.POST_NOTIFICATIONS)) }
     var confirmClear by remember { mutableStateOf(false) }
+    var journeyStopAwaitingReminder by remember { mutableStateOf(false) }
+    var showLocationTurnOffReminder by remember { mutableStateOf(false) }
     val lifecycleOwner = LocalLifecycleOwner.current
     fun syncLocationEnabled(): Boolean {
         val enabledNow = activity?.isLocationEnabled() == true
@@ -967,6 +1192,12 @@ private fun JourneyScreen(vm: JourneyViewModel = viewModel()) {
     androidx.compose.runtime.LaunchedEffect(tracking.mode) {
         if (tracking.mode == JourneyTrackingMode.GPS_DISABLED) locationEnabled = false
     }
+    androidx.compose.runtime.LaunchedEffect(tracking.mode, journeyStopAwaitingReminder) {
+        if (journeyStopAwaitingReminder && tracking.mode == JourneyTrackingMode.STOPPED) {
+            journeyStopAwaitingReminder = false
+            showLocationTurnOffReminder = activity?.takeLocationTurnOffReminder() == true
+        }
+    }
     LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
             Text("Journey", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
@@ -987,6 +1218,7 @@ private fun JourneyScreen(vm: JourneyViewModel = viewModel()) {
                     }
                 }) { Icon(Icons.Default.PlayArrow, null); Spacer(Modifier.padding(2.dp)); Text("Start") }
                 OutlinedButton(enabled = trackingIsRunning, onClick = {
+                    journeyStopAwaitingReminder = true
                     vm.markStopped()
                     context.startService(Intent(context, JourneyForegroundService::class.java).setAction(JourneyForegroundService.ACTION_STOP))
                 }) { Icon(Icons.Default.Stop, null); Spacer(Modifier.padding(2.dp)); Text("Stop") }
@@ -1012,6 +1244,15 @@ private fun JourneyScreen(vm: JourneyViewModel = viewModel()) {
         onDismiss = { confirmClear = false },
         onConfirm = { vm.clear(); confirmClear = false },
     )
+    if (showLocationTurnOffReminder) {
+        LocationTurnOffReminder(
+            onKeepOn = { showLocationTurnOffReminder = false },
+            onOpenSettings = {
+                showLocationTurnOffReminder = false
+                activity?.openLocationSettings()
+            },
+        )
+    }
 }
 
 @Composable
@@ -1030,6 +1271,17 @@ private fun TrackingStatusCard(mode: JourneyTrackingMode, localityName: String?,
                 },
                 fontWeight = FontWeight.Bold,
             )
+            if (mode in setOf(
+                    JourneyTrackingMode.STARTING,
+                    JourneyTrackingMode.ACQUIRING_LOCALITY,
+                    JourneyTrackingMode.WAITING_FOR_LOCALITY,
+                )
+            ) {
+                LocationWaitingAnimation(
+                    message = stringResource(R.string.home_loading_finding_location),
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                )
+            }
             localityName?.let { Text("Current locality: $it") }
             lastCheckedAt?.let { Text("Last checked: ${DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(it))}", style = MaterialTheme.typography.bodySmall) }
             detail?.takeUnless { it == "Acquiring locality…" }?.let { Text(it, style = MaterialTheme.typography.bodySmall) }

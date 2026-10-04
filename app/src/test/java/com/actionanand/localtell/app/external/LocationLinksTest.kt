@@ -21,8 +21,28 @@ class LocationLinksTest {
     }
 
     @Test
-    fun `ride destination keeps the canonical coordinate`() {
+    fun `Uber destination keeps the rider pickup and supplies LocalTell dropoff`() {
         val destination = RideDestination(8.181910, 77.352330, "LocalTell location", "8.181910,77.352330")
-        assertEquals("8.181910,77.352330", MapLinkBuilder.coordinateText(destination.latitude, destination.longitude))
+        val url = RideLinkBuilder.uberAsDestinationUrl(destination)
+
+        assertTrue(url.contains("pickup=my_location"))
+        assertTrue(url.contains("dropoff%5Blatitude%5D=8.18191"))
+        assertTrue(url.contains("dropoff%5Blongitude%5D=77.35233"))
+        assertTrue(url.contains("dropoff%5Bnickname%5D=LocalTell+location"))
+        assertTrue(url.contains("dropoff%5Bformatted_address%5D=8.181910%2C77.352330"))
+        assertFalse(url.contains("pickup%5Blatitude%5D"))
+    }
+
+    @Test
+    fun `Uber pickup supplies LocalTell pickup without a dropoff`() {
+        val location = RideDestination(8.181910, 77.352330, "LocalTell location", "8.181910,77.352330")
+        val url = RideLinkBuilder.uberAsPickupUrl(location)
+
+        assertTrue(url.contains("pickup%5Blatitude%5D=8.18191"))
+        assertTrue(url.contains("pickup%5Blongitude%5D=77.35233"))
+        assertTrue(url.contains("pickup%5Bnickname%5D=LocalTell+location"))
+        assertTrue(url.contains("pickup%5Bformatted_address%5D=8.181910%2C77.352330"))
+        assertFalse(url.contains("pickup=my_location"))
+        assertFalse(url.contains("dropoff%5Blatitude%5D"))
     }
 }
