@@ -20,6 +20,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.layout.Arrangement
@@ -57,6 +58,7 @@ import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -964,7 +966,7 @@ private fun PacksScreen(vm: PacksViewModel = viewModel()) {
     var expandedRegionToReveal by remember { mutableStateOf<IndiaRegion?>(null) }
     var searchQuery by rememberSaveable { mutableStateOf("") }
     val packListState = rememberLazyListState()
-    val firstRowRevealDistance = with(LocalDensity.current) { 96.dp.toPx() }
+    val firstRowRevealDistance = with(LocalDensity.current) { 132.dp.toPx() }
     val remoteIds = state.remote.mapTo(mutableSetOf()) { it.id }
     val installedOnly = state.installed.values.filter { it.id !in remoteIds }.sortedBy { it.name }
     val regions = PackCatalog.regions(state.remote)
@@ -1040,6 +1042,14 @@ private fun PacksScreen(vm: PacksViewModel = viewModel()) {
                 )
             }
             if (expanded) {
+                item(key = "region-label-${displayedRegion.region.manifestKey}") {
+                    Text(
+                        text = "States / UTs in ${fullRegion.region.displayName}",
+                        modifier = Modifier.padding(start = 16.dp),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 items(displayedRegion.packs, key = RemotePack::id) { pack ->
                     StatePackRow(
                         pack = pack,
@@ -1100,7 +1110,13 @@ private fun IndiaDownloadCard(regions: List<RegionPacks>, state: PackUiState, vm
 private fun RegionDownloadCard(regionPacks: RegionPacks, state: PackUiState, expanded: Boolean, expandable: Boolean, onToggle: () -> Unit, onDownload: () -> Unit) {
     val required = PackCatalog.requiredPacks(regionPacks.packs, state.installed)
     val toggleLabel = if (expanded) "Collapse ${regionPacks.region.displayName}" else "Expand ${regionPacks.region.displayName}"
-    ElevatedCard(Modifier.fillMaxWidth()) {
+    val containerColor = if (expanded) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerLow
+    val contentColor = if (expanded) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+    val supportingColor = if (expanded) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.78f) else MaterialTheme.colorScheme.onSurfaceVariant
+    ElevatedCard(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.elevatedCardColors(containerColor = containerColor, contentColor = contentColor),
+    ) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
             Row(
                 modifier = if (expandable) {
@@ -1112,10 +1128,10 @@ private fun RegionDownloadCard(regionPacks: RegionPacks, state: PackUiState, exp
             ) {
                 Column(Modifier.weight(1f)) {
                     Text(regionPacks.region.displayName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    Text("${regionPacks.packs.size} State/UT packs · ${packSizeSummary(regionPacks.totals)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("${regionPacks.packs.size} State/UT packs · ${packSizeSummary(regionPacks.totals)}", style = MaterialTheme.typography.bodySmall, color = supportingColor)
                 }
                 if (expandable) {
-                    Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, contentDescription = toggleLabel)
+                    Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, contentDescription = null)
                 }
             }
             BatchStatus(state.batch, regionPacks.region.displayName)
@@ -1138,7 +1154,12 @@ private fun BatchStatus(batch: BatchDownloadProgress?, label: String) {
 
 @Composable
 private fun StatePackRow(pack: RemotePack, installedVersion: Long?, progress: Int?, batchActive: Boolean, onDownload: () -> Unit, onRemoveRequested: () -> Unit) {
-    Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+    Surface(
+        modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp),
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLowest,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+    ) {
         Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text("${pack.name} · ${formatPackBytes(pack.compressedBytes) ?: "Size unavailable"} (V${pack.version})", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
