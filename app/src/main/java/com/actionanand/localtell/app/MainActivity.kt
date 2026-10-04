@@ -264,7 +264,23 @@ private fun EasyLocationCard(location: EasyLocation, showAccuracy: Boolean, onSp
             Text(location.encoded.numericCode, style = MaterialTheme.typography.titleLarge, fontFamily = FontFamily.Monospace)
             Text(stringResource(R.string.easy_short_code), style = MaterialTheme.typography.labelLarge)
             Text(location.encoded.shortCode, style = MaterialTheme.typography.titleLarge, fontFamily = FontFamily.Monospace)
-            location.locality?.let { match -> Text(listOfNotNull(match.localityName, match.subDistrict, match.district, match.state).distinct().joinToString(", "), style = MaterialTheme.typography.bodyMedium) } ?: Text(stringResource(R.string.easy_offline_unavailable), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            location.locality?.let { match ->
+                val localityName = match.localityName.takeIf(String::isNotBlank)
+                val hierarchy = listOfNotNull(match.subDistrict, match.district, match.state)
+                    .filterNot { it == localityName }
+                    .distinct()
+
+                localityName?.let {
+                    Text(
+                        text = it,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+                if (hierarchy.isNotEmpty()) {
+                    Text(hierarchy.joinToString(", "), style = MaterialTheme.typography.bodyMedium)
+                }
+            } ?: Text(stringResource(R.string.easy_offline_unavailable), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (onSpeak != null) OutlinedButton(onClick = onSpeak) { Text(stringResource(R.string.easy_read_aloud)) }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = onCopy) { Text(stringResource(R.string.easy_copy)) }
