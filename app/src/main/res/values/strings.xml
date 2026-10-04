@@ -66,9 +66,9 @@
     <string name="home_loading_finding_locality">Finding your locality…</string>
     <string name="home_loading_wait">Please wait…</string>
     <string name="home_location_unavailable_title">Location unavailable</string>
-    <string name="home_location_unavailable_message">Couldn&apos;t get your location. Try again where the sky is more visible.</string>
+    <string name="home_location_unavailable_message">Couldn\'t get your location. Try again where the sky is more visible.</string>
     <string name="home_locality_unavailable_title">Locality unavailable</string>
-    <string name="home_locality_unavailable_message">We couldn&apos;t identify the locality for this location.</string>
+    <string name="home_locality_unavailable_message">We couldn\'t identify the locality for this location.</string>
     <string name="home_offline_data_needed_title">Offline data needed</string>
     <string name="home_offline_data_needed_message">Download locality data for your State/UT from More → Offline Data.</string>
 </resources>
