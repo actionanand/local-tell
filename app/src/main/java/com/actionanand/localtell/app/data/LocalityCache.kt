@@ -3,6 +3,9 @@ package com.actionanand.localtell.app.data
 import android.content.Context
 import com.actionanand.localtell.app.model.CellularFingerprint
 import com.actionanand.localtell.app.model.LocalityMatch
+import com.actionanand.localtell.app.location.LocationAccuracy
+import com.actionanand.localtell.app.location.LocationQuality
+import com.actionanand.localtell.app.location.LocationSource
 import org.json.JSONObject
 
 data class CachedLocality(
@@ -10,6 +13,8 @@ data class CachedLocality(
     val resolvedAt: Long,
     val accuracyMetres: Float,
     val fingerprint: CellularFingerprint,
+    val locationSource: LocationSource = LocationSource.GPS,
+    val locationQuality: LocationQuality = LocationQuality.PRECISE,
 )
 
 /** Central policy for the small, local battery-saving cache; it is not a cell-location database. */
@@ -37,13 +42,25 @@ class LocalityCache(context: Context) {
             state = json.optString("state").ifBlank { null }, stateCode = json.optString("stateCode").ifBlank { null },
             sourceQuality = json.getString("quality"), packId = json.getString("packId"), packVersion = json.getLong("packVersion"),
         )
+        val accuracy = json.getDouble("accuracy").toFloat()
+        val source = json.optString("source").let { runCatching { LocationSource.valueOf(it) }.getOrDefault(LocationSource.GPS) }
+        val quality = json.optString("qualityClass").let { runCatching { LocationQuality.valueOf(it) }.getOrNull() }
+            ?: LocationAccuracy.classify(true, accuracy)
+            ?: LocationQuality.APPROXIMATE
         CachedLocality(
-            match, json.getLong("resolvedAt"), json.getDouble("accuracy").toFloat(),
+            match, json.getLong("resolvedAt"), accuracy,
             CellularFingerprint(json.optInt("subscription", Int.MIN_VALUE).takeUnless { it == Int.MIN_VALUE }, json.getString("mcc"), json.getString("mnc"), json.getString("radio"), json.optLong("area", Long.MIN_VALUE).takeUnless { it == Long.MIN_VALUE }, json.getLong("cell")),
+            source, quality,
         )
     }.getOrNull()
 
-    fun save(match: LocalityMatch, accuracyMetres: Float, fingerprint: CellularFingerprint) {
+    fun save(
+        match: LocalityMatch,
+        accuracyMetres: Float,
+        fingerprint: CellularFingerprint,
+        locationSource: LocationSource,
+        locationQuality: LocationQuality,
+    ) {
         val json = JSONObject().apply {
             put("name", match.localityName); put("type", match.localityType); put("subDistrict", match.subDistrict)
             put("district", match.district); put("state", match.state); put("stateCode", match.stateCode)
@@ -51,6 +68,7 @@ class LocalityCache(context: Context) {
             put("resolvedAt", System.currentTimeMillis()); put("accuracy", accuracyMetres)
             put("subscription", fingerprint.subscriptionId ?: Int.MIN_VALUE); put("mcc", fingerprint.mcc); put("mnc", fingerprint.mnc)
             put("radio", fingerprint.radio); put("area", fingerprint.areaCode ?: Long.MIN_VALUE); put("cell", fingerprint.cellId)
+            put("source", locationSource.name); put("qualityClass", locationQuality.name)
         }
         preferences.edit().putString("recent", json.toString()).apply()
     }

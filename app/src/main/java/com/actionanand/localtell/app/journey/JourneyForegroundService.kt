@@ -97,7 +97,7 @@ class JourneyForegroundService : Service() {
 
         publish(JourneyTrackingMode.ACQUIRING_LOCALITY, "Acquiring locality…")
         when (val fix = gnssLocator.getLocation()) {
-            is GnssFixResult.Success -> {
+            is GnssFixResult.Precise -> {
                 val match = resolver.resolve(fix.location.latitude, fix.location.longitude)
                 if (match == null) {
                     publish(JourneyTrackingMode.WAITING_FOR_LOCALITY, "Waiting for locality…")
@@ -120,6 +120,34 @@ class JourneyForegroundService : Service() {
                             plmn = serving?.plmn ?: "Unknown",
                             cellId = serving?.cellId ?: 0L,
                             confidence = if (match.sourceQuality == "polygon") 100 else 70,
+                        ),
+                    )
+                    JourneyHistoryChanges.changed()
+                }
+            }
+            is GnssFixResult.Approximate -> {
+                val match = resolver.resolve(fix.location.latitude, fix.location.longitude)
+                if (match == null) {
+                    publish(JourneyTrackingMode.WAITING_FOR_LOCALITY, "Waiting for locality…")
+                    return
+                }
+
+                currentLocality = match.localityName
+                publish(JourneyTrackingMode.ACTIVE, "Using an approximate location…")
+                val localityKey = journeyLocalityKey(match.localityName, match.subDistrict, match.district, match.state)
+                if (localityKey != lastLocalityKey) {
+                    lastLocalityKey = localityKey
+                    journeyDb.add(
+                        JourneyPoint(
+                            id = 0,
+                            timestamp = System.currentTimeMillis(),
+                            areaName = match.localityName,
+                            district = match.district ?: match.subDistrict,
+                            state = match.state,
+                            radio = serving?.radio ?: "Unknown",
+                            plmn = serving?.plmn ?: "Unknown",
+                            cellId = serving?.cellId ?: 0L,
+                            confidence = if (match.sourceQuality == "polygon") 70 else 50,
                         ),
                     )
                     JourneyHistoryChanges.changed()

@@ -1,6 +1,7 @@
 package com.actionanand.localtell.app
 
 import android.app.Application
+import android.location.Location
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.actionanand.localtell.app.data.LocalityCache
@@ -9,6 +10,11 @@ import com.actionanand.localtell.app.data.OfflineAreaResolver
 import com.actionanand.localtell.app.data.OfflineLocalityResolver
 import com.actionanand.localtell.app.data.PackStore
 import com.actionanand.localtell.app.location.GnssFixResult
+import com.actionanand.localtell.app.location.AssistedLocationLocator
+import com.actionanand.localtell.app.location.AssistedLocationResult
+import com.actionanand.localtell.app.location.LocationQuality
+import com.actionanand.localtell.app.location.LocationSource
+import com.actionanand.localtell.app.location.NetworkAvailability
 import com.actionanand.localtell.app.location.OneShotGnssLocator
 import com.actionanand.localtell.app.model.AreaMatch
 import com.actionanand.localtell.app.model.CellularFingerprint
@@ -45,9 +51,16 @@ sealed interface HomeStatus {
         val localityState: LocalityState,
         val legacyMatch: AreaMatch? = null,
         val accuracyMetres: Float? = null,
+        val locationSource: LocationSource? = null,
+        val locationQuality: LocationQuality? = null,
+        val locationNotice: String? = null,
     ) : HomeStatus {
         val cells: List<RadioCell> get() = subscriptions.flatMap(SubscriptionCells::cells)
     }
+    data class AwaitingLocationChoice(
+        val subscriptions: List<SubscriptionCells>,
+        val approximateLocation: Location?,
+    ) : HomeStatus
     data class Error(val message: String) : HomeStatus
 }
 
@@ -58,6 +71,8 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
     private val localityResolver = OfflineLocalityResolver(packs)
     private val localityCache = LocalityCache(app)
     private val gnssLocator = OneShotGnssLocator(app)
+    private val assistedLocator = AssistedLocationLocator(app)
+    private val assistedFallbackNotice = app.getString(R.string.location_assisted_fallback)
     private val _status = MutableStateFlow<HomeStatus>(HomeStatus.Idle)
     val status: StateFlow<HomeStatus> = _status.asStateFlow()
 
@@ -74,12 +89,18 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
                 val fingerprint = CellularFingerprint.from(cells)
                 val cached = localityCache.read()
                 val cachedPackInstalled = cached?.let { saved -> packs.all().any { it.id == saved.match.packId && it.version == saved.match.packVersion } } == true
-                if (LocalityCachePolicy.canReuse(cached, fingerprint, cachedPackInstalled)) {
+                if (
+                    cached?.locationQuality == LocationQuality.PRECISE &&
+                    LocalityCachePolicy.canReuse(cached, fingerprint, cachedPackInstalled)
+                ) {
+                    val cachedLocality = cached!!
                     return@runCatching HomeStatus.Ready(
                         subscriptions = subscriptions,
-                        locality = cached!!.match,
+                        locality = cachedLocality.match,
                         localityState = LocalityState.USING_RECENT_OFFLINE_LOCALITY,
-                        accuracyMetres = cached.accuracyMetres,
+                        accuracyMetres = cachedLocality.accuracyMetres,
+                        locationSource = cachedLocality.locationSource,
+                        locationQuality = cachedLocality.locationQuality,
                     )
                 }
 
@@ -90,18 +111,9 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
 
                 _status.value = HomeStatus.Loading(LocalityState.ACQUIRING_GNSS, subscriptions)
                 when (val fix = gnssLocator.getLocation()) {
-                    is GnssFixResult.Success -> {
-                        _status.value = HomeStatus.Loading(LocalityState.RESOLVING_OFFLINE_LOCALITY, subscriptions)
-                        val locality = withContext(Dispatchers.IO) { localityResolver.resolve(fix.location.latitude, fix.location.longitude) }
-                        if (locality != null && fingerprint != null) localityCache.save(locality, fix.location.accuracy, fingerprint)
-                        HomeStatus.Ready(
-                            subscriptions = subscriptions,
-                            locality = locality,
-                            localityState = if (locality != null) LocalityState.LOCALITY_FOUND else LocalityState.NO_LOCALITY_MATCH,
-                            accuracyMetres = fix.location.accuracy,
-                        )
-                    }
-                    GnssFixResult.Timeout -> HomeStatus.Ready(subscriptions, null, LocalityState.GNSS_TIMEOUT)
+                    is GnssFixResult.Precise -> resolveLocation(subscriptions, fingerprint, fix.location, LocationSource.GPS, LocationQuality.PRECISE)
+                    is GnssFixResult.Approximate -> HomeStatus.AwaitingLocationChoice(subscriptions, fix.location)
+                    GnssFixResult.Timeout -> HomeStatus.AwaitingLocationChoice(subscriptions, null)
                     GnssFixResult.ProviderDisabled -> HomeStatus.Ready(subscriptions, null, LocalityState.GPS_DISABLED)
                     GnssFixResult.PermissionMissing -> HomeStatus.Ready(subscriptions, null, LocalityState.PERMISSION_MISSING)
                     is GnssFixResult.Error -> HomeStatus.Error(fix.cause?.message ?: "Unable to acquire an on-device GNSS fix")
@@ -109,5 +121,71 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
             }.onSuccess { _status.value = it }
                 .onFailure { _status.value = HomeStatus.Error(it.message ?: "Unable to read cellular diagnostics") }
         }
+    }
+
+    fun useApproximateLocation() {
+        val pending = _status.value as? HomeStatus.AwaitingLocationChoice ?: return
+        val location = pending.approximateLocation
+        if (location == null) {
+            _status.value = HomeStatus.Ready(pending.subscriptions, null, LocalityState.GNSS_TIMEOUT)
+            return
+        }
+        viewModelScope.launch {
+            _status.value = HomeStatus.Loading(LocalityState.RESOLVING_OFFLINE_LOCALITY, pending.subscriptions)
+            _status.value = resolveLocation(pending.subscriptions, CellularFingerprint.from(pending.subscriptions.flatMap(SubscriptionCells::cells)), location, LocationSource.GPS, LocationQuality.APPROXIMATE)
+        }
+    }
+
+    fun useAssistedLocation() {
+        val pending = _status.value as? HomeStatus.AwaitingLocationChoice ?: return
+        val approximateLocation = pending.approximateLocation
+        viewModelScope.launch {
+            val fingerprint = CellularFingerprint.from(pending.subscriptions.flatMap(SubscriptionCells::cells))
+            if (!NetworkAvailability.hasUsableNetwork(getApplication())) {
+                _status.value = if (approximateLocation != null) {
+                    resolveLocation(pending.subscriptions, fingerprint, approximateLocation, LocationSource.GPS, LocationQuality.APPROXIMATE, assistedFallbackNotice)
+                } else {
+                    HomeStatus.Ready(
+                        subscriptions = pending.subscriptions,
+                        locality = null,
+                        localityState = LocalityState.GNSS_TIMEOUT,
+                        locationNotice = getApplication<Application>().getString(R.string.location_connect_network),
+                    )
+                }
+                return@launch
+            }
+            _status.value = HomeStatus.Loading(LocalityState.ACQUIRING_GNSS, pending.subscriptions)
+            when (val assisted = assistedLocator.getLocation()) {
+                is AssistedLocationResult.Precise -> _status.value = resolveLocation(pending.subscriptions, fingerprint, assisted.location, LocationSource.ASSISTED, LocationQuality.PRECISE)
+                is AssistedLocationResult.Approximate -> _status.value = resolveLocation(pending.subscriptions, fingerprint, assisted.location, LocationSource.ASSISTED, LocationQuality.APPROXIMATE)
+                else -> _status.value = if (approximateLocation != null) {
+                    resolveLocation(pending.subscriptions, fingerprint, approximateLocation, LocationSource.GPS, LocationQuality.APPROXIMATE, assistedFallbackNotice)
+                } else {
+                    HomeStatus.Ready(pending.subscriptions, null, LocalityState.GNSS_TIMEOUT)
+                }
+            }
+        }
+    }
+
+    private suspend fun resolveLocation(
+        subscriptions: List<SubscriptionCells>,
+        fingerprint: CellularFingerprint?,
+        location: Location,
+        source: LocationSource,
+        quality: LocationQuality,
+        notice: String? = null,
+    ): HomeStatus.Ready {
+        _status.value = HomeStatus.Loading(LocalityState.RESOLVING_OFFLINE_LOCALITY, subscriptions)
+        val locality = withContext(Dispatchers.IO) { localityResolver.resolve(location.latitude, location.longitude) }
+        if (locality != null && fingerprint != null) localityCache.save(locality, location.accuracy, fingerprint, source, quality)
+        return HomeStatus.Ready(
+            subscriptions = subscriptions,
+            locality = locality,
+            localityState = if (locality != null) LocalityState.LOCALITY_FOUND else LocalityState.NO_LOCALITY_MATCH,
+            accuracyMetres = location.accuracy,
+            locationSource = source,
+            locationQuality = quality,
+            locationNotice = notice,
+        )
     }
 }

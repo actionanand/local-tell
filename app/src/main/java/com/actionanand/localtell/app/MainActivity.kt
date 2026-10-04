@@ -226,6 +226,9 @@ private fun EasyScreen(vm: EasyViewModel = viewModel()) {
             else -> vm.getMyLocation()
         }
     }
+    state.pendingLocationChoice?.let {
+        ImproveLocationDialog(onUseAssisted = vm::useAssistedLocation, onStayOffline = vm::useApproximateLocation)
+    }
     LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item {
             Text(stringResource(R.string.easy_title), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
@@ -265,6 +268,20 @@ private fun EasyLocationCard(location: EasyLocation, showAccuracy: Boolean, onSp
             Text(stringResource(R.string.easy_latitude, coordinateDisplay(location.encoded.latitude)))
             Text(stringResource(R.string.easy_longitude, coordinateDisplay(location.encoded.longitude)))
             if (showAccuracy) location.accuracyMetres?.let { Text(stringResource(R.string.easy_accuracy, it.toInt())) }
+            if (showAccuracy && location.locationQuality == com.actionanand.localtell.app.location.LocationQuality.APPROXIMATE) {
+                Text(stringResource(R.string.location_approximate_locality), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (showAccuracy) location.locationSource?.let { source ->
+                Text(
+                    stringResource(
+                        R.string.location_source,
+                        if (source == com.actionanand.localtell.app.location.LocationSource.GPS) stringResource(R.string.location_source_gps) else stringResource(R.string.location_source_assisted),
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            location.locationNotice?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             Text(stringResource(R.string.easy_number), style = MaterialTheme.typography.labelLarge)
             Text(location.encoded.numericCode, style = MaterialTheme.typography.titleLarge, fontFamily = FontFamily.Monospace)
             Text(stringResource(R.string.easy_short_code), style = MaterialTheme.typography.labelLarge)
@@ -325,6 +342,7 @@ private fun easyErrorText(error: EasyError): String = when (error) {
     EasyError.LOCATION_DISABLED -> stringResource(R.string.easy_location_disabled)
     EasyError.PERMISSION_MISSING -> stringResource(R.string.easy_permission_needed)
     EasyError.LOCATION_UNAVAILABLE -> stringResource(R.string.easy_location_error)
+    EasyError.NETWORK_UNAVAILABLE -> stringResource(R.string.location_connect_network)
     EasyError.INVALID_INPUT -> stringResource(R.string.easy_invalid)
 }
 
@@ -392,6 +410,9 @@ private fun HomeScreen(
     androidx.compose.runtime.LaunchedEffect(permissionGranted, locationEnabled) {
         if (permissionGranted && locationEnabled && status is HomeStatus.Idle) vm.refresh()
     }
+    (status as? HomeStatus.AwaitingLocationChoice)?.let {
+        ImproveLocationDialog(onUseAssisted = vm::useAssistedLocation, onStayOffline = vm::useApproximateLocation)
+    }
 
     LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item {
@@ -418,6 +439,7 @@ private fun HomeScreen(
             when (val current = status) {
                 HomeStatus.Idle -> Unit
                 is HomeStatus.Loading -> LocationLoadingState(current.state)
+                is HomeStatus.AwaitingLocationChoice -> Unit
                 is HomeStatus.Error -> InfoCard("Unable to resolve", current.message)
                 is HomeStatus.Ready -> HomeResults(
                     status = current,
@@ -427,7 +449,7 @@ private fun HomeScreen(
                 )
             }
         }
-        if (status !is HomeStatus.Ready && status !is HomeStatus.Loading) item {
+        if (status !is HomeStatus.Ready && status !is HomeStatus.Loading && status !is HomeStatus.AwaitingLocationChoice) item {
             RefreshLocalityButton(enabled = permissionGranted, onRefresh = refreshLocality)
         }
     }
@@ -456,6 +478,9 @@ private fun HomeResults(
                     Text("Current locality", style = MaterialTheme.typography.labelLarge)
                 }
                 Text(status.locality?.localityName ?: localityEmptyTitle(status.localityState, displayedCells.any(RadioCell::registered)), style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
+                if (status.locationQuality == com.actionanand.localtell.app.location.LocationQuality.APPROXIMATE) {
+                    Text(stringResource(R.string.location_approximate_locality), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
                 status.locality?.let { match ->
                     listOfNotNull(match.subDistrict, match.district, match.state).distinct().takeIf { it.isNotEmpty() }?.let { Text(it.joinToString(", ")) }
                     Text("Offline pack ${match.packId} · ${match.sourceQuality.replace('-', ' ')}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -467,13 +492,25 @@ private fun HomeResults(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+                status.locationSource?.let { source ->
+                    Text(
+                        stringResource(
+                            R.string.location_source,
+                            if (source == com.actionanand.localtell.app.location.LocationSource.GPS) stringResource(R.string.location_source_gps) else stringResource(R.string.location_source_assisted),
+                        ),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 if (status.localityState == LocalityState.USING_RECENT_OFFLINE_LOCALITY) {
                     Text("Recent offline locality", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 if (status.localityState == LocalityState.NO_GEOGRAPHIC_PACK) {
                     status.legacyMatch?.let { Text("Legacy cell-pack estimate: ${it.areaName}", style = MaterialTheme.typography.bodySmall) }
                 }
-                localityStateMessage(status.localityState)?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                (status.locationNotice ?: localityStateMessage(status.localityState))?.let {
+                    Text(it, style = MaterialTheme.typography.bodySmall)
+                }
                 status.locality?.let { match ->
                     OutlinedButton(onClick = {
                         val text = "My locality is ${match.localityName}${match.district?.let { ", $it" } ?: ""}. (LocalTell offline locality)"
@@ -501,6 +538,17 @@ private fun HomeResults(
             group.cells.forEach { cell -> CellCard(heading, cell) }
         }
     }
+}
+
+@Composable
+private fun ImproveLocationDialog(onUseAssisted: () -> Unit, onStayOffline: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onStayOffline,
+        title = { Text(stringResource(R.string.location_improve_title)) },
+        text = { Text(stringResource(R.string.location_improve_message)) },
+        confirmButton = { TextButton(onClick = onUseAssisted) { Text(stringResource(R.string.location_use_assisted)) } },
+        dismissButton = { TextButton(onClick = onStayOffline) { Text(stringResource(R.string.location_stay_offline)) } },
+    )
 }
 
 @Composable
