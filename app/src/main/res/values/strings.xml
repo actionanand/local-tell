@@ -51,4 +51,24 @@
     <string name="easy_share_message">LocalTell location\nLatitude: %1$s\nLongitude: %2$s\nEasy number: %3$s\nShort code: %4$s\nGoogle Maps: %5$s</string>
     <string name="easy_maps_unavailable">Unable to open Google Maps.</string>
     <string name="easy_ride_unavailable">%1$s is not available on this device.</string>
+    <string name="home_location_permission_title">Location permission needed</string>
+    <string name="home_location_permission_message">Allow location access to show your current locality.</string>
+    <string name="home_allow_location">Allow location</string>
+    <string name="home_location_off_title">Location is off</string>
+    <string name="home_location_off_message">Turn on Location to show your current locality.</string>
+    <string name="home_turn_on_location">Turn on Location</string>
+    <string name="home_sim_details_optional">SIM details optional</string>
+    <string name="home_sim_details_message">Allow phone access to show SIM slot and carrier details.</string>
+    <string name="home_allow_sim_details">Allow SIM details</string>
+    <string name="home_refresh_locality">Refresh locality</string>
+    <string name="home_loading_checking_location">Checking your location…</string>
+    <string name="home_loading_finding_location">Finding your location…</string>
+    <string name="home_loading_finding_locality">Finding your locality…</string>
+    <string name="home_loading_wait">Please wait…</string>
+    <string name="home_location_unavailable_title">Location unavailable</string>
+    <string name="home_location_unavailable_message">Couldn&apos;t get your location. Try again where the sky is more visible.</string>
+    <string name="home_locality_unavailable_title">Locality unavailable</string>
+    <string name="home_locality_unavailable_message">We couldn&apos;t identify the locality for this location.</string>
+    <string name="home_offline_data_needed_title">Offline data needed</string>
+    <string name="home_offline_data_needed_message">Download locality data for your State/UT from More → Offline Data.</string>
 </resources>

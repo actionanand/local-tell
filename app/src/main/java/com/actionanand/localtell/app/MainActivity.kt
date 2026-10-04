@@ -14,6 +14,11 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -77,7 +82,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.core.content.ContextCompat
@@ -381,6 +385,9 @@ private fun HomeScreen(
         phoneStateGranted = granted
         vm.refresh()
     }
+    val refreshLocality: () -> Unit = {
+        if (locationEnabled) vm.refresh() else requestLocation()
+    }
     androidx.compose.runtime.LaunchedEffect(permissionGranted, locationEnabled) {
         if (permissionGranted && locationEnabled && status is HomeStatus.Idle) vm.refresh()
     }
@@ -391,45 +398,47 @@ private fun HomeScreen(
         }
         if (!permissionGranted) item {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                InfoCard("Permission needed", "LocalTell uses an on-device GNSS fix when needed to determine your locality. Coordinates are processed locally and are not uploaded.")
-                Button(onClick = { permissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION)) }) { Text("Allow cell access") }
+                InfoCard(stringResource(R.string.home_location_permission_title), stringResource(R.string.home_location_permission_message))
+                Button(onClick = { permissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION)) }) { Text(stringResource(R.string.home_allow_location)) }
             }
         } else if (!locationEnabled) item {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                InfoCard("Android Location setting is off", "Android requires the Location switch for cellular identity and an on-device GNSS fix when locality needs refreshing.")
-                PermissionToggle("Enable Location", requestLocation)
+                InfoCard(stringResource(R.string.home_location_off_title), stringResource(R.string.home_location_off_message))
+                PermissionToggle(stringResource(R.string.home_turn_on_location), requestLocation)
             }
         }
         if (permissionGranted && !phoneStateGranted) item {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                InfoCard("SIM details optional", "Cell ID lookup works without this permission. Enable SIM details to show SIM slots and carrier names.")
-                PermissionToggle("Enable SIM details") { phoneStateLauncher.launch(Manifest.permission.READ_PHONE_STATE) }
+                InfoCard(stringResource(R.string.home_sim_details_optional), stringResource(R.string.home_sim_details_message))
+                PermissionToggle(stringResource(R.string.home_allow_sim_details)) { phoneStateLauncher.launch(Manifest.permission.READ_PHONE_STATE) }
             }
         }
         item {
             when (val current = status) {
-                HomeStatus.Idle -> Text("Ready")
-                is HomeStatus.Loading -> {
-                    LinearProgressIndicator(Modifier.fillMaxWidth())
-                    Text(localityProgressText(current.state), style = MaterialTheme.typography.bodySmall)
-                }
+                HomeStatus.Idle -> Unit
+                is HomeStatus.Loading -> LocationLoadingState(current.state)
                 is HomeStatus.Error -> InfoCard("Unable to resolve", current.message)
-                is HomeStatus.Ready -> HomeResults(current, selectedSubscriptionId) { selectedSubscriptionId = it }
+                is HomeStatus.Ready -> HomeResults(
+                    status = current,
+                    selectedSubscriptionId = selectedSubscriptionId,
+                    onSelect = { selectedSubscriptionId = it },
+                    onRefresh = refreshLocality,
+                )
             }
         }
-        item {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-                Button(enabled = permissionGranted, onClick = { if (locationEnabled) vm.refresh() else requestLocation() }) {
-                    Icon(Icons.Default.Refresh, null); Spacer(Modifier.padding(3.dp)); Text("Refresh locality")
-                }
-            }
+        if (status !is HomeStatus.Ready && status !is HomeStatus.Loading) item {
+            RefreshLocalityButton(enabled = permissionGranted, onRefresh = refreshLocality)
         }
-        item { InfoCard("Offline by design", "LocalTell resolves an on-device GNSS fix using downloaded geographic data. Coordinates stay on this device; internet is used only for optional pack downloads and updates.") }
     }
 }
 
 @Composable
-private fun HomeResults(status: HomeStatus.Ready, selectedSubscriptionId: Int?, onSelect: (Int?) -> Unit) {
+private fun HomeResults(
+    status: HomeStatus.Ready,
+    selectedSubscriptionId: Int?,
+    onSelect: (Int?) -> Unit,
+    onRefresh: () -> Unit,
+) {
     val context = LocalContext.current
     val selected = status.subscriptions.filter { selectedSubscriptionId == null || it.subscription?.subscriptionId == selectedSubscriptionId }
     val displayedCells = selected.flatMap(SubscriptionCells::cells)
@@ -448,16 +457,25 @@ private fun HomeResults(status: HomeStatus.Ready, selectedSubscriptionId: Int?, 
                 Text(status.locality?.localityName ?: localityEmptyTitle(status.localityState, displayedCells.any(RadioCell::registered)), style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
                 status.locality?.let { match ->
                     listOfNotNull(match.subDistrict, match.district, match.state).distinct().takeIf { it.isNotEmpty() }?.let { Text(it.joinToString(", ")) }
-                    Text("Offline pack ${match.packId} · ${match.sourceQuality.replace('-', ' ')}", style = MaterialTheme.typography.bodySmall)
-                    if (status.localityState == LocalityState.USING_RECENT_OFFLINE_LOCALITY) Text("Recent offline locality", style = MaterialTheme.typography.bodySmall)
+                    Text("Offline pack ${match.packId} · ${match.sourceQuality.replace('-', ' ')}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (status.localityState == LocalityState.USING_RECENT_OFFLINE_LOCALITY) Text("Recent offline locality", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 if (status.localityState == LocalityState.NO_GEOGRAPHIC_PACK) {
-                    Text("Download a geographic locality pack to resolve your current locality offline.", style = MaterialTheme.typography.bodySmall)
                     status.legacyMatch?.let { Text("Legacy cell-pack estimate: ${it.areaName}", style = MaterialTheme.typography.bodySmall) }
                 }
                 localityStateMessage(status.localityState)?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                status.locality?.let { match ->
+                    OutlinedButton(onClick = {
+                        val text = "My locality is ${match.localityName}${match.district?.let { ", $it" } ?: ""}. (LocalTell offline locality)"
+                        context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
+                            type = "text/plain"
+                            putExtra(Intent.EXTRA_TEXT, text)
+                        }, "Share locality"))
+                    }) { Icon(Icons.Default.Share, null); Spacer(Modifier.padding(3.dp)); Text("Share") }
+                }
             }
         }
+        RefreshLocalityButton(enabled = true, onRefresh = onRefresh)
         if (status.subscriptions.any { it.subscription != null }) {
             Text("Cellular diagnostics", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -466,46 +484,85 @@ private fun HomeResults(status: HomeStatus.Ready, selectedSubscriptionId: Int?, 
                     FilterChip(selectedSubscriptionId == subscription.subscriptionId, { onSelect(subscription.subscriptionId) }, { Text("SIM ${subscription.simSlotIndex + 1} · ${subscription.carrierName}") })
                 }
             }
-            Text("This selector only filters LocalTell diagnostics; it never changes Android's mobile-data SIM.", style = MaterialTheme.typography.bodySmall)
         }
         selected.forEach { group ->
             val heading = group.subscription?.let { "SIM ${it.simSlotIndex + 1} · ${it.carrierName}" } ?: "Serving cell"
             if (group.cells.isEmpty()) InfoCard(heading, "No cellular identity available")
             group.cells.forEach { cell -> CellCard(heading, cell) }
         }
-        status.locality?.let { match ->
-            OutlinedButton(onClick = {
-                val text = "My locality is ${match.localityName}${match.district?.let { ", $it" } ?: ""}. (LocalTell offline locality)"
-                context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
-                    type = "text/plain"
-                    putExtra(Intent.EXTRA_TEXT, text)
-                }, "Share locality"))
-            }) { Icon(Icons.Default.Share, null); Spacer(Modifier.padding(3.dp)); Text("Share") }
+    }
+}
+
+@Composable
+private fun RefreshLocalityButton(enabled: Boolean, onRefresh: () -> Unit) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+        Button(enabled = enabled, onClick = onRefresh) {
+            Icon(Icons.Default.Refresh, null)
+            Spacer(Modifier.padding(3.dp))
+            Text(stringResource(R.string.home_refresh_locality))
         }
     }
 }
 
-private fun localityProgressText(state: LocalityState): String = when (state) {
-    LocalityState.READING_CELLULAR -> "Reading cellular diagnostics"
-    LocalityState.ACQUIRING_GNSS -> "Acquiring a short on-device GNSS fix"
-    LocalityState.RESOLVING_OFFLINE_LOCALITY -> "Resolving locality from offline geographic data"
-    else -> "Working offline"
+@Composable
+private fun LocationLoadingState(state: LocalityState) {
+    val transition = rememberInfiniteTransition(label = "location_loading")
+    val lineFraction by transition.animateFloat(
+        initialValue = 0.28f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(animation = tween(900), repeatMode = RepeatMode.Reverse),
+        label = "location_loading_line",
+    )
+    ElevatedCard(Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(22.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Default.LocationOn,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(28.dp),
+            )
+            Box(Modifier.fillMaxWidth().height(6.dp), contentAlignment = Alignment.Center) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(lineFraction).height(3.dp),
+                    color = MaterialTheme.colorScheme.primary,
+                    shape = RoundedCornerShape(2.dp),
+                    content = {},
+                )
+            }
+            Text(localityProgressText(state), style = MaterialTheme.typography.bodyMedium)
+        }
+    }
 }
 
+@Composable
+private fun localityProgressText(state: LocalityState): String = when (state) {
+    LocalityState.READING_CELLULAR -> stringResource(R.string.home_loading_checking_location)
+    LocalityState.ACQUIRING_GNSS -> stringResource(R.string.home_loading_finding_location)
+    LocalityState.RESOLVING_OFFLINE_LOCALITY -> stringResource(R.string.home_loading_finding_locality)
+    else -> stringResource(R.string.home_loading_wait)
+}
+
+@Composable
 private fun localityEmptyTitle(state: LocalityState, hasServingCell: Boolean): String = when (state) {
-    LocalityState.NO_GEOGRAPHIC_PACK -> "Geographic pack needed"
-    LocalityState.GNSS_TIMEOUT -> "GNSS fix timed out"
-    LocalityState.GPS_DISABLED -> "GPS is off"
-    LocalityState.PERMISSION_MISSING -> "Permission needed"
-    LocalityState.NO_LOCALITY_MATCH -> "No locality match"
+    LocalityState.NO_GEOGRAPHIC_PACK -> stringResource(R.string.home_offline_data_needed_title)
+    LocalityState.GNSS_TIMEOUT -> stringResource(R.string.home_location_unavailable_title)
+    LocalityState.GPS_DISABLED -> stringResource(R.string.home_location_off_title)
+    LocalityState.PERMISSION_MISSING -> stringResource(R.string.home_location_permission_title)
+    LocalityState.NO_LOCALITY_MATCH -> stringResource(R.string.home_locality_unavailable_title)
     else -> if (hasServingCell) "Locality unavailable" else "No serving cell"
 }
 
+@Composable
 private fun localityStateMessage(state: LocalityState): String? = when (state) {
-    LocalityState.GNSS_TIMEOUT -> "Try again outdoors or where the sky is more visible."
-    LocalityState.GPS_DISABLED -> "Enable GPS to acquire a one-shot locality fix."
-    LocalityState.PERMISSION_MISSING -> "Fine location permission is required for the on-device GNSS fix."
-    LocalityState.NO_LOCALITY_MATCH -> "This geographic pack has no matching locality for the current coordinate."
+    LocalityState.NO_GEOGRAPHIC_PACK -> stringResource(R.string.home_offline_data_needed_message)
+    LocalityState.GNSS_TIMEOUT -> stringResource(R.string.home_location_unavailable_message)
+    LocalityState.GPS_DISABLED -> stringResource(R.string.home_location_off_message)
+    LocalityState.PERMISSION_MISSING -> stringResource(R.string.home_location_permission_message)
+    LocalityState.NO_LOCALITY_MATCH -> stringResource(R.string.home_locality_unavailable_message)
     else -> null
 }
 
@@ -543,21 +600,6 @@ private fun BrandHeader(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> 
         }
     }
 
-    Spacer(Modifier.height(14.dp))
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-        shape = RoundedCornerShape(12.dp),
-    ) {
-        Column(Modifier.padding(horizontal = 16.dp, vertical = 13.dp)) {
-            Text(
-                "See your locality offline using cellular changes and on-device GNSS.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontWeight = FontWeight.Medium,
-                lineHeight = 22.sp,
-            )
-        }
-    }
 }
 
 @Composable
