@@ -7,6 +7,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.speech.tts.TextToSpeech
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
@@ -122,6 +123,8 @@ import kotlin.math.roundToInt
 
 class MainActivity : ComponentActivity() {
     private lateinit var locationEnablement: LocationEnablement
+    var locationWasEnabledByLocalTell by mutableStateOf(false)
+        private set
 
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
@@ -143,11 +146,36 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         if (::locationEnablement.isInitialized) locationEnablement.onResume()
+        if (::locationEnablement.isInitialized && !locationEnablement.isEnabled()) {
+            locationWasEnabledByLocalTell = false
+        }
     }
 
     fun isLocationEnabled(): Boolean = locationEnablement.isEnabled()
 
-    fun requestLocationEnable(onEnabled: () -> Unit) = locationEnablement.requestEnable(onEnabled)
+    fun requestLocationEnable(onEnabled: () -> Unit) {
+        val locationWasOff = !isLocationEnabled()
+        locationEnablement.requestEnable {
+            if (locationWasOff && isLocationEnabled()) {
+                locationWasEnabledByLocalTell = true
+            }
+            onEnabled()
+        }
+    }
+
+    fun takeLocationTurnOffReminder(): Boolean {
+        if (!isLocationEnabled()) {
+            locationWasEnabledByLocalTell = false
+            return false
+        }
+        if (!locationWasEnabledByLocalTell) return false
+        locationWasEnabledByLocalTell = false
+        return true
+    }
+
+    fun openLocationSettings() {
+        startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
+    }
 }
 
 private enum class RootTab { HOME, EASY, MORE }
@@ -225,20 +253,72 @@ private fun EasyScreen(vm: EasyViewModel = viewModel()) {
     var defaultEasy by remember { mutableStateOf(preferences.getString("default_root_tab", "HOME") == "EASY") }
     var findInput by rememberSaveable { mutableStateOf("") }
     var ttsReady by remember { mutableStateOf(false) }
+    var locationRequestAwaitingResult by remember { mutableStateOf(false) }
+    var locationRequestObservedInFlight by remember { mutableStateOf(false) }
+    var locationBeforeRequest by remember { mutableStateOf<EasyLocation?>(null) }
+    var showLocationTurnOffReminder by remember { mutableStateOf(false) }
     val speaker = remember { TextToSpeech(context.applicationContext) { ttsReady = it == TextToSpeech.SUCCESS } }
     DisposableEffect(speaker) { onDispose { speaker.shutdown() } }
+    fun beginLocationRequest() {
+        locationBeforeRequest = state.currentLocation
+        locationRequestAwaitingResult = true
+        locationRequestObservedInFlight = false
+        vm.getMyLocation()
+    }
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
-        if (granted[Manifest.permission.ACCESS_FINE_LOCATION] == true) vm.getMyLocation()
+        if (granted[Manifest.permission.ACCESS_FINE_LOCATION] == true) {
+            beginLocationRequest()
+        }
     }
     fun requestLocation() {
         when {
             !hasPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) -> permissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION))
-            activity?.isLocationEnabled() == false -> activity.requestLocationEnable { if (activity.isLocationEnabled()) vm.getMyLocation() }
-            else -> vm.getMyLocation()
+            activity?.isLocationEnabled() == false -> activity.requestLocationEnable {
+                if (activity.isLocationEnabled()) {
+                    beginLocationRequest()
+                }
+            }
+            else -> beginLocationRequest()
+        }
+    }
+    androidx.compose.runtime.LaunchedEffect(
+        state.locating,
+        state.currentLocation,
+        state.pendingLocationChoice,
+        state.error,
+        locationRequestAwaitingResult,
+        locationRequestObservedInFlight,
+    ) {
+        if (!locationRequestAwaitingResult) return@LaunchedEffect
+        if (state.locating) {
+            locationRequestObservedInFlight = true
+            return@LaunchedEffect
+        }
+        if (state.pendingLocationChoice != null) return@LaunchedEffect
+        if (state.currentLocation !== locationBeforeRequest) {
+            locationRequestAwaitingResult = false
+            locationRequestObservedInFlight = false
+            locationBeforeRequest = null
+            showLocationTurnOffReminder = activity?.takeLocationTurnOffReminder() == true
+        } else if (!locationRequestObservedInFlight) {
+            return@LaunchedEffect
+        } else if (state.error != null) {
+            locationRequestAwaitingResult = false
+            locationRequestObservedInFlight = false
+            locationBeforeRequest = null
         }
     }
     state.pendingLocationChoice?.let {
         ImproveLocationDialog(onUseAssisted = vm::useAssistedLocation, onStayOffline = vm::useApproximateLocation)
+    }
+    if (showLocationTurnOffReminder) {
+        LocationTurnOffReminder(
+            onKeepOn = { showLocationTurnOffReminder = false },
+            onOpenSettings = {
+                showLocationTurnOffReminder = false
+                activity?.openLocationSettings()
+            },
+        )
     }
     LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item {
@@ -426,6 +506,10 @@ private fun HomeScreen(
     var phoneStateGranted by remember { mutableStateOf(hasPermission(context, Manifest.permission.READ_PHONE_STATE)) }
     var locationEnabled by remember { mutableStateOf(activity?.isLocationEnabled() == true) }
     var selectedSubscriptionId by remember { mutableStateOf<Int?>(null) }
+    var homeRequestAwaitingCompletion by remember { mutableStateOf(false) }
+    var homeRequestObservedActiveState by remember { mutableStateOf(false) }
+    var homeStatusBeforeRequest by remember { mutableStateOf<HomeStatus?>(null) }
+    var showLocationTurnOffReminder by remember { mutableStateOf(false) }
     val lifecycleOwner = LocalLifecycleOwner.current
     fun syncLocationEnabled(): Boolean {
         val enabledNow = activity?.isLocationEnabled() == true
@@ -439,10 +523,16 @@ private fun HomeScreen(
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
+    fun beginHomeRefreshAfterLocationEnablement() {
+        homeStatusBeforeRequest = status
+        homeRequestAwaitingCompletion = true
+        homeRequestObservedActiveState = false
+        vm.refresh()
+    }
     val requestLocation: () -> Unit = {
         if (activity != null) {
             activity.requestLocationEnable {
-                if (syncLocationEnabled()) vm.refresh()
+                if (syncLocationEnabled()) beginHomeRefreshAfterLocationEnablement()
             }
         }
     }
@@ -467,8 +557,38 @@ private fun HomeScreen(
             locationEnabled = false
         }
     }
+    androidx.compose.runtime.LaunchedEffect(
+        status,
+        homeRequestAwaitingCompletion,
+        homeRequestObservedActiveState,
+    ) {
+        if (!homeRequestAwaitingCompletion) return@LaunchedEffect
+        when (status) {
+            is HomeStatus.Loading,
+            is HomeStatus.AwaitingLocationChoice -> homeRequestObservedActiveState = true
+
+            is HomeStatus.Ready,
+            is HomeStatus.Error -> if (homeRequestObservedActiveState || status !== homeStatusBeforeRequest) {
+                homeRequestAwaitingCompletion = false
+                homeRequestObservedActiveState = false
+                homeStatusBeforeRequest = null
+                showLocationTurnOffReminder = activity?.takeLocationTurnOffReminder() == true
+            }
+
+            HomeStatus.Idle -> Unit
+        }
+    }
     (status as? HomeStatus.AwaitingLocationChoice)?.let {
         ImproveLocationDialog(onUseAssisted = vm::useAssistedLocation, onStayOffline = vm::useApproximateLocation)
+    }
+    if (showLocationTurnOffReminder) {
+        LocationTurnOffReminder(
+            onKeepOn = { showLocationTurnOffReminder = false },
+            onOpenSettings = {
+                showLocationTurnOffReminder = false
+                activity?.openLocationSettings()
+            },
+        )
     }
 
     LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -605,6 +725,17 @@ private fun ImproveLocationDialog(onUseAssisted: () -> Unit, onStayOffline: () -
         text = { Text(stringResource(R.string.location_improve_message)) },
         confirmButton = { TextButton(onClick = onUseAssisted) { Text(stringResource(R.string.location_use_assisted)) } },
         dismissButton = { TextButton(onClick = onStayOffline) { Text(stringResource(R.string.location_stay_offline)) } },
+    )
+}
+
+@Composable
+private fun LocationTurnOffReminder(onKeepOn: () -> Unit, onOpenSettings: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onKeepOn,
+        title = { Text(stringResource(R.string.location_turn_off_title)) },
+        text = { Text(stringResource(R.string.location_turn_off_message)) },
+        confirmButton = { TextButton(onClick = onOpenSettings) { Text(stringResource(R.string.location_settings)) } },
+        dismissButton = { TextButton(onClick = onKeepOn) { Text(stringResource(R.string.location_keep_on)) } },
     )
 }
 
@@ -1024,6 +1155,8 @@ private fun JourneyScreen(vm: JourneyViewModel = viewModel()) {
     var locationEnabled by remember { mutableStateOf(activity?.isLocationEnabled() == true) }
     var hasNotifications by remember { mutableStateOf(Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU || hasPermission(context, Manifest.permission.POST_NOTIFICATIONS)) }
     var confirmClear by remember { mutableStateOf(false) }
+    var journeyStopAwaitingReminder by remember { mutableStateOf(false) }
+    var showLocationTurnOffReminder by remember { mutableStateOf(false) }
     val lifecycleOwner = LocalLifecycleOwner.current
     fun syncLocationEnabled(): Boolean {
         val enabledNow = activity?.isLocationEnabled() == true
@@ -1059,6 +1192,12 @@ private fun JourneyScreen(vm: JourneyViewModel = viewModel()) {
     androidx.compose.runtime.LaunchedEffect(tracking.mode) {
         if (tracking.mode == JourneyTrackingMode.GPS_DISABLED) locationEnabled = false
     }
+    androidx.compose.runtime.LaunchedEffect(tracking.mode, journeyStopAwaitingReminder) {
+        if (journeyStopAwaitingReminder && tracking.mode == JourneyTrackingMode.STOPPED) {
+            journeyStopAwaitingReminder = false
+            showLocationTurnOffReminder = activity?.takeLocationTurnOffReminder() == true
+        }
+    }
     LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
             Text("Journey", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
@@ -1079,6 +1218,7 @@ private fun JourneyScreen(vm: JourneyViewModel = viewModel()) {
                     }
                 }) { Icon(Icons.Default.PlayArrow, null); Spacer(Modifier.padding(2.dp)); Text("Start") }
                 OutlinedButton(enabled = trackingIsRunning, onClick = {
+                    journeyStopAwaitingReminder = true
                     vm.markStopped()
                     context.startService(Intent(context, JourneyForegroundService::class.java).setAction(JourneyForegroundService.ACTION_STOP))
                 }) { Icon(Icons.Default.Stop, null); Spacer(Modifier.padding(2.dp)); Text("Stop") }
@@ -1104,6 +1244,15 @@ private fun JourneyScreen(vm: JourneyViewModel = viewModel()) {
         onDismiss = { confirmClear = false },
         onConfirm = { vm.clear(); confirmClear = false },
     )
+    if (showLocationTurnOffReminder) {
+        LocationTurnOffReminder(
+            onKeepOn = { showLocationTurnOffReminder = false },
+            onOpenSettings = {
+                showLocationTurnOffReminder = false
+                activity?.openLocationSettings()
+            },
+        )
+    }
 }
 
 @Composable

@@ -93,4 +93,8 @@
     <string name="location_stay_offline">Stay offline</string>
     <string name="location_assisted_fallback">Could not improve location. Showing the best available offline estimate.</string>
     <string name="location_connect_network">Connect to Wi-Fi or mobile data to improve indoor location detection.</string>
+    <string name="location_turn_off_title">Turn off Location?</string>
+    <string name="location_turn_off_message">You turned on Location for LocalTell. You can turn it off now to reduce unnecessary location use and save battery.</string>
+    <string name="location_settings">Location settings</string>
+    <string name="location_keep_on">Keep on</string>
 </resources>
