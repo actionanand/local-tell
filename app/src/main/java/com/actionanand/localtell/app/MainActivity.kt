@@ -26,6 +26,7 @@ import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -1286,12 +1287,20 @@ private fun RegionDownloadCard(
             }
             BatchStatus(state.batch, regionPacks.region.manifestKey, onCancelBatch)
             if (required.isEmpty()) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(stringResource(R.string.offline_installed), style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(stringResource(R.string.offline_installed), modifier = Modifier.align(Alignment.CenterVertically), style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
                     onRemoveRegion?.let { OutlinedButton(enabled = removeEnabled, onClick = it) { Text(stringResource(R.string.offline_remove_region)) } }
                 }
             } else {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
                     OutlinedButton(enabled = batchStartEnabled, onClick = onDownload) { Text(batchActionLabel(regionPacks.packs, state.installed, BatchAction.DOWNLOAD_REGION).label()) }
                     if (installedPackCount > 0) {
                         onRemoveRegion?.let { OutlinedButton(enabled = removeEnabled, onClick = it) { Text(stringResource(R.string.offline_remove_region)) } }
