@@ -97,7 +97,8 @@
     <string name="home_share_button">Share</string>
     <string name="home_share_message">My locality is %1$s. (LocalTell offline locality)</string>
     <string name="home_cellular_diagnostics">Cellular diagnostics</string>
-    <string name="home_all_sims">All SIMs</string>
+    <string name="home_all_sims">All</string>
+    <string name="home_sim_label">SIM%1$d</string>
     <string name="home_serving_cell">Serving cell</string>
     <string name="home_no_cell_identity">No cellular identity available</string>
     <string name="home_registered">Registered</string>

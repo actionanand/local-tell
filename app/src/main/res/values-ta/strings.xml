@@ -97,7 +97,8 @@
     <string name="home_share_button">பகிர்</string>
     <string name="home_share_message">என் பகுதி %1$s. (LocalTell இணையமில்லா பகுதி)</string>
     <string name="home_cellular_diagnostics">செல்லுலார் விவரங்கள்</string>
-    <string name="home_all_sims">அனைத்து SIM-களும்</string>
+    <string name="home_all_sims">அனைத்தும்</string>
+    <string name="home_sim_label">SIM%1$d</string>
     <string name="home_serving_cell">சேவை cell</string>
     <string name="home_no_cell_identity">செல்லுலார் அடையாளம் கிடைக்கவில்லை</string>
     <string name="home_registered">பதிவு செய்யப்பட்டது</string>

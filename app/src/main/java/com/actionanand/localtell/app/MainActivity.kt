@@ -853,12 +853,17 @@ private fun HomeResults(
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(selectedSubscriptionId == null, { onSelect(null) }, { Text(stringResource(R.string.home_all_sims)) })
                 status.subscriptions.mapNotNull(SubscriptionCells::subscription).forEach { subscription ->
-                    FilterChip(selectedSubscriptionId == subscription.subscriptionId, { onSelect(subscription.subscriptionId) }, { Text("SIM ${subscription.simSlotIndex + 1} · ${subscription.carrierName}") })
+                    FilterChip(selectedSubscriptionId == subscription.subscriptionId, { onSelect(subscription.subscriptionId) }, { Text(stringResource(R.string.home_sim_label, subscription.simSlotIndex + 1)) })
                 }
             }
         }
         selected.forEach { group ->
-            val heading = group.subscription?.let { "SIM ${it.simSlotIndex + 1} · ${it.carrierName}" } ?: stringResource(R.string.home_serving_cell)
+            val subscription = group.subscription
+            val heading = if (subscription != null) {
+                "${stringResource(R.string.home_sim_label, subscription.simSlotIndex + 1)} · ${subscription.carrierName}"
+            } else {
+                stringResource(R.string.home_serving_cell)
+            }
             if (group.cells.isEmpty()) InfoCard(heading, stringResource(R.string.home_no_cell_identity))
             group.cells.forEach { cell -> CellCard(heading, cell) }
         }
