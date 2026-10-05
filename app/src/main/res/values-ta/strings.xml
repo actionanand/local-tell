@@ -41,8 +41,8 @@
     <string name="signal_excellent">மிகச் சிறந்தது</string>
     <string name="signal_good">நல்லது</string>
     <string name="signal_fair">சராசரி</string>
-    <string name="signal_weak">பலவீனம்</string>
-    <string name="signal_very_weak">மிகவும் பலவீனம்</string>
+    <string name="signal_weak">பலவீனமானது</string>
+    <string name="signal_very_weak">மிகவும் பலவீனமானது</string>
     <string name="easy_tts_unavailable">உரக்கப் படிக்கும் வசதி இந்தச் சாதனத்தில் கிடைக்கவில்லை.</string>
     <string name="more_title">மேலும்</string>
     <string name="language_title">மொழி</string>
@@ -80,7 +80,7 @@
     <string name="easy_ride_unavailable">இந்தச் சாதனத்தில் %1$s கிடைக்கவில்லை.</string>
     <string name="home_location_permission_title">இருப்பிட அனுமதி தேவை</string>
     <string name="home_location_permission_message">தற்போதைய பகுதியைக் காட்ட இருப்பிட அணுகலை அனுமதிக்கவும்.</string>
-    <string name="home_allow_location">இருப்பிடத்தை அனுமதி</string>
+    <string name="home_allow_location">இருப்பிட அணுகலை அனுமதி</string>
     <string name="home_location_off_title">இருப்பிடம் முடக்கப்பட்டுள்ளது</string>
     <string name="home_location_off_message">தற்போதைய பகுதியைக் காட்ட இருப்பிடத்தை இயக்கவும்.</string>
     <string name="home_turn_on_location">இருப்பிடத்தை இயக்கு</string>
@@ -154,25 +154,25 @@
     <string name="offline_title">இணையமில்லா தரவு</string><string name="offline_description">இந்தியா முழுவதற்கும், ஒரு பகுதிக்கும் அல்லது தனிப்பட்ட மாநிலம் / ஒன்றிய நிலப்பரப்புக்கும் உரிய இணையமில்லா பகுதித் தரவைப் பதிவிறக்கவும்.</string><string name="offline_refresh">பட்டியலைப் புதுப்பி</string><string name="offline_search">மாநிலம் / ஒன்றிய நிலப்பரப்பு அல்லது பகுதியைத் தேடவும்</string><string name="offline_loading">இணையமில்லா வளங்கள் ஏற்றப்படுகின்றன…</string><string name="offline_states_in_region">%1$s-இல் உள்ள மாநிலங்களும் &amp; ஒன்றிய நிலப்பரப்புகளும்</string><string name="offline_expand_region">%1$s-ஐ விரிவாக்கு</string><string name="offline_collapse_region">%1$s-ஐ சுருக்கு</string><string name="offline_installed">நிறுவப்பட்டுள்ளது</string><string name="offline_download">பதிவிறக்கு</string><string name="offline_update">புதுப்பி</string><string name="offline_remove">அகற்று</string><string name="offline_remove_region">பகுதியை அகற்று</string><string name="offline_download_all">அனைத்தையும் பதிவிறக்கு</string><string name="offline_download_region">பகுதியைப் பதிவிறக்கு</string><string name="offline_download_remaining">மீதமுள்ளவற்றைப் பதிவிறக்கு</string><string name="offline_update_all">அனைத்தையும் புதுப்பி</string><string name="offline_starting">பதிவிறக்கம் தொடங்குகிறது…</string><string name="offline_downloading_percent">%1$d%% பதிவிறக்கப்படுகிறது</string><string name="offline_downloading_batch">%1$d / %2$d பதிவிறக்கப்படுகிறது: %3$s</string><string name="offline_cancel_download">பதிவிறக்கத்தை ரத்துசெய்</string><string name="offline_all_installed">கிடைக்கும் அனைத்துத் தொகுப்புகளும் நிறுவப்பட்டுள்ளன</string><string name="offline_pack_count">%1$d மாநில/ஒன்றிய நிலப்பரப்பு தொகுப்புகள்</string><string name="offline_search_description">இணையமில்லா வளங்களைத் தேடவும்</string><string name="offline_clear_search">தேடலை அழி</string>
     <string name="offline_size_unavailable">அளவு கிடைக்கவில்லை</string>
     <string name="offline_on_device">சாதனத்தில் %1$s</string>
-    <string name="offline_installed_version">V%1$d · இணையமில்லாமல் நிறுவப்பட்டுள்ளது</string>
+    <string name="offline_installed_version">V%1$d · இணையமில்லா பயன்பாட்டிற்கு நிறுவப்பட்டுள்ளது</string>
     <string name="offline_download_size">%1$s பதிவிறக்கம்</string>
     <string name="journey_title">பயணம்</string><string name="journey_description">தீர்மானிக்கப்பட்ட பகுதி மாறும்போது மட்டுமே பதிவு சேர்க்கப்படும்.</string><string name="journey_start">தொடங்கு</string><string name="journey_stop">நிறுத்து</string><string name="journey_clear">அழி</string><string name="journey_no_entries">பயணப் பதிவுகள் இல்லை</string><string name="journey_no_entries_message">இணையமில்லா தரவுத் தொகுப்பை நிறுவிய பிறகு பயணத்தைத் தொடங்கவும். கண்காணிப்பு செயலில் இருக்கும்போது சுமார் 20 வினாடிகளுக்கு ஒருமுறை பகுதி சரிபார்க்கப்படும்.</string><string name="journey_clear_title">பயண வரலாற்றை அழிக்கவா?</string><string name="journey_clear_message">சேமிக்கப்பட்ட அனைத்து பயணப் பதிவுகளும் நிரந்தரமாக அகற்றப்படும்.</string><string name="journey_starting_status">தொடங்குகிறது…</string><string name="journey_active_status">கண்காணிப்பு செயலில் உள்ளது</string><string name="journey_disabled_status">இருப்பிடம் முடக்கப்பட்டுள்ளது</string><string name="journey_permission_status">அனுமதி தேவை</string><string name="journey_stopped_status">பயணம் நிறுத்தப்பட்டது</string><string name="journey_current_locality">தற்போதைய பகுதி: %1$s</string><string name="journey_last_checked">கடைசியாகச் சரிபார்த்தது: %1$s</string>
     <string name="journey_permission_title">இருப்பிட அனுமதி தேவை</string>
     <string name="journey_permission_message">பயண முறையைத் தொடங்குவதற்கு முன் இருப்பிட அணுகலை அனுமதிக்கவும்.</string>
     <string name="journey_location_settings_title">இருப்பிட அமைப்பு தேவை</string>
     <string name="survey_title">கோபுர ஆய்வு</string><string name="survey_development">மேம்பாட்டு அம்சம்</string><string name="survey_privacy">கோபுர ஆய்வு துல்லியமான GPS ஆயக்கூறுகளையும் அலைபேசிப் பிணைய வானொலிக் கூர்நோக்கல்களையும் இந்தச் சாதனத்தில் மட்டுமே பதிவு செய்கிறது. எதுவும் பதிவேற்றப்படாது.</string><string name="survey_active">ஆய்வு செயலில் உள்ளது</string><string name="survey_stopped">ஆய்வு நிறுத்தப்பட்டுள்ளது</string><string name="survey_start">ஆய்வைத் தொடங்கு</string><string name="survey_stop">ஆய்வை நிறுத்து</string><string name="survey_export">CSV-ஆக ஏற்றுமதி செய்</string><string name="survey_clear">ஆய்வுப் பதிவுகளை அழி</string><string name="survey_permission">மேம்பாட்டு ஆய்வைத் தொடங்க துல்லியமான இருப்பிட அனுமதி தேவை.</string>
-    <string name="survey_elapsed_fixes">கடந்த நேரம்: %1$s · ஏற்றுக்கொள்ளப்பட்ட GPS திருத்தங்கள்: %2$d</string>
+    <string name="survey_elapsed_fixes">கடந்த நேரம்: %1$s · ஏற்றுக்கொள்ளப்பட்ட GPS இருப்பிட நிர்ணயங்கள்: %2$d</string>
     <string name="survey_observations">அலைபேசிப் பிணையக் கூர்நோக்கல்கள்: %1$d</string>
     <string name="survey_gps_accuracy">GPS துல்லியம்: %1$s</string>
     <string name="survey_waiting_gps">GPS-க்காகக் காத்திருக்கிறது</string>
     <string name="tower_survey_cellular_fallback">கைபேசி</string>
-    <string name="survey_registered_cells_waiting">பதிவு செய்யப்பட்ட பிணையக் களங்கள்: நல்ல GPS திருத்தத்திற்காகக் காத்திருக்கிறது</string>
+    <string name="survey_registered_cells_waiting">பதிவு செய்யப்பட்ட பிணையக் களங்கள்: நல்ல GPS இருப்பிட நிர்ணயத்திற்காகக் காத்திருக்கிறது</string>
     <string name="offline_no_resources_title">இணையமில்லா வளங்கள் கிடைக்கவில்லை</string>
     <string name="offline_no_resources_message">“%1$s” க்கான இணையமில்லா வளங்கள் கிடைக்கவில்லை.</string>
     <string name="offline_no_packs_title">இணையமில்லா தரவுத் தொகுப்புகள் இல்லை</string>
     <string name="offline_no_packs_message">தற்போது இணையமில்லா தரவுத் தொகுப்புகள் இல்லை. பின்னர் பட்டியலைப் புதுப்பிக்கவும்.</string>
-    <string name="home_error_permission">அலைபேசிப் பிணைய ID-களை வெளிப்படுத்தவும், பகுதியைப் புதுப்பிக்கும்போது சாதனத்திலேயே GNSS திருத்தத்தைப் பெறவும் Android-க்கு இருப்பிட அனுமதி தேவை. ஆயக்கூறுகள் இந்தச் சாதனத்திலேயே செயலாக்கப்படுகின்றன; பதிவேற்றப்படாது.</string>
-    <string name="home_error_gnss">சாதனத்திலேயே GNSS திருத்தத்தைப் பெற முடியவில்லை</string>
+    <string name="home_error_permission">அலைபேசிப் பிணைய ID-களைப் பெறவும், பகுதியைப் புதுப்பிக்கும்போது சாதனத்திலேயே GNSS இருப்பிட நிர்ணயத்தைப் பெறவும் Android-க்கு இருப்பிட அனுமதி தேவை. ஆயக்கூறுகள் இந்தச் சாதனத்திலேயே செயலாக்கப்படுகின்றன; பதிவேற்றப்படாது.</string>
+    <string name="home_error_gnss">சாதனத்திலேயே GNSS இருப்பிட நிர்ணயத்தைப் பெற முடியவில்லை</string>
     <string name="home_error_cellular">கைபேசி பிணைய ஆய்வுத் தகவலைப் படிக்க முடியவில்லை</string>
     <string name="offline_error_refresh">இப்போது இணையமில்லா தரவைப் புதுப்பிக்க முடியவில்லை. நிறுவிய தொகுப்புகள் இணையமில்லாமல் கிடைக்கும்.</string>
     <string name="offline_error_download">இந்த இணையமில்லா தரவுத் தொகுப்பைப் பதிவிறக்க முடியவில்லை. இணைய இணைப்பைச் சரிபார்த்து மீண்டும் முயற்சிக்கவும்.</string>
