@@ -11,8 +11,9 @@ import java.util.Locale
 /** The small, stable set of app languages. Add future languages here and in resources. */
 enum class AppLanguage(val preferenceValue: String, val languageTag: String?) {
     SYSTEM("system", null),
-    ENGLISH("en", "en"),
     TAMIL("ta", "ta"),
+    ENGLISH("en", "en"),
+    SANSKRIT("sa", "sa"),
     ;
 
     companion object {
@@ -22,6 +23,7 @@ enum class AppLanguage(val preferenceValue: String, val languageTag: String?) {
         fun fromLanguageTag(value: String?): AppLanguage = when (value?.substringBefore('-')?.lowercase()) {
             "en" -> ENGLISH
             "ta" -> TAMIL
+            "sa" -> SANSKRIT
             else -> SYSTEM
         }
     }

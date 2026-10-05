@@ -50,6 +50,7 @@
     <string name="language_system_default">சாதன இயல்புநிலை</string>
     <string name="language_english">English</string>
     <string name="language_tamil">தமிழ்</string>
+    <string name="language_sanskrit">संस्कृतम्</string>
     <string name="more_journey">பயண முறை</string>
     <string name="more_journey_description">பயணத்தின்போது பகுதி மாற்றங்களைக் கண்காணிக்கவும்</string>
     <string name="more_offline">இணையமில்லா தரவு</string>

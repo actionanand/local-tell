@@ -50,6 +50,7 @@
     <string name="language_system_default">System default</string>
     <string name="language_english">English</string>
     <string name="language_tamil">தமிழ்</string>
+    <string name="language_sanskrit">संस्कृतम्</string>
     <string name="more_journey">Journey Mode</string>
     <string name="more_journey_description">Track locality changes during a trip</string>
     <string name="more_offline">Offline Data</string>

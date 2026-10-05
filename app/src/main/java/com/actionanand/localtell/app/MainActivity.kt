@@ -347,7 +347,7 @@ private fun SettingsScreen(
             }
         }
         item { Text(stringResource(R.string.settings_language), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold) }
-        items(AppLanguage.entries) { language ->
+        items(listOf(AppLanguage.SYSTEM, AppLanguage.TAMIL, AppLanguage.ENGLISH, AppLanguage.SANSKRIT)) { language ->
             ElevatedCard(
                 onClick = {
                     if (language != selectedLanguage) {
@@ -375,8 +375,9 @@ private fun SettingsScreen(
 @Composable
 private fun languageDisplayName(language: AppLanguage): String = when (language) {
     AppLanguage.SYSTEM -> stringResource(R.string.language_system_default)
-    AppLanguage.ENGLISH -> stringResource(R.string.language_english)
     AppLanguage.TAMIL -> stringResource(R.string.language_tamil)
+    AppLanguage.ENGLISH -> stringResource(R.string.language_english)
+    AppLanguage.SANSKRIT -> stringResource(R.string.language_sanskrit)
 }
 
 @Composable
