@@ -1,9 +1,11 @@
 package com.actionanand.localtell.app.ui
 
 import androidx.annotation.StringRes
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -12,6 +14,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -25,8 +29,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.actionanand.localtell.app.R
@@ -103,10 +109,24 @@ internal fun LocationGuideScreen() {
             item { Text(stringResource(R.string.location_guide_no_results), style = MaterialTheme.typography.bodyMedium) }
         }
         items(visibleFaqs, key = { faq -> faq.id }) { faq ->
-            Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp)) {
+            var expanded by rememberSaveable(faq.id) { mutableStateOf(false) }
+            val toggleLabel = stringResource(
+                if (expanded) R.string.location_guide_collapse_answer else R.string.location_guide_expand_answer,
+            )
+            Card(
+                modifier = Modifier.fillMaxWidth().clickable(
+                    onClickLabel = toggleLabel,
+                    role = Role.Button,
+                    onClick = { expanded = !expanded },
+                ),
+                shape = RoundedCornerShape(8.dp),
+            ) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(faq.question, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                    Text(faq.answer, style = MaterialTheme.typography.bodyMedium)
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(faq.question, modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, contentDescription = null)
+                    }
+                    if (expanded) Text(faq.answer, style = MaterialTheme.typography.bodyMedium)
                 }
             }
         }

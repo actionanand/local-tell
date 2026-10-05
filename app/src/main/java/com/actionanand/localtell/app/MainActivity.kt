@@ -1516,17 +1516,18 @@ private fun JourneyScreen(vm: JourneyViewModel = viewModel()) {
             }
             Spacer(Modifier.height(10.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(enabled = hasFineLocation && !trackingIsRunning, onClick = {
+                Button(enabled = hasFineLocation && !trackingIsRunning && !journeyStopAwaitingReminder, onClick = {
                     if (syncLocationEnabled()) {
                         beginJourney()
                     } else {
                         activity?.requestLocationEnable { if (syncLocationEnabled()) beginJourney() }
                     }
                 }) { Icon(Icons.Default.PlayArrow, null); Spacer(Modifier.padding(2.dp)); Text(stringResource(R.string.journey_start)) }
-                OutlinedButton(enabled = trackingIsRunning, onClick = {
-                    journeyStopAwaitingReminder = true
-                    vm.markStopped()
-                    context.startService(Intent(context, JourneyForegroundService::class.java).setAction(JourneyForegroundService.ACTION_STOP))
+                OutlinedButton(enabled = trackingIsRunning && !journeyStopAwaitingReminder, onClick = {
+                    if (!journeyStopAwaitingReminder) {
+                        journeyStopAwaitingReminder = true
+                        context.startService(Intent(context, JourneyForegroundService::class.java).setAction(JourneyForegroundService.ACTION_STOP))
+                    }
                 }) { Icon(Icons.Default.Stop, null); Spacer(Modifier.padding(2.dp)); Text(stringResource(R.string.journey_stop)) }
                 TextButton(onClick = { confirmClear = true }) { Text(stringResource(R.string.journey_clear)) }
             }

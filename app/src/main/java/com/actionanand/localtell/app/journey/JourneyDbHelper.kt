@@ -5,6 +5,8 @@ import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 
+private const val MAX_JOURNEY_POINTS = 100
+
 data class JourneyPoint(
     val id: Long,
     val timestamp: Long,
@@ -37,6 +39,11 @@ class JourneyDbHelper(context: Context) : SQLiteOpenHelper(context, "journeys.db
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
 
+    override fun onOpen(db: SQLiteDatabase) {
+        super.onOpen(db)
+        if (!db.isReadOnly) trimHistory(db)
+    }
+
     fun add(point: JourneyPoint) {
         val values = ContentValues().apply {
             put("timestamp", point.timestamp)
@@ -48,13 +55,31 @@ class JourneyDbHelper(context: Context) : SQLiteOpenHelper(context, "journeys.db
             put("cell_id", point.cellId)
             put("confidence", point.confidence)
         }
-        writableDatabase.insertOrThrow("journey_point", null, values)
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            db.insertOrThrow("journey_point", null, values)
+            trimHistory(db)
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
     }
 
-    fun latest(limit: Int = 100): List<JourneyPoint> = readableDatabase.rawQuery(
+    private fun trimHistory(db: SQLiteDatabase) {
+        db.execSQL(
+            """DELETE FROM journey_point WHERE id IN (
+                SELECT id FROM journey_point
+                ORDER BY timestamp DESC, id DESC LIMIT -1 OFFSET ?
+            )""".trimIndent(),
+            arrayOf(MAX_JOURNEY_POINTS),
+        )
+    }
+
+    fun latest(limit: Int = MAX_JOURNEY_POINTS): List<JourneyPoint> = readableDatabase.rawQuery(
         """SELECT id,timestamp,area_name,district,state,radio,plmn,cell_id,confidence
-           FROM journey_point ORDER BY timestamp DESC LIMIT ?""".trimIndent(),
-        arrayOf(limit.coerceIn(1, 1000).toString())
+           FROM journey_point ORDER BY timestamp DESC, id DESC LIMIT ?""".trimIndent(),
+        arrayOf(limit.coerceIn(1, MAX_JOURNEY_POINTS).toString())
     ).use { c ->
         buildList {
             while (c.moveToNext()) {

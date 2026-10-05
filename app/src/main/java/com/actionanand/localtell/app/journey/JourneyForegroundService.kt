@@ -23,6 +23,7 @@ import com.actionanand.localtell.app.location.GnssFixResult
 import com.actionanand.localtell.app.location.OneShotGnssLocator
 import com.actionanand.localtell.app.model.RadioCell
 import com.actionanand.localtell.app.telephony.CellReader
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -30,6 +31,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
@@ -47,6 +49,7 @@ class JourneyForegroundService : Service() {
     private lateinit var resolver: OfflineLocalityResolver
     private lateinit var gnssLocator: OneShotGnssLocator
     private lateinit var journeyDb: JourneyDbHelper
+    private val runGuard = JourneyRunGuard()
     private var loopJob: Job? = null
     private var lastLocalityKey: String? = null
     private var currentLocality: String? = null
@@ -62,102 +65,138 @@ class JourneyForegroundService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
-            JourneyTrackingState.stopped(this)
+            stopTracking()
             stopSelf()
             return START_NOT_STICKY
         }
+        if (intent != null && intent.action != ACTION_START) return START_NOT_STICKY
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            stopTracking()
             JourneyTrackingState.update(this, JourneyTrackingStatus(JourneyTrackingMode.PERMISSION_REQUIRED, detail = AppLanguageManager.getString(this, R.string.journey_fine_location_needed)))
             stopSelf(startId)
             return START_NOT_STICKY
         }
 
+        if (loopJob?.isActive == true) return START_STICKY
+        val generation = runGuard.begin()
+        lastLocalityKey = null
+        currentLocality = null
         JourneyTrackingState.update(this, JourneyTrackingStatus(JourneyTrackingMode.STARTING, detail = AppLanguageManager.getString(this, R.string.journey_starting)))
         startAsForeground(AppLanguageManager.getString(this, R.string.journey_finding_locality))
-        if (loopJob?.isActive != true) loopJob = scope.launch { trackingLoop() }
+        loopJob = scope.launch { trackingLoop(generation) }
         return START_STICKY
     }
 
+    private fun stopTracking() {
+        runGuard.stop {
+            loopJob?.cancel()
+            loopJob = null
+            JourneyTrackingState.stopped(this)
+            stopForeground(STOP_FOREGROUND_REMOVE)
+        }
+    }
+
     /** One sequential loop: read cellular state, acquire one GNSS fix, resolve locally, then wait. */
-    private suspend fun trackingLoop() {
-        while (currentCoroutineContext().isActive) {
-            runCatching { checkLocality() }
-                .onFailure { publish(JourneyTrackingMode.WAITING_FOR_LOCALITY, AppLanguageManager.getString(this, R.string.journey_waiting_locality)) }
+    private suspend fun trackingLoop(generation: Long) {
+        while (currentCoroutineContext().isActive && runGuard.isActive(generation)) {
+            try {
+                checkLocality(generation)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                publish(generation, JourneyTrackingMode.WAITING_FOR_LOCALITY, AppLanguageManager.getString(this, R.string.journey_waiting_locality))
+            }
+            ensureTracking(generation)
             delay(CHECK_INTERVAL_MS)
         }
     }
 
-    private suspend fun checkLocality() {
+    private suspend fun ensureTracking(generation: Long) {
+        currentCoroutineContext().ensureActive()
+        if (!runGuard.isActive(generation)) throw CancellationException("Journey stopped")
+    }
+
+    private suspend fun checkLocality(generation: Long) {
+        ensureTracking(generation)
+        val runContext = currentCoroutineContext()
         val subscriptions = reader.requestSubscriptionCells()
+        ensureTracking(generation)
         val cells = subscriptions.flatMap { it.cells }
         val serving = preferredServingCell(cells)
         if (!resolver.hasGeographicPack()) {
-            publish(JourneyTrackingMode.WAITING_FOR_LOCALITY, AppLanguageManager.getString(this, R.string.journey_download_geographic_pack))
+            publish(generation, JourneyTrackingMode.WAITING_FOR_LOCALITY, AppLanguageManager.getString(this, R.string.journey_download_geographic_pack))
             return
         }
 
-        publish(JourneyTrackingMode.ACQUIRING_LOCALITY, AppLanguageManager.getString(this, R.string.journey_acquiring_locality))
+        ensureTracking(generation)
+        publish(generation, JourneyTrackingMode.ACQUIRING_LOCALITY, AppLanguageManager.getString(this, R.string.journey_acquiring_locality))
         when (val fix = gnssLocator.getLocation()) {
             is GnssFixResult.Precise -> {
                 val match = resolver.resolve(fix.location.latitude, fix.location.longitude)
                 if (match == null) {
-                    publish(JourneyTrackingMode.WAITING_FOR_LOCALITY, AppLanguageManager.getString(this, R.string.journey_waiting_locality))
+                    publish(generation, JourneyTrackingMode.WAITING_FOR_LOCALITY, AppLanguageManager.getString(this, R.string.journey_waiting_locality))
                     return
                 }
 
-                currentLocality = match.localityName
-                publish(JourneyTrackingMode.ACTIVE, null)
-                val localityKey = journeyLocalityKey(match.localityName, match.subDistrict, match.district, match.state)
-                if (localityKey != lastLocalityKey) {
-                    lastLocalityKey = localityKey
-                    journeyDb.add(
-                        JourneyPoint(
-                            id = 0,
-                            timestamp = System.currentTimeMillis(),
-                            areaName = match.localityName,
-                            district = match.district ?: match.subDistrict,
-                            state = match.state,
-                            radio = serving?.radio ?: "Unknown",
-                            plmn = serving?.plmn ?: "Unknown",
-                            cellId = serving?.cellId ?: 0L,
-                            confidence = if (match.sourceQuality == "polygon") 100 else 70,
-                        ),
-                    )
-                    JourneyHistoryChanges.changed()
+                runGuard.runIfActive(generation) {
+                    runContext.ensureActive()
+                    currentLocality = match.localityName
+                    publish(generation, JourneyTrackingMode.ACTIVE, null)
+                    val localityKey = journeyLocalityKey(match.localityName, match.subDistrict, match.district, match.state)
+                    if (localityKey != lastLocalityKey) {
+                        lastLocalityKey = localityKey
+                        journeyDb.add(
+                            JourneyPoint(
+                                id = 0,
+                                timestamp = System.currentTimeMillis(),
+                                areaName = match.localityName,
+                                district = match.district ?: match.subDistrict,
+                                state = match.state,
+                                radio = serving?.radio ?: "Unknown",
+                                plmn = serving?.plmn ?: "Unknown",
+                                cellId = serving?.cellId ?: 0L,
+                                confidence = if (match.sourceQuality == "polygon") 100 else 70,
+                            ),
+                        )
+                        JourneyHistoryChanges.changed()
+                    }
                 }
             }
             is GnssFixResult.Approximate -> {
                 val match = resolver.resolve(fix.location.latitude, fix.location.longitude)
                 if (match == null) {
-                    publish(JourneyTrackingMode.WAITING_FOR_LOCALITY, AppLanguageManager.getString(this, R.string.journey_waiting_locality))
+                    publish(generation, JourneyTrackingMode.WAITING_FOR_LOCALITY, AppLanguageManager.getString(this, R.string.journey_waiting_locality))
                     return
                 }
 
-                currentLocality = match.localityName
-                publish(JourneyTrackingMode.ACTIVE, AppLanguageManager.getString(this, R.string.journey_approximate_location))
-                val localityKey = journeyLocalityKey(match.localityName, match.subDistrict, match.district, match.state)
-                if (localityKey != lastLocalityKey) {
-                    lastLocalityKey = localityKey
-                    journeyDb.add(
-                        JourneyPoint(
-                            id = 0,
-                            timestamp = System.currentTimeMillis(),
-                            areaName = match.localityName,
-                            district = match.district ?: match.subDistrict,
-                            state = match.state,
-                            radio = serving?.radio ?: "Unknown",
-                            plmn = serving?.plmn ?: "Unknown",
-                            cellId = serving?.cellId ?: 0L,
-                            confidence = if (match.sourceQuality == "polygon") 70 else 50,
-                        ),
-                    )
-                    JourneyHistoryChanges.changed()
+                runGuard.runIfActive(generation) {
+                    runContext.ensureActive()
+                    currentLocality = match.localityName
+                    publish(generation, JourneyTrackingMode.ACTIVE, AppLanguageManager.getString(this, R.string.journey_approximate_location))
+                    val localityKey = journeyLocalityKey(match.localityName, match.subDistrict, match.district, match.state)
+                    if (localityKey != lastLocalityKey) {
+                        lastLocalityKey = localityKey
+                        journeyDb.add(
+                            JourneyPoint(
+                                id = 0,
+                                timestamp = System.currentTimeMillis(),
+                                areaName = match.localityName,
+                                district = match.district ?: match.subDistrict,
+                                state = match.state,
+                                radio = serving?.radio ?: "Unknown",
+                                plmn = serving?.plmn ?: "Unknown",
+                                cellId = serving?.cellId ?: 0L,
+                                confidence = if (match.sourceQuality == "polygon") 70 else 50,
+                            ),
+                        )
+                        JourneyHistoryChanges.changed()
+                    }
                 }
             }
-            GnssFixResult.Timeout -> publish(JourneyTrackingMode.WAITING_FOR_LOCALITY, AppLanguageManager.getString(this, R.string.journey_waiting_precise_location))
-            GnssFixResult.ProviderDisabled -> publish(JourneyTrackingMode.GPS_DISABLED, AppLanguageManager.getString(this, R.string.journey_location_off_tracking))
-            GnssFixResult.PermissionMissing -> publish(JourneyTrackingMode.PERMISSION_REQUIRED, AppLanguageManager.getString(this, R.string.journey_fine_location_needed))
-            is GnssFixResult.Error -> publish(JourneyTrackingMode.WAITING_FOR_LOCALITY, AppLanguageManager.getString(this, R.string.journey_waiting_locality))
+            GnssFixResult.Timeout -> publish(generation, JourneyTrackingMode.WAITING_FOR_LOCALITY, AppLanguageManager.getString(this, R.string.journey_waiting_precise_location))
+            GnssFixResult.ProviderDisabled -> publish(generation, JourneyTrackingMode.GPS_DISABLED, AppLanguageManager.getString(this, R.string.journey_location_off_tracking))
+            GnssFixResult.PermissionMissing -> publish(generation, JourneyTrackingMode.PERMISSION_REQUIRED, AppLanguageManager.getString(this, R.string.journey_fine_location_needed))
+            is GnssFixResult.Error -> publish(generation, JourneyTrackingMode.WAITING_FOR_LOCALITY, AppLanguageManager.getString(this, R.string.journey_waiting_locality))
         }
     }
 
@@ -167,10 +206,12 @@ class JourneyForegroundService : Service() {
         .sortedWith(compareByDescending<RadioCell> { it.radio == "NR" }.thenByDescending { it.dbm ?: -999 })
         .firstOrNull()
 
-    private fun publish(mode: JourneyTrackingMode, detail: String?) {
-        val status = JourneyTrackingStatus(mode, currentLocality, System.currentTimeMillis(), detail)
-        JourneyTrackingState.update(this, status)
-        updateNotification(currentLocality ?: detail ?: AppLanguageManager.getString(this, R.string.journey_finding_locality))
+    private fun publish(generation: Long, mode: JourneyTrackingMode, detail: String?) {
+        runGuard.runIfActive(generation) {
+            val status = JourneyTrackingStatus(mode, currentLocality, System.currentTimeMillis(), detail)
+            JourneyTrackingState.update(this, status)
+            updateNotification(currentLocality ?: detail ?: AppLanguageManager.getString(this, R.string.journey_finding_locality))
+        }
     }
 
     private fun notification(text: String): Notification {
@@ -197,10 +238,9 @@ class JourneyForegroundService : Service() {
     private fun createChannel() { getSystemService(NotificationManager::class.java).createNotificationChannel(NotificationChannel(CHANNEL_ID, AppLanguageManager.getString(this, R.string.journey_notification_channel), NotificationManager.IMPORTANCE_LOW)) }
 
     override fun onDestroy() {
-        loopJob?.cancel()
-        JourneyTrackingState.stopped(this)
-        journeyDb.close()
+        stopTracking()
         scope.cancel()
+        journeyDb.close()
         super.onDestroy()
     }
 

@@ -217,4 +217,6 @@
     <string name="location_guide_faq_9_keywords">best GPS outdoors open sky train bus window office basement parking tunnel tall building accuracy forest dense forest trees leaves foliage canopy woods clearing wet leaves rain GNSS satellite weak signal</string>
     <string name="location_guide_privacy_title">Offline locality stays offline</string>
     <string name="location_guide_privacy_body">Downloaded geographic packs stay on your device. GPS coordinates can be matched to locality names locally without sending them to a LocalTell server. Assisted location is separate optional network help when it is needed.</string>
+    <string name="location_guide_expand_answer">Expand answer</string>
+    <string name="location_guide_collapse_answer">Collapse answer</string>
 </resources>
