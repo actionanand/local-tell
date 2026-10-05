@@ -41,12 +41,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.BrightnessAuto
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.MoreHoriz
@@ -54,6 +52,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Route
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings as SettingsIcon
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.ChevronRight
@@ -147,7 +146,7 @@ class MainActivity : ComponentActivity() {
             val preferences = remember { getSharedPreferences("localtell_preferences", Context.MODE_PRIVATE) }
             var themeMode by remember { mutableStateOf(ThemeMode.fromPreference(preferences.getString("theme_mode", null))) }
             LocalTellTheme(themeMode) {
-                val defaultTab = if (preferences.getString("default_root_tab", "HOME") == "EASY") RootTab.EASY else RootTab.HOME
+                val defaultTab = if (preferences.getString("default_root_tab", "EASY") == "EASY") RootTab.EASY else RootTab.HOME
                 LocalTellApp(defaultTab, themeMode) { mode ->
                     themeMode = mode
                     preferences.edit().putString("theme_mode", mode.name).apply()
@@ -169,14 +168,20 @@ class MainActivity : ComponentActivity() {
     fun requestLocationEnable(onEnabled: () -> Unit) {
         val locationWasOff = !isLocationEnabled()
         locationEnablement.requestEnable {
-            if (locationWasOff && isLocationEnabled()) {
+            if (locationWasOff && isLocationEnabled() && isLocationTurnOffReminderEnabled()) {
                 locationWasEnabledByLocalTell = true
+            } else if (!isLocationTurnOffReminderEnabled()) {
+                locationWasEnabledByLocalTell = false
             }
             onEnabled()
         }
     }
 
     fun takeLocationTurnOffReminder(): Boolean {
+        if (!isLocationTurnOffReminderEnabled()) {
+            locationWasEnabledByLocalTell = false
+            return false
+        }
         if (!isLocationEnabled()) {
             locationWasEnabledByLocalTell = false
             return false
@@ -186,13 +191,25 @@ class MainActivity : ComponentActivity() {
         return true
     }
 
+    fun setLocationTurnOffReminderEnabled(enabled: Boolean) {
+        getSharedPreferences("localtell_preferences", Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean("remind_location_turn_off", enabled)
+            .apply()
+        if (!enabled) locationWasEnabledByLocalTell = false
+    }
+
+    private fun isLocationTurnOffReminderEnabled(): Boolean =
+        getSharedPreferences("localtell_preferences", Context.MODE_PRIVATE)
+            .getBoolean("remind_location_turn_off", true)
+
     fun openLocationSettings() {
         startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
     }
 }
 
 private enum class RootTab { HOME, EASY, MORE }
-private enum class MoreDestination { MENU, LANGUAGE, OFFLINE_DATA, JOURNEY, TOWER_SURVEY }
+private enum class MoreDestination { MENU, SETTINGS, OFFLINE_DATA, JOURNEY, TOWER_SURVEY }
 
 @Composable
 private fun LocalTellApp(defaultTab: RootTab, themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit) {
@@ -208,11 +225,11 @@ private fun LocalTellApp(defaultTab: RootTab, themeMode: ThemeMode, onThemeModeC
     }) { padding ->
         Box(Modifier.padding(padding)) {
             when (tab) {
-                RootTab.HOME -> HomeScreen(themeMode, onThemeModeChange)
+                RootTab.HOME -> HomeScreen()
                 RootTab.EASY -> EasyScreen()
                 RootTab.MORE -> when (moreDestination) {
                     MoreDestination.MENU -> MoreScreen { moreDestination = it }
-                    MoreDestination.LANGUAGE -> MoreChild(onBack = { moreDestination = MoreDestination.MENU }) { LanguageScreen() }
+                    MoreDestination.SETTINGS -> MoreChild(onBack = { moreDestination = MoreDestination.MENU }) { SettingsScreen(themeMode, onThemeModeChange) }
                     MoreDestination.OFFLINE_DATA -> MoreChild(onBack = { moreDestination = MoreDestination.MENU }) { PacksScreen() }
                     MoreDestination.JOURNEY -> MoreChild(onBack = { moreDestination = MoreDestination.MENU }) { JourneyScreen() }
                     MoreDestination.TOWER_SURVEY -> if (BuildConfig.ENABLE_TOWER_SURVEY) MoreChild(onBack = { moreDestination = MoreDestination.MENU }) { TowerSurveyScreen() } else MoreScreen { moreDestination = it }
@@ -236,37 +253,105 @@ private fun MoreChild(onBack: () -> Unit, content: @Composable () -> Unit) {
 
 @Composable
 private fun MoreScreen(onOpen: (MoreDestination) -> Unit) {
-    val language = AppLanguageManager.current(LocalContext.current)
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 20.dp, top = 20.dp, end = 20.dp, bottom = 32.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item { Text(stringResource(R.string.more_title), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold) }
-        item { MoreRow(Icons.Default.Language, stringResource(R.string.language_title), languageDisplayName(language)) { onOpen(MoreDestination.LANGUAGE) } }
         item { MoreRow(Icons.Default.Route, stringResource(R.string.more_journey), stringResource(R.string.more_journey_description)) { onOpen(MoreDestination.JOURNEY) } }
         item { MoreRow(Icons.Default.Download, stringResource(R.string.more_offline), stringResource(R.string.more_offline_description)) { onOpen(MoreDestination.OFFLINE_DATA) } }
         if (BuildConfig.ENABLE_TOWER_SURVEY) item { MoreRow(Icons.Default.LocationOn, stringResource(R.string.more_survey), stringResource(R.string.more_survey_description)) { onOpen(MoreDestination.TOWER_SURVEY) } }
+        item { MoreRow(Icons.Default.SettingsIcon, stringResource(R.string.more_settings), stringResource(R.string.more_settings_description)) { onOpen(MoreDestination.SETTINGS) } }
     }
 }
 
 @Composable
-private fun LanguageScreen() {
+private fun SettingsScreen(
+    themeMode: ThemeMode,
+    onThemeModeChange: (ThemeMode) -> Unit,
+) {
     val context = LocalContext.current
-    val activity = context as? ComponentActivity
-    var selected by remember { mutableStateOf(AppLanguageManager.current(context)) }
+    val activity = context as? MainActivity
+    val preferences = remember { context.getSharedPreferences("localtell_preferences", Context.MODE_PRIVATE) }
+    var defaultEasy by remember { mutableStateOf(preferences.getString("default_root_tab", "EASY") == "EASY") }
+    var locationReminderEnabled by remember { mutableStateOf(preferences.getBoolean("remind_location_turn_off", true)) }
+    var selectedLanguage by remember { mutableStateOf(AppLanguageManager.current(context)) }
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 20.dp, top = 20.dp, end = 20.dp, bottom = 32.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item { Text(stringResource(R.string.language_title), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold) }
-        item { Text(stringResource(R.string.language_description), color = MaterialTheme.colorScheme.onSurfaceVariant) }
-        items(AppLanguage.entries) { language ->
+        item { Text(stringResource(R.string.more_settings), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold) }
+        item { Text(stringResource(R.string.more_settings_description), color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        item { Text(stringResource(R.string.settings_general), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold) }
+        item {
+            ElevatedCard(Modifier.fillMaxWidth()) {
+                Row(
+                    Modifier.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
+                    Icon(Icons.Default.Home, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    Column(Modifier.weight(1f)) {
+                        Text(stringResource(R.string.settings_easy_default), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        Text(stringResource(R.string.settings_easy_default_description), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Switch(
+                        checked = defaultEasy,
+                        onCheckedChange = { enabled ->
+                            defaultEasy = enabled
+                            preferences.edit().putString("default_root_tab", if (enabled) "EASY" else "HOME").apply()
+                        },
+                    )
+                }
+            }
+        }
+        item {
+            ElevatedCard(Modifier.fillMaxWidth()) {
+                Row(
+                    Modifier.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
+                    Icon(Icons.Default.LocationOn, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    Column(Modifier.weight(1f)) {
+                        Text(stringResource(R.string.settings_location_reminder), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        Text(stringResource(R.string.settings_location_reminder_description), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Switch(
+                        checked = locationReminderEnabled,
+                        onCheckedChange = { enabled ->
+                            locationReminderEnabled = enabled
+                            activity?.setLocationTurnOffReminderEnabled(enabled)
+                                ?: preferences.edit().putBoolean("remind_location_turn_off", enabled).apply()
+                        },
+                    )
+                }
+            }
+        }
+        item { Text(stringResource(R.string.settings_appearance), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold) }
+        item {
+            ElevatedCard(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                        Icon(Icons.Default.BrightnessAuto, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Text(stringResource(R.string.settings_theme), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(selected = themeMode == ThemeMode.SYSTEM, onClick = { onThemeModeChange(ThemeMode.SYSTEM) }, label = { Text(stringResource(R.string.settings_theme_automatic)) })
+                        FilterChip(selected = themeMode == ThemeMode.LIGHT, onClick = { onThemeModeChange(ThemeMode.LIGHT) }, label = { Text(stringResource(R.string.settings_theme_light)) })
+                        FilterChip(selected = themeMode == ThemeMode.DARK, onClick = { onThemeModeChange(ThemeMode.DARK) }, label = { Text(stringResource(R.string.settings_theme_dark)) })
+                    }
+                }
+            }
+        }
+        item { Text(stringResource(R.string.settings_language), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold) }
+        items(listOf(AppLanguage.SYSTEM, AppLanguage.TAMIL, AppLanguage.ENGLISH, AppLanguage.SANSKRIT)) { language ->
             ElevatedCard(
                 onClick = {
-                    if (language != selected) {
-                        selected = language
+                    if (language != selectedLanguage) {
+                        selectedLanguage = language
                         AppLanguageManager.apply(context, language)
                         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) activity?.recreate()
                     }
@@ -278,7 +363,8 @@ private fun LanguageScreen() {
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    RadioButton(selected = selected == language, onClick = null)
+                    Icon(Icons.Default.Language, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    RadioButton(selected = selectedLanguage == language, onClick = null)
                     Text(languageDisplayName(language), style = MaterialTheme.typography.titleMedium)
                 }
             }
@@ -289,8 +375,9 @@ private fun LanguageScreen() {
 @Composable
 private fun languageDisplayName(language: AppLanguage): String = when (language) {
     AppLanguage.SYSTEM -> stringResource(R.string.language_system_default)
-    AppLanguage.ENGLISH -> stringResource(R.string.language_english)
     AppLanguage.TAMIL -> stringResource(R.string.language_tamil)
+    AppLanguage.ENGLISH -> stringResource(R.string.language_english)
+    AppLanguage.SANSKRIT -> stringResource(R.string.language_sanskrit)
 }
 
 @Composable
@@ -312,8 +399,6 @@ private fun EasyScreen(vm: EasyViewModel = viewModel()) {
     val context = LocalContext.current
     val activity = context as? MainActivity
     val state by vm.state.collectAsStateWithLifecycle()
-    val preferences = remember { context.getSharedPreferences("localtell_preferences", Context.MODE_PRIVATE) }
-    var defaultEasy by remember { mutableStateOf(preferences.getString("default_root_tab", "HOME") == "EASY") }
     var findInput by rememberSaveable { mutableStateOf("") }
     var ttsReady by remember { mutableStateOf(false) }
     var locationRequestAwaitingResult by remember { mutableStateOf(false) }
@@ -390,13 +475,6 @@ private fun EasyScreen(vm: EasyViewModel = viewModel()) {
     ) {
         item {
             Text(stringResource(R.string.easy_title), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(stringResource(R.string.easy_default_tab), style = MaterialTheme.typography.bodyMedium)
-                Switch(checked = defaultEasy, onCheckedChange = { enabled ->
-                    defaultEasy = enabled
-                    preferences.edit().putString("default_root_tab", if (enabled) "EASY" else "HOME").apply()
-                })
-            }
         }
         item {
             Text(stringResource(R.string.easy_share_title), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
@@ -562,11 +640,7 @@ private fun launchUber(context: Context, uri: android.net.Uri) {
 }
 
 @Composable
-private fun HomeScreen(
-    themeMode: ThemeMode,
-    onThemeModeChange: (ThemeMode) -> Unit,
-    vm: HomeViewModel = viewModel(),
-) {
+private fun HomeScreen(vm: HomeViewModel = viewModel()) {
     val context = LocalContext.current
     val activity = context as? MainActivity
     val status by vm.status.collectAsStateWithLifecycle()
@@ -665,7 +739,7 @@ private fun HomeScreen(
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         item {
-            BrandHeader(themeMode, onThemeModeChange)
+            BrandHeader()
         }
         if (!permissionGranted) item {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -895,23 +969,7 @@ private fun localityStateMessage(state: LocalityState): String? = when (state) {
 }
 
 @Composable
-private fun BrandHeader(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit) {
-    val nextThemeMode = when (themeMode) {
-        ThemeMode.SYSTEM -> ThemeMode.LIGHT
-        ThemeMode.LIGHT -> ThemeMode.DARK
-        ThemeMode.DARK -> ThemeMode.SYSTEM
-    }
-    val themeIcon = when (themeMode) {
-        ThemeMode.SYSTEM -> Icons.Default.BrightnessAuto
-        ThemeMode.LIGHT -> Icons.Default.LightMode
-        ThemeMode.DARK -> Icons.Default.DarkMode
-    }
-    val themeDescription = when (themeMode) {
-        ThemeMode.SYSTEM -> stringResource(R.string.home_theme_automatic)
-        ThemeMode.LIGHT -> stringResource(R.string.home_theme_light)
-        ThemeMode.DARK -> stringResource(R.string.home_theme_dark)
-    }
-
+private fun BrandHeader() {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Image(
             painter = painterResource(R.drawable.localtell_brand_icon),
@@ -923,11 +981,7 @@ private fun BrandHeader(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> 
             Text("LocalTell", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
             Text(stringResource(R.string.home_tagline), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.secondary)
         }
-        IconButton(onClick = { onThemeModeChange(nextThemeMode) }) {
-            Icon(themeIcon, themeDescription, tint = MaterialTheme.colorScheme.primary)
-        }
     }
-
 }
 
 @Composable
