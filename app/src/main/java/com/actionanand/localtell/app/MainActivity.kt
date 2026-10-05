@@ -414,12 +414,13 @@ private fun EasyScreen(vm: EasyViewModel = viewModel()) {
         locationRequestObservedInFlight = false
         vm.getMyLocation()
     }
+    lateinit var requestLocation: () -> Unit
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
         if (granted[Manifest.permission.ACCESS_FINE_LOCATION] == true) {
-            beginLocationRequest()
+            requestLocation()
         }
     }
-    fun requestLocation() {
+    requestLocation = {
         when {
             !hasPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) -> permissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION))
             activity?.isLocationEnabled() == false -> activity.requestLocationEnable {
@@ -479,7 +480,7 @@ private fun EasyScreen(vm: EasyViewModel = viewModel()) {
         }
         item {
             Text(stringResource(R.string.easy_share_title), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-            Button(enabled = !state.locating, onClick = ::requestLocation) { Text(if (state.locating) stringResource(R.string.easy_getting_location) else stringResource(R.string.easy_get_location)) }
+            Button(enabled = !state.locating, onClick = requestLocation) { Text(if (state.locating) stringResource(R.string.easy_getting_location) else stringResource(R.string.easy_get_location)) }
             if (state.locating) {
                 LocationWaitingAnimation(
                     message = stringResource(R.string.home_loading_finding_location),
