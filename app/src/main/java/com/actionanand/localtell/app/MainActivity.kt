@@ -482,7 +482,8 @@ private fun EasyLocationCard(location: EasyLocation, showAccuracy: Boolean, onSp
 
 @Composable
 private fun RideActions(context: Context, location: EasyLocation) {
-    val destination = RideDestination(location.encoded.latitude, location.encoded.longitude, context.getString(R.string.easy_location_label), location.locality?.localityName ?: MapLinkBuilder.coordinateText(location.encoded.latitude, location.encoded.longitude))
+    val locationLabel = stringResource(R.string.easy_location_label)
+    val destination = RideDestination(location.encoded.latitude, location.encoded.longitude, locationLabel, location.locality?.localityName ?: MapLinkBuilder.coordinateText(location.encoded.latitude, location.encoded.longitude))
     var showUberChoice by remember { mutableStateOf(false) }
     ElevatedCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -760,13 +761,14 @@ private fun HomeResults(
                     Text(it, style = MaterialTheme.typography.bodySmall)
                 }
                 status.locality?.let { match ->
+                    val locality = match.localityName + (match.district?.let { ", $it" } ?: "")
+                    val shareText = stringResource(R.string.home_share_message, locality)
+                    val shareTitle = stringResource(R.string.home_share_locality)
                     OutlinedButton(onClick = {
-                        val locality = match.localityName + (match.district?.let { ", $it" } ?: "")
-                        val text = context.getString(R.string.home_share_message, locality)
                         context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
                             type = "text/plain"
-                            putExtra(Intent.EXTRA_TEXT, text)
-                        }, context.getString(R.string.home_share_locality)))
+                            putExtra(Intent.EXTRA_TEXT, shareText)
+                        }, shareTitle))
                     }) { Icon(Icons.Default.Share, null); Spacer(Modifier.padding(3.dp)); Text(stringResource(R.string.home_share_button)) }
                 }
             }
