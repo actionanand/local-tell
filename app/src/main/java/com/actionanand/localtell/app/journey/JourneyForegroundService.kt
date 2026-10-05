@@ -15,6 +15,7 @@ import androidx.annotation.RequiresPermission
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.actionanand.localtell.app.MainActivity
+import com.actionanand.localtell.app.AppLanguageManager
 import com.actionanand.localtell.app.R
 import com.actionanand.localtell.app.data.OfflineLocalityResolver
 import com.actionanand.localtell.app.data.PackStore
@@ -66,13 +67,13 @@ class JourneyForegroundService : Service() {
             return START_NOT_STICKY
         }
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            JourneyTrackingState.update(this, JourneyTrackingStatus(JourneyTrackingMode.PERMISSION_REQUIRED, detail = "Fine location permission is required."))
+            JourneyTrackingState.update(this, JourneyTrackingStatus(JourneyTrackingMode.PERMISSION_REQUIRED, detail = AppLanguageManager.getString(this, R.string.journey_fine_location_needed)))
             stopSelf(startId)
             return START_NOT_STICKY
         }
 
-        JourneyTrackingState.update(this, JourneyTrackingStatus(JourneyTrackingMode.STARTING, detail = "Starting journey tracking…"))
-        startAsForeground("Finding current locality…")
+        JourneyTrackingState.update(this, JourneyTrackingStatus(JourneyTrackingMode.STARTING, detail = AppLanguageManager.getString(this, R.string.journey_starting)))
+        startAsForeground(AppLanguageManager.getString(this, R.string.journey_finding_locality))
         if (loopJob?.isActive != true) loopJob = scope.launch { trackingLoop() }
         return START_STICKY
     }
@@ -81,7 +82,7 @@ class JourneyForegroundService : Service() {
     private suspend fun trackingLoop() {
         while (currentCoroutineContext().isActive) {
             runCatching { checkLocality() }
-                .onFailure { publish(JourneyTrackingMode.WAITING_FOR_LOCALITY, "Waiting for locality…") }
+                .onFailure { publish(JourneyTrackingMode.WAITING_FOR_LOCALITY, AppLanguageManager.getString(this, R.string.journey_waiting_locality)) }
             delay(CHECK_INTERVAL_MS)
         }
     }
@@ -91,16 +92,16 @@ class JourneyForegroundService : Service() {
         val cells = subscriptions.flatMap { it.cells }
         val serving = preferredServingCell(cells)
         if (!resolver.hasGeographicPack()) {
-            publish(JourneyTrackingMode.WAITING_FOR_LOCALITY, "Download a geographic offline data pack to track localities.")
+            publish(JourneyTrackingMode.WAITING_FOR_LOCALITY, AppLanguageManager.getString(this, R.string.journey_download_geographic_pack))
             return
         }
 
-        publish(JourneyTrackingMode.ACQUIRING_LOCALITY, "Acquiring locality…")
+        publish(JourneyTrackingMode.ACQUIRING_LOCALITY, AppLanguageManager.getString(this, R.string.journey_acquiring_locality))
         when (val fix = gnssLocator.getLocation()) {
             is GnssFixResult.Precise -> {
                 val match = resolver.resolve(fix.location.latitude, fix.location.longitude)
                 if (match == null) {
-                    publish(JourneyTrackingMode.WAITING_FOR_LOCALITY, "Waiting for locality…")
+                    publish(JourneyTrackingMode.WAITING_FOR_LOCALITY, AppLanguageManager.getString(this, R.string.journey_waiting_locality))
                     return
                 }
 
@@ -128,12 +129,12 @@ class JourneyForegroundService : Service() {
             is GnssFixResult.Approximate -> {
                 val match = resolver.resolve(fix.location.latitude, fix.location.longitude)
                 if (match == null) {
-                    publish(JourneyTrackingMode.WAITING_FOR_LOCALITY, "Waiting for locality…")
+                    publish(JourneyTrackingMode.WAITING_FOR_LOCALITY, AppLanguageManager.getString(this, R.string.journey_waiting_locality))
                     return
                 }
 
                 currentLocality = match.localityName
-                publish(JourneyTrackingMode.ACTIVE, "Using an approximate location…")
+                publish(JourneyTrackingMode.ACTIVE, AppLanguageManager.getString(this, R.string.journey_approximate_location))
                 val localityKey = journeyLocalityKey(match.localityName, match.subDistrict, match.district, match.state)
                 if (localityKey != lastLocalityKey) {
                     lastLocalityKey = localityKey
@@ -153,10 +154,10 @@ class JourneyForegroundService : Service() {
                     JourneyHistoryChanges.changed()
                 }
             }
-            GnssFixResult.Timeout -> publish(JourneyTrackingMode.WAITING_FOR_LOCALITY, getString(R.string.journey_waiting_precise_location))
-            GnssFixResult.ProviderDisabled -> publish(JourneyTrackingMode.GPS_DISABLED, getString(R.string.journey_location_off_tracking))
-            GnssFixResult.PermissionMissing -> publish(JourneyTrackingMode.PERMISSION_REQUIRED, "Fine location permission is required.")
-            is GnssFixResult.Error -> publish(JourneyTrackingMode.WAITING_FOR_LOCALITY, "Waiting for locality…")
+            GnssFixResult.Timeout -> publish(JourneyTrackingMode.WAITING_FOR_LOCALITY, AppLanguageManager.getString(this, R.string.journey_waiting_precise_location))
+            GnssFixResult.ProviderDisabled -> publish(JourneyTrackingMode.GPS_DISABLED, AppLanguageManager.getString(this, R.string.journey_location_off_tracking))
+            GnssFixResult.PermissionMissing -> publish(JourneyTrackingMode.PERMISSION_REQUIRED, AppLanguageManager.getString(this, R.string.journey_fine_location_needed))
+            is GnssFixResult.Error -> publish(JourneyTrackingMode.WAITING_FOR_LOCALITY, AppLanguageManager.getString(this, R.string.journey_waiting_locality))
         }
     }
 
@@ -169,7 +170,7 @@ class JourneyForegroundService : Service() {
     private fun publish(mode: JourneyTrackingMode, detail: String?) {
         val status = JourneyTrackingStatus(mode, currentLocality, System.currentTimeMillis(), detail)
         JourneyTrackingState.update(this, status)
-        updateNotification(currentLocality ?: detail ?: "Finding current locality…")
+        updateNotification(currentLocality ?: detail ?: AppLanguageManager.getString(this, R.string.journey_finding_locality))
     }
 
     private fun notification(text: String): Notification {
@@ -177,12 +178,12 @@ class JourneyForegroundService : Service() {
         val stopIntent = PendingIntent.getService(this, 1, Intent(this, JourneyForegroundService::class.java).setAction(ACTION_STOP), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_localtell)
-            .setContentTitle("LocalTell journey")
+            .setContentTitle(AppLanguageManager.getString(this, R.string.journey_notification_title))
             .setContentText(text)
             .setContentIntent(openIntent)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
-            .addAction(0, "Stop", stopIntent)
+            .addAction(0, AppLanguageManager.getString(this, R.string.notification_stop), stopIntent)
             .build()
     }
 
@@ -193,7 +194,7 @@ class JourneyForegroundService : Service() {
     }
 
     private fun updateNotification(text: String) { getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification(text)) }
-    private fun createChannel() { getSystemService(NotificationManager::class.java).createNotificationChannel(NotificationChannel(CHANNEL_ID, "Journey tracking", NotificationManager.IMPORTANCE_LOW)) }
+    private fun createChannel() { getSystemService(NotificationManager::class.java).createNotificationChannel(NotificationChannel(CHANNEL_ID, AppLanguageManager.getString(this, R.string.journey_notification_channel), NotificationManager.IMPORTANCE_LOW)) }
 
     override fun onDestroy() {
         loopJob?.cancel()

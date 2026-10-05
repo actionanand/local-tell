@@ -22,6 +22,7 @@ import androidx.core.content.ContextCompat
 import com.actionanand.localtell.app.BuildConfig
 import com.actionanand.localtell.app.MainActivity
 import com.actionanand.localtell.app.R
+import com.actionanand.localtell.app.AppLanguageManager
 import com.actionanand.localtell.app.model.RadioCell
 import com.actionanand.localtell.app.telephony.CellReader
 import kotlinx.coroutines.CoroutineScope
@@ -97,10 +98,10 @@ class TowerSurveyForegroundService : Service() {
         if (sessionId == 0L) {
             sessionId = db.startSession()
             TowerSurveyState.started(this)
-            startAsForeground("Tower Survey active · 0 observations")
+            startAsForeground(AppLanguageManager.getString(this, R.string.tower_survey_active, 0))
             startSurveyUpdates()
         } else {
-            startAsForeground("Tower Survey active · 0 observations")
+            startAsForeground(AppLanguageManager.getString(this, R.string.tower_survey_active, 0))
         }
         return START_NOT_STICKY
     }
@@ -127,16 +128,16 @@ class TowerSurveyForegroundService : Service() {
         lastStoredLocation = Location(location)
         lastServingKey = servingKey
         val (fixes, observations) = db.counts(sessionId)
-        val summary = registered.joinToString(" · ") { "${it.carrierName ?: "Cellular"} ${it.radio} ${it.cellId}" }.takeIf { it.isNotBlank() }
+        val summary = registered.joinToString(" · ") { "${it.carrierName ?: AppLanguageManager.getString(this, R.string.tower_survey_cellular_fallback)} ${it.radio} ${it.cellId}" }.takeIf { it.isNotBlank() }
         TowerSurveyState.update(this, fixes, observations, location.accuracy, summary)
-        updateNotification("Tower Survey active · $observations observations")
+        updateNotification(AppLanguageManager.getString(this, R.string.tower_survey_active, observations))
     }
 
     private fun notification(text: String): Notification {
         val openIntent = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val stopIntent = PendingIntent.getService(this, 1, Intent(this, TowerSurveyForegroundService::class.java).setAction(ACTION_STOP), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        return NotificationCompat.Builder(this, CHANNEL_ID).setSmallIcon(R.drawable.ic_stat_localtell).setContentTitle("LocalTell Tower Survey")
-            .setContentText(text).setContentIntent(openIntent).setOngoing(true).setOnlyAlertOnce(true).addAction(0, "Stop", stopIntent).build()
+        return NotificationCompat.Builder(this, CHANNEL_ID).setSmallIcon(R.drawable.ic_stat_localtell).setContentTitle(AppLanguageManager.getString(this, R.string.tower_survey_notification_title))
+            .setContentText(text).setContentIntent(openIntent).setOngoing(true).setOnlyAlertOnce(true).addAction(0, AppLanguageManager.getString(this, R.string.notification_stop), stopIntent).build()
     }
 
     @RequiresPermission(Manifest.permission.ACCESS_FINE_LOCATION)
@@ -146,7 +147,7 @@ class TowerSurveyForegroundService : Service() {
     }
 
     private fun updateNotification(text: String) { getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification(text)) }
-    private fun createChannel() { getSystemService(NotificationManager::class.java).createNotificationChannel(NotificationChannel(CHANNEL_ID, "Tower Survey", NotificationManager.IMPORTANCE_LOW)) }
+    private fun createChannel() { getSystemService(NotificationManager::class.java).createNotificationChannel(NotificationChannel(CHANNEL_ID, AppLanguageManager.getString(this, R.string.tower_survey_notification_channel), NotificationManager.IMPORTANCE_LOW)) }
 
     override fun onDestroy() {
         runCatching { locationManager.removeUpdates(listener) }

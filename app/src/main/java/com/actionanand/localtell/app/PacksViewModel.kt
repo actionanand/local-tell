@@ -17,7 +17,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-data class BatchDownloadProgress(val label: String, val completed: Int, val total: Int, val currentPackName: String, val currentPackId: String)
+data class BatchDownloadProgress(val scopeKey: String, val completed: Int, val total: Int, val currentPackName: String, val currentPackId: String)
 
 data class PackUiState(
     val loading: Boolean = false,
@@ -44,7 +44,7 @@ class PacksViewModel(app: Application) : AndroidViewModel(app) {
             _state.value = _state.value.copy(loading = true, error = null, installed = installed())
             runCatching { manifestRepository.fetch() }
                 .onSuccess { _state.value = _state.value.copy(loading = false, remote = it.packs, installed = installed()) }
-                .onFailure { _state.value = _state.value.copy(loading = false, error = "Unable to refresh offline data right now. Installed packs remain available offline.") }
+                .onFailure { _state.value = _state.value.copy(loading = false, error = AppLanguageManager.getString(getApplication(), R.string.offline_error_refresh)) }
         }
     }
 
@@ -71,11 +71,11 @@ class PacksViewModel(app: Application) : AndroidViewModel(app) {
         downloader.cancel(id)
     }
 
-    fun downloadAll() = downloadBatch("India", _state.value.remote)
+    fun downloadAll() = downloadBatch("india", _state.value.remote)
 
-    fun downloadRegion(regionPacks: Collection<RemotePack>, regionName: String) = downloadBatch(regionName, regionPacks)
+    fun downloadRegion(regionPacks: Collection<RemotePack>, regionKey: String) = downloadBatch(regionKey, regionPacks)
 
-    private fun downloadBatch(label: String, packs: Collection<RemotePack>) {
+    private fun downloadBatch(scopeKey: String, packs: Collection<RemotePack>) {
         if (batchDownload?.isActive == true || individualDownloads.isNotEmpty() || _state.value.progress.isNotEmpty()) return
         val job = viewModelScope.launch {
             val required = PackCatalog.requiredPacks(packs, installed())
@@ -84,7 +84,7 @@ class PacksViewModel(app: Application) : AndroidViewModel(app) {
             var cancelled = false
             try {
                 required.forEachIndexed { index, pack ->
-                    _state.value = _state.value.copy(batch = BatchDownloadProgress(label, index, required.size, pack.name, pack.id), error = null)
+                    _state.value = _state.value.copy(batch = BatchDownloadProgress(scopeKey, index, required.size, pack.name, pack.id), error = null)
                     if (!downloadOne(pack, reportFailure = false)) failures += pack.name
                 }
             } catch (e: CancellationException) {
@@ -94,7 +94,7 @@ class PacksViewModel(app: Application) : AndroidViewModel(app) {
                 _state.value = _state.value.copy(
                     batch = null,
                     installed = installed(),
-                    error = if (cancelled) null else PackCatalog.batchFailureMessage(failures),
+                    error = if (cancelled || failures.isEmpty()) null else AppLanguageManager.getString(getApplication(), R.string.offline_error_batch, failures.joinToString()),
                 )
                 batchDownload = null
             }
@@ -123,7 +123,7 @@ class PacksViewModel(app: Application) : AndroidViewModel(app) {
         } catch (_: Exception) {
             _state.value = _state.value.copy(
                 progress = _state.value.progress - pack.id,
-                error = if (reportFailure) "Unable to download this offline data pack. Check your internet connection and try again." else _state.value.error,
+                error = if (reportFailure) AppLanguageManager.getString(getApplication(), R.string.offline_error_download) else _state.value.error,
             )
             false
         }

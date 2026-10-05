@@ -47,6 +47,7 @@ import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LightMode
+import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.PlayArrow
@@ -69,6 +70,7 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -133,6 +135,10 @@ class MainActivity : ComponentActivity() {
     var locationWasEnabledByLocalTell by mutableStateOf(false)
         private set
 
+    override fun attachBaseContext(newBase: Context) {
+        super.attachBaseContext(AppLanguageManager.localizedContext(newBase))
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         super.onCreate(savedInstanceState)
@@ -186,7 +192,7 @@ class MainActivity : ComponentActivity() {
 }
 
 private enum class RootTab { HOME, EASY, MORE }
-private enum class MoreDestination { MENU, OFFLINE_DATA, JOURNEY, TOWER_SURVEY }
+private enum class MoreDestination { MENU, LANGUAGE, OFFLINE_DATA, JOURNEY, TOWER_SURVEY }
 
 @Composable
 private fun LocalTellApp(defaultTab: RootTab, themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit) {
@@ -206,6 +212,7 @@ private fun LocalTellApp(defaultTab: RootTab, themeMode: ThemeMode, onThemeModeC
                 RootTab.EASY -> EasyScreen()
                 RootTab.MORE -> when (moreDestination) {
                     MoreDestination.MENU -> MoreScreen { moreDestination = it }
+                    MoreDestination.LANGUAGE -> MoreChild(onBack = { moreDestination = MoreDestination.MENU }) { LanguageScreen() }
                     MoreDestination.OFFLINE_DATA -> MoreChild(onBack = { moreDestination = MoreDestination.MENU }) { PacksScreen() }
                     MoreDestination.JOURNEY -> MoreChild(onBack = { moreDestination = MoreDestination.MENU }) { JourneyScreen() }
                     MoreDestination.TOWER_SURVEY -> if (BuildConfig.ENABLE_TOWER_SURVEY) MoreChild(onBack = { moreDestination = MoreDestination.MENU }) { TowerSurveyScreen() } else MoreScreen { moreDestination = it }
@@ -229,16 +236,61 @@ private fun MoreChild(onBack: () -> Unit, content: @Composable () -> Unit) {
 
 @Composable
 private fun MoreScreen(onOpen: (MoreDestination) -> Unit) {
+    val language = AppLanguageManager.current(LocalContext.current)
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 20.dp, top = 20.dp, end = 20.dp, bottom = 32.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item { Text(stringResource(R.string.more_title), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold) }
+        item { MoreRow(Icons.Default.Language, stringResource(R.string.language_title), languageDisplayName(language)) { onOpen(MoreDestination.LANGUAGE) } }
         item { MoreRow(Icons.Default.Route, stringResource(R.string.more_journey), stringResource(R.string.more_journey_description)) { onOpen(MoreDestination.JOURNEY) } }
         item { MoreRow(Icons.Default.Download, stringResource(R.string.more_offline), stringResource(R.string.more_offline_description)) { onOpen(MoreDestination.OFFLINE_DATA) } }
         if (BuildConfig.ENABLE_TOWER_SURVEY) item { MoreRow(Icons.Default.LocationOn, stringResource(R.string.more_survey), stringResource(R.string.more_survey_description)) { onOpen(MoreDestination.TOWER_SURVEY) } }
     }
+}
+
+@Composable
+private fun LanguageScreen() {
+    val context = LocalContext.current
+    val activity = context as? ComponentActivity
+    var selected by remember { mutableStateOf(AppLanguageManager.current(context)) }
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(start = 20.dp, top = 20.dp, end = 20.dp, bottom = 32.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        item { Text(stringResource(R.string.language_title), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold) }
+        item { Text(stringResource(R.string.language_description), color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        items(AppLanguage.entries) { language ->
+            ElevatedCard(
+                onClick = {
+                    if (language != selected) {
+                        selected = language
+                        AppLanguageManager.apply(context, language)
+                        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) activity?.recreate()
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Row(
+                    Modifier.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    RadioButton(selected = selected == language, onClick = null)
+                    Text(languageDisplayName(language), style = MaterialTheme.typography.titleMedium)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun languageDisplayName(language: AppLanguage): String = when (language) {
+    AppLanguage.SYSTEM -> stringResource(R.string.language_system_default)
+    AppLanguage.ENGLISH -> stringResource(R.string.language_english)
+    AppLanguage.TAMIL -> stringResource(R.string.language_tamil)
 }
 
 @Composable
@@ -430,7 +482,8 @@ private fun EasyLocationCard(location: EasyLocation, showAccuracy: Boolean, onSp
 
 @Composable
 private fun RideActions(context: Context, location: EasyLocation) {
-    val destination = RideDestination(location.encoded.latitude, location.encoded.longitude, context.getString(R.string.easy_location_label), location.locality?.localityName ?: MapLinkBuilder.coordinateText(location.encoded.latitude, location.encoded.longitude))
+    val locationLabel = stringResource(R.string.easy_location_label)
+    val destination = RideDestination(location.encoded.latitude, location.encoded.longitude, locationLabel, location.locality?.localityName ?: MapLinkBuilder.coordinateText(location.encoded.latitude, location.encoded.longitude))
     var showUberChoice by remember { mutableStateOf(false) }
     ElevatedCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -636,7 +689,7 @@ private fun HomeScreen(
                 HomeStatus.Idle -> Unit
                 is HomeStatus.Loading -> LocationLoadingState(current.state)
                 is HomeStatus.AwaitingLocationChoice -> Unit
-                is HomeStatus.Error -> InfoCard("Unable to resolve", current.message)
+                is HomeStatus.Error -> InfoCard(stringResource(R.string.home_unable_to_resolve), current.message)
                 is HomeStatus.Ready -> HomeResults(
                     status = current,
                     selectedSubscriptionId = selectedSubscriptionId,
@@ -667,11 +720,11 @@ private fun HomeResults(
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Icon(
                         Icons.Default.LocationOn,
-                        contentDescription = "Current locality",
+                        contentDescription = stringResource(R.string.home_current_locality),
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(22.dp),
                     )
-                    Text("Current locality", style = MaterialTheme.typography.labelLarge)
+                    Text(stringResource(R.string.home_current_locality), style = MaterialTheme.typography.labelLarge)
                 }
                 Text(status.locality?.localityName ?: localityEmptyTitle(status.localityState, displayedCells.any(RadioCell::registered)), style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
                 if (status.locationQuality == com.actionanand.localtell.app.location.LocationQuality.APPROXIMATE) {
@@ -679,7 +732,7 @@ private fun HomeResults(
                 }
                 status.locality?.let { match ->
                     listOfNotNull(match.subDistrict, match.district, match.state).distinct().takeIf { it.isNotEmpty() }?.let { Text(it.joinToString(", ")) }
-                    Text("Offline pack ${match.packId} · ${match.sourceQuality.replace('-', ' ')}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(stringResource(R.string.home_offline_pack, match.packId, match.sourceQuality.replace('-', ' ')), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 status.accuracyMetres?.let { accuracy ->
                     Text(
@@ -699,38 +752,40 @@ private fun HomeResults(
                     )
                 }
                 if (status.localityState == LocalityState.USING_RECENT_OFFLINE_LOCALITY) {
-                    Text("Recent offline locality", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(stringResource(R.string.home_recent_offline_locality), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 if (status.localityState == LocalityState.NO_GEOGRAPHIC_PACK) {
-                    status.legacyMatch?.let { Text("Legacy cell-pack estimate: ${it.areaName}", style = MaterialTheme.typography.bodySmall) }
+                    status.legacyMatch?.let { Text(stringResource(R.string.home_legacy_cell_estimate, it.areaName), style = MaterialTheme.typography.bodySmall) }
                 }
                 (status.locationNotice ?: localityStateMessage(status.localityState))?.let {
                     Text(it, style = MaterialTheme.typography.bodySmall)
                 }
                 status.locality?.let { match ->
+                    val locality = match.localityName + (match.district?.let { ", $it" } ?: "")
+                    val shareText = stringResource(R.string.home_share_message, locality)
+                    val shareTitle = stringResource(R.string.home_share_locality)
                     OutlinedButton(onClick = {
-                        val text = "My locality is ${match.localityName}${match.district?.let { ", $it" } ?: ""}. (LocalTell offline locality)"
                         context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
                             type = "text/plain"
-                            putExtra(Intent.EXTRA_TEXT, text)
-                        }, "Share locality"))
-                    }) { Icon(Icons.Default.Share, null); Spacer(Modifier.padding(3.dp)); Text("Share") }
+                            putExtra(Intent.EXTRA_TEXT, shareText)
+                        }, shareTitle))
+                    }) { Icon(Icons.Default.Share, null); Spacer(Modifier.padding(3.dp)); Text(stringResource(R.string.home_share_button)) }
                 }
             }
         }
         RefreshLocalityButton(enabled = true, onRefresh = onRefresh)
         if (status.subscriptions.any { it.subscription != null }) {
-            Text("Cellular diagnostics", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text(stringResource(R.string.home_cellular_diagnostics), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(selectedSubscriptionId == null, { onSelect(null) }, { Text("All SIMs") })
+                FilterChip(selectedSubscriptionId == null, { onSelect(null) }, { Text(stringResource(R.string.home_all_sims)) })
                 status.subscriptions.mapNotNull(SubscriptionCells::subscription).forEach { subscription ->
                     FilterChip(selectedSubscriptionId == subscription.subscriptionId, { onSelect(subscription.subscriptionId) }, { Text("SIM ${subscription.simSlotIndex + 1} · ${subscription.carrierName}") })
                 }
             }
         }
         selected.forEach { group ->
-            val heading = group.subscription?.let { "SIM ${it.simSlotIndex + 1} · ${it.carrierName}" } ?: "Serving cell"
-            if (group.cells.isEmpty()) InfoCard(heading, "No cellular identity available")
+            val heading = group.subscription?.let { "SIM ${it.simSlotIndex + 1} · ${it.carrierName}" } ?: stringResource(R.string.home_serving_cell)
+            if (group.cells.isEmpty()) InfoCard(heading, stringResource(R.string.home_no_cell_identity))
             group.cells.forEach { cell -> CellCard(heading, cell) }
         }
     }
@@ -826,7 +881,7 @@ private fun localityEmptyTitle(state: LocalityState, hasServingCell: Boolean): S
     LocalityState.GPS_DISABLED -> stringResource(R.string.home_location_off_title)
     LocalityState.PERMISSION_MISSING -> stringResource(R.string.home_location_permission_title)
     LocalityState.NO_LOCALITY_MATCH -> stringResource(R.string.home_locality_unavailable_title)
-    else -> if (hasServingCell) "Locality unavailable" else "No serving cell"
+    else -> if (hasServingCell) stringResource(R.string.home_locality_unavailable_title) else stringResource(R.string.home_no_serving_cell)
 }
 
 @Composable
@@ -852,9 +907,9 @@ private fun BrandHeader(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> 
         ThemeMode.DARK -> Icons.Default.DarkMode
     }
     val themeDescription = when (themeMode) {
-        ThemeMode.SYSTEM -> "Theme: Automatic"
-        ThemeMode.LIGHT -> "Theme: Light"
-        ThemeMode.DARK -> "Theme: Dark"
+        ThemeMode.SYSTEM -> stringResource(R.string.home_theme_automatic)
+        ThemeMode.LIGHT -> stringResource(R.string.home_theme_light)
+        ThemeMode.DARK -> stringResource(R.string.home_theme_dark)
     }
 
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -866,7 +921,7 @@ private fun BrandHeader(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> 
         )
         Column(Modifier.weight(1f).padding(start = 14.dp)) {
             Text("LocalTell", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-            Text("Know where you are", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.secondary)
+            Text(stringResource(R.string.home_tagline), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.secondary)
         }
         IconButton(onClick = { onThemeModeChange(nextThemeMode) }) {
             Icon(themeIcon, themeDescription, tint = MaterialTheme.colorScheme.primary)
@@ -885,6 +940,8 @@ private fun PermissionToggle(label: String, onEnable: () -> Unit) {
 
 @Composable
 private fun CellCard(heading: String, cell: RadioCell) {
+    val fallbackSignal = cell.dbm?.let { stringResource(R.string.home_signal, it) }
+    val timingAdvance = cell.timingAdvance?.let { stringResource(R.string.home_timing_advance, it) }
     val cellIdentityLabel = if (cell.radio == "NR") "NCI" else "Cell"
     val areaLabel = if (cell.radio == "NR") "TAC" else "TAC/LAC"
     val channelLabel = if (cell.radio == "NR") "NRARFCN" else "EARFCN"
@@ -905,13 +962,13 @@ private fun CellCard(heading: String, cell: RadioCell) {
         add("$areaLabel ${cell.areaCode ?: "—"} · $cellIdentityLabel ${cell.cellId}")
         if (radioMeasurements.isNotEmpty()) add(radioMeasurements.joinToString(" · "))
         if (signalMeasurements.isNotEmpty()) add(signalMeasurements.joinToString(" · "))
-        else cell.dbm?.let { add("Signal $it dBm") }
-        cell.timingAdvance?.let { add("Timing advance $it") }
+        fallbackSignal?.let { add(it) }
+        timingAdvance?.let { add(it) }
     }
     ElevatedCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(heading, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            Text("${cell.radio} · ${if (cell.registered) "Registered" else "Available"}")
+            Text("${cell.radio} · ${if (cell.registered) stringResource(R.string.home_registered) else stringResource(R.string.home_available)}")
             SignalStrengthIndicator(cell)
             details.forEach { Text(it) }
         }
@@ -999,10 +1056,10 @@ private fun PacksScreen(vm: PacksViewModel = viewModel()) {
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
-            Text("Offline data", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-            Text("Download offline locality data for all India, a region, or individual State/UT.")
+            Text(stringResource(R.string.offline_title), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+            Text(stringResource(R.string.offline_description))
             Spacer(Modifier.height(8.dp))
-            OutlinedButton(enabled = state.batch == null, onClick = vm::refresh) { Icon(Icons.Default.Refresh, null); Spacer(Modifier.padding(3.dp)); Text("Refresh list") }
+            OutlinedButton(enabled = state.batch == null, onClick = vm::refresh) { Icon(Icons.Default.Refresh, null); Spacer(Modifier.padding(3.dp)); Text(stringResource(R.string.offline_refresh)) }
             Spacer(Modifier.height(10.dp))
             OutlinedTextField(
                 value = searchQuery,
@@ -1010,10 +1067,10 @@ private fun PacksScreen(vm: PacksViewModel = viewModel()) {
                 enabled = searchEnabled,
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
-                placeholder = { Text(if (state.loading) "Loading offline resources…" else "Search State / UT or region") },
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search offline resources") },
+                placeholder = { Text(if (state.loading) stringResource(R.string.offline_loading) else stringResource(R.string.offline_search)) },
+                leadingIcon = { Icon(Icons.Default.Search, contentDescription = stringResource(R.string.offline_search_description)) },
                 trailingIcon = if (searchQuery.isNotEmpty()) {
-                    { IconButton(onClick = { searchQuery = "" }) { Icon(Icons.Default.Close, "Clear search") } }
+                    { IconButton(onClick = { searchQuery = "" }) { Icon(Icons.Default.Close, stringResource(R.string.offline_clear_search)) } }
                 } else {
                     null
                 },
@@ -1041,7 +1098,7 @@ private fun PacksScreen(vm: PacksViewModel = viewModel()) {
                             expandedRegionToReveal = displayedRegion.region
                         }
                     },
-                    onDownload = { vm.downloadRegion(fullRegion.packs, fullRegion.region.displayName) },
+                    onDownload = { vm.downloadRegion(fullRegion.packs, fullRegion.region.manifestKey) },
                     batchStartEnabled = state.batch == null && state.activeDownloads.isEmpty(),
                     installedPackCount = installedRegionPacks.size,
                     removeEnabled = !regionBusy,
@@ -1054,7 +1111,7 @@ private fun PacksScreen(vm: PacksViewModel = viewModel()) {
             if (expanded) {
                 item(key = "region-label-${displayedRegion.region.manifestKey}") {
                     Text(
-                        text = "States / UTs in ${fullRegion.region.displayName}",
+                        text = stringResource(R.string.offline_states_in_region, fullRegion.region.displayName),
                         modifier = Modifier.padding(start = 16.dp),
                         style = MaterialTheme.typography.labelLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1080,27 +1137,27 @@ private fun PacksScreen(vm: PacksViewModel = viewModel()) {
             }
         }
         if (!state.loading && searchEnabled && searchActive && displayedRegions.isEmpty()) {
-            item { InfoCard("No offline resources found", "No offline resources found for \"${searchQuery.trim()}\".") }
+            item { InfoCard(stringResource(R.string.offline_no_resources_title), stringResource(R.string.offline_no_resources_message, searchQuery.trim())) }
         }
-        state.error?.let { error -> item { InfoCard("Offline data", error) } }
+        state.error?.let { error -> item { InfoCard(stringResource(R.string.offline_title), error) } }
         if (!state.loading && state.remote.isEmpty() && state.installed.isEmpty() && state.error == null) {
-            item { InfoCard("No offline data packs", "No offline data packs are currently available. Try refreshing the list later.") }
+            item { InfoCard(stringResource(R.string.offline_no_packs_title), stringResource(R.string.offline_no_packs_message)) }
         }
     }
     pendingRemoval?.let { pack ->
         ConfirmationDialog(
-            title = "Remove offline data?",
-            message = "Remove the downloaded offline data for ${pack.name}? You will need to download it again to use locality lookup offline.",
-            confirmLabel = "Remove",
+            title = stringResource(R.string.offline_remove_pack_title),
+            message = stringResource(R.string.offline_remove_pack_message, pack.name),
+            confirmLabel = stringResource(R.string.offline_remove),
             onDismiss = { pendingRemoval = null },
             onConfirm = { vm.remove(pack.id); pendingRemoval = null },
         )
     }
     pendingRegionRemoval?.let { region ->
         ConfirmationDialog(
-            title = "Remove ${region.name} data?",
-            message = "Remove the downloaded offline data for ${region.packs.size} State/UT ${if (region.packs.size == 1) "pack" else "packs"} in ${region.name}? You can download them again later.",
-            confirmLabel = "Remove",
+            title = stringResource(R.string.offline_remove_region_title, region.name),
+            message = stringResource(R.string.offline_remove_region_message, region.packs.size, region.name),
+            confirmLabel = stringResource(R.string.offline_remove),
             onDismiss = { pendingRegionRemoval = null },
             onConfirm = { vm.removeRegion(region.packs); pendingRegionRemoval = null },
         )
@@ -1115,13 +1172,13 @@ private fun IndiaDownloadCard(regions: List<RegionPacks>, state: PackUiState, vm
     ElevatedCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text("India", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-            Text("${packs.size} State/UT packs", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(stringResource(R.string.offline_pack_count, packs.size), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(packSizeSummary(totals), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            BatchStatus(state.batch, "India", vm::cancelBatchDownload)
+            BatchStatus(state.batch, "india", vm::cancelBatchDownload)
             if (required.isEmpty()) {
-                Text("All available packs are installed", fontWeight = FontWeight.SemiBold)
+                Text(stringResource(R.string.offline_all_installed), fontWeight = FontWeight.SemiBold)
             } else {
-                Button(enabled = state.batch == null && state.activeDownloads.isEmpty(), onClick = vm::downloadAll) { Text(batchActionLabel(packs, state.installed, "Download all")) }
+                Button(enabled = state.batch == null && state.activeDownloads.isEmpty(), onClick = vm::downloadAll) { Text(batchActionLabel(packs, state.installed, BatchAction.DOWNLOAD_ALL).label()) }
             }
         }
     }
@@ -1142,7 +1199,8 @@ private fun RegionDownloadCard(
     onCancelBatch: () -> Unit,
 ) {
     val required = PackCatalog.requiredPacks(regionPacks.packs, state.installed)
-    val toggleLabel = if (expanded) "Collapse ${regionPacks.region.displayName}" else "Expand ${regionPacks.region.displayName}"
+    val regionName = regionPacks.region.displayName
+    val toggleLabel = if (expanded) stringResource(R.string.offline_collapse_region, regionName) else stringResource(R.string.offline_expand_region, regionName)
     val containerColor = if (expanded) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerLow
     val contentColor = if (expanded) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
     val supportingColor = if (expanded) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.78f) else MaterialTheme.colorScheme.onSurfaceVariant
@@ -1160,24 +1218,24 @@ private fun RegionDownloadCard(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(Modifier.weight(1f)) {
-                    Text(regionPacks.region.displayName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    Text("${regionPacks.packs.size} State/UT packs · ${packSizeSummary(regionPacks.totals)}", style = MaterialTheme.typography.bodySmall, color = supportingColor)
+                    Text(regionName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text("${stringResource(R.string.offline_pack_count, regionPacks.packs.size)} · ${packSizeSummary(regionPacks.totals)}", style = MaterialTheme.typography.bodySmall, color = supportingColor)
                 }
                 if (expandable) {
                     Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, contentDescription = null)
                 }
             }
-            BatchStatus(state.batch, regionPacks.region.displayName, onCancelBatch)
+            BatchStatus(state.batch, regionPacks.region.manifestKey, onCancelBatch)
             if (required.isEmpty()) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("Installed", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
-                    onRemoveRegion?.let { OutlinedButton(enabled = removeEnabled, onClick = it) { Text("Remove region") } }
+                    Text(stringResource(R.string.offline_installed), style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
+                    onRemoveRegion?.let { OutlinedButton(enabled = removeEnabled, onClick = it) { Text(stringResource(R.string.offline_remove_region)) } }
                 }
             } else {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    OutlinedButton(enabled = batchStartEnabled, onClick = onDownload) { Text(batchActionLabel(regionPacks.packs, state.installed, "Download region")) }
+                    OutlinedButton(enabled = batchStartEnabled, onClick = onDownload) { Text(batchActionLabel(regionPacks.packs, state.installed, BatchAction.DOWNLOAD_REGION).label()) }
                     if (installedPackCount > 0) {
-                        onRemoveRegion?.let { OutlinedButton(enabled = removeEnabled, onClick = it) { Text("Remove region") } }
+                        onRemoveRegion?.let { OutlinedButton(enabled = removeEnabled, onClick = it) { Text(stringResource(R.string.offline_remove_region)) } }
                     }
                 }
             }
@@ -1186,11 +1244,11 @@ private fun RegionDownloadCard(
 }
 
 @Composable
-private fun BatchStatus(batch: BatchDownloadProgress?, label: String, onCancel: () -> Unit) {
-    if (batch?.label == label) {
+private fun BatchStatus(batch: BatchDownloadProgress?, scopeKey: String, onCancel: () -> Unit) {
+    if (batch?.scopeKey == scopeKey) {
         LinearProgressIndicator(progress = { batch.completed.toFloat() / batch.total }, modifier = Modifier.fillMaxWidth())
-        Text("Downloading ${batch.completed + 1} of ${batch.total}: ${batch.currentPackName}", style = MaterialTheme.typography.bodySmall)
-        OutlinedButton(onClick = onCancel) { Text("Cancel download") }
+        Text(stringResource(R.string.offline_downloading_batch, batch.completed + 1, batch.total, batch.currentPackName), style = MaterialTheme.typography.bodySmall)
+        OutlinedButton(onClick = onCancel) { Text(stringResource(R.string.offline_cancel_download)) }
     }
 }
 
@@ -1203,10 +1261,10 @@ private fun StatePackRow(pack: RemotePack, installedVersion: Long?, progress: In
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     ) {
         Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text("${pack.name} · ${formatPackBytes(pack.compressedBytes) ?: "Size unavailable"} (V${pack.version})", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            Text("${pack.name} · ${formatPackBytes(pack.compressedBytes) ?: stringResource(R.string.offline_size_unavailable)} (V${pack.version})", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                 PackAction(pack.version, installedVersion, progress, busy, batchActive, onDownload, onCancel, onRemoveRequested)
-                Text(formatPackBytes(pack.uncompressedBytes)?.let { "$it on device" } ?: "", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(formatPackBytes(pack.uncompressedBytes)?.let { stringResource(R.string.offline_on_device, it) } ?: "", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
@@ -1219,25 +1277,25 @@ private fun PackAction(remoteVersion: Long, installedVersion: Long?, progress: I
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column {
                     LinearProgressIndicator(progress = { progress / 100f }, modifier = Modifier.fillMaxWidth(0.45f))
-                    Text("Downloading $progress%", style = MaterialTheme.typography.bodySmall)
+                    Text(stringResource(R.string.offline_downloading_percent, progress), style = MaterialTheme.typography.bodySmall)
                 }
                 if (!batchActive) {
-                    OutlinedButton(onClick = onCancel) { Text("Cancel") }
+                    OutlinedButton(onClick = onCancel) { Text(stringResource(R.string.cancel)) }
                 }
             }
         }
         busy && !batchActive -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("Starting download…", style = MaterialTheme.typography.bodySmall)
-            OutlinedButton(onClick = onCancel) { Text("Cancel") }
+            Text(stringResource(R.string.offline_starting), style = MaterialTheme.typography.bodySmall)
+            OutlinedButton(onClick = onCancel) { Text(stringResource(R.string.cancel)) }
         }
-        installedVersion == null -> Button(enabled = !batchActive && !busy, onClick = onDownload) { Text("Download") }
+        installedVersion == null -> Button(enabled = !batchActive && !busy, onClick = onDownload) { Text(stringResource(R.string.offline_download)) }
         installedVersion < remoteVersion -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Button(enabled = !batchActive && !busy, onClick = onDownload) { Text("Update") }
-            OutlinedButton(enabled = !batchActive && !busy, onClick = onRemoveRequested) { Text("Remove") }
+            Button(enabled = !batchActive && !busy, onClick = onDownload) { Text(stringResource(R.string.offline_update)) }
+            OutlinedButton(enabled = !batchActive && !busy, onClick = onRemoveRequested) { Text(stringResource(R.string.offline_remove)) }
         }
         else -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("Installed", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
-            OutlinedButton(enabled = !batchActive && !busy, onClick = onRemoveRequested) { Text("Remove") }
+            Text(stringResource(R.string.offline_installed), style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
+            OutlinedButton(enabled = !batchActive && !busy, onClick = onRemoveRequested) { Text(stringResource(R.string.offline_remove)) }
         }
     }
 }
@@ -1248,26 +1306,39 @@ private fun InstalledOnlyPackRow(pack: InstalledPack, batchActive: Boolean, onRe
         Row(Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Column(Modifier.weight(1f)) {
                 Text(pack.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                Text("V${pack.version} · Installed offline", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(stringResource(R.string.offline_installed_version, pack.version), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            OutlinedButton(enabled = !batchActive, onClick = onRemoveRequested) { Text("Remove") }
+            OutlinedButton(enabled = !batchActive, onClick = onRemoveRequested) { Text(stringResource(R.string.offline_remove)) }
         }
     }
 }
 
+@Composable
 private fun packSizeSummary(totals: com.actionanand.localtell.app.data.PackTotals): String = listOfNotNull(
-    formatPackBytes(totals.compressedBytes)?.let { "$it download" },
-    formatPackBytes(totals.uncompressedBytes)?.let { "$it on device" },
+    formatPackBytes(totals.compressedBytes)?.let { stringResource(R.string.offline_download_size, it) },
+    formatPackBytes(totals.uncompressedBytes)?.let { stringResource(R.string.offline_on_device, it) },
 ).joinToString(" · ")
 
-private fun batchActionLabel(packs: Collection<RemotePack>, installed: Map<String, InstalledPack>, default: String): String {
+private enum class BatchAction { DOWNLOAD_ALL, DOWNLOAD_REGION, UPDATE_ALL, DOWNLOAD_REMAINING }
+
+private fun batchActionLabel(packs: Collection<RemotePack>, installed: Map<String, InstalledPack>, default: BatchAction): BatchAction {
     val required = PackCatalog.requiredPacks(packs, installed)
     return when {
         required.size == packs.size -> default
-        required.all { installed[it.id] != null } -> "Update all"
-        else -> "Download remaining"
+        required.all { installed[it.id] != null } -> BatchAction.UPDATE_ALL
+        else -> BatchAction.DOWNLOAD_REMAINING
     }
 }
+
+@Composable
+private fun BatchAction.label(): String = stringResource(
+    when (this) {
+        BatchAction.DOWNLOAD_ALL -> R.string.offline_download_all
+        BatchAction.DOWNLOAD_REGION -> R.string.offline_download_region
+        BatchAction.UPDATE_ALL -> R.string.offline_update_all
+        BatchAction.DOWNLOAD_REMAINING -> R.string.offline_download_remaining
+    },
+)
 
 @Composable
 private fun JourneyScreen(vm: JourneyViewModel = viewModel()) {
@@ -1328,10 +1399,10 @@ private fun JourneyScreen(vm: JourneyViewModel = viewModel()) {
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
-            Text("Journey", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-            Text("Records an entry only when the resolved locality changes.")
-            if (!hasFineLocation) { Spacer(Modifier.height(8.dp)); InfoCard("Cell permission required", "Allow cell access on the Home tab before starting Journey mode.") }
-            else if (!locationEnabled) { Spacer(Modifier.height(8.dp)); InfoCard("Location setting required", stringResource(R.string.journey_location_setting_message)) }
+            Text(stringResource(R.string.journey_title), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+            Text(stringResource(R.string.journey_description))
+            if (!hasFineLocation) { Spacer(Modifier.height(8.dp)); InfoCard(stringResource(R.string.journey_permission_title), stringResource(R.string.journey_permission_message)) }
+            else if (!locationEnabled) { Spacer(Modifier.height(8.dp)); InfoCard(stringResource(R.string.journey_location_settings_title), stringResource(R.string.journey_location_setting_message)) }
             if (tracking.mode != JourneyTrackingMode.STOPPED) {
                 Spacer(Modifier.height(8.dp))
                 TrackingStatusCard(tracking.mode, tracking.localityName, tracking.lastCheckedAt, tracking.detail)
@@ -1344,16 +1415,16 @@ private fun JourneyScreen(vm: JourneyViewModel = viewModel()) {
                     } else {
                         activity?.requestLocationEnable { if (syncLocationEnabled()) beginJourney() }
                     }
-                }) { Icon(Icons.Default.PlayArrow, null); Spacer(Modifier.padding(2.dp)); Text("Start") }
+                }) { Icon(Icons.Default.PlayArrow, null); Spacer(Modifier.padding(2.dp)); Text(stringResource(R.string.journey_start)) }
                 OutlinedButton(enabled = trackingIsRunning, onClick = {
                     journeyStopAwaitingReminder = true
                     vm.markStopped()
                     context.startService(Intent(context, JourneyForegroundService::class.java).setAction(JourneyForegroundService.ACTION_STOP))
-                }) { Icon(Icons.Default.Stop, null); Spacer(Modifier.padding(2.dp)); Text("Stop") }
-                TextButton(onClick = { confirmClear = true }) { Text("Clear") }
+                }) { Icon(Icons.Default.Stop, null); Spacer(Modifier.padding(2.dp)); Text(stringResource(R.string.journey_stop)) }
+                TextButton(onClick = { confirmClear = true }) { Text(stringResource(R.string.journey_clear)) }
             }
         }
-        if (points.isEmpty()) item { InfoCard("No journey entries", "Start Journey after installing an offline data pack. Locality checks run about every 20 seconds while tracking is active.") }
+        if (points.isEmpty()) item { InfoCard(stringResource(R.string.journey_no_entries), stringResource(R.string.journey_no_entries_message)) }
         items(points, key = JourneyPoint::id) { point ->
             ElevatedCard(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -1366,9 +1437,9 @@ private fun JourneyScreen(vm: JourneyViewModel = viewModel()) {
         }
     }
     if (confirmClear) ConfirmationDialog(
-        title = "Clear journey history?",
-        message = "This will permanently remove all saved journey entries.",
-        confirmLabel = "Clear",
+        title = stringResource(R.string.journey_clear_title),
+        message = stringResource(R.string.journey_clear_message),
+        confirmLabel = stringResource(R.string.journey_clear),
         onDismiss = { confirmClear = false },
         onConfirm = { vm.clear(); confirmClear = false },
     )
@@ -1389,13 +1460,13 @@ private fun TrackingStatusCard(mode: JourneyTrackingMode, localityName: String?,
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(
                 when (mode) {
-                    JourneyTrackingMode.STARTING -> "Starting…"
-                    JourneyTrackingMode.ACQUIRING_LOCALITY -> "Acquiring locality…"
-                    JourneyTrackingMode.ACTIVE -> "Tracking active"
-                    JourneyTrackingMode.WAITING_FOR_LOCALITY -> "Waiting for locality…"
-                    JourneyTrackingMode.GPS_DISABLED -> "Location disabled"
-                    JourneyTrackingMode.PERMISSION_REQUIRED -> "Permission required"
-                    JourneyTrackingMode.STOPPED -> "Journey stopped"
+                    JourneyTrackingMode.STARTING -> stringResource(R.string.journey_starting_status)
+                    JourneyTrackingMode.ACQUIRING_LOCALITY -> stringResource(R.string.journey_acquiring_locality)
+                    JourneyTrackingMode.ACTIVE -> stringResource(R.string.journey_active_status)
+                    JourneyTrackingMode.WAITING_FOR_LOCALITY -> stringResource(R.string.journey_waiting_locality)
+                    JourneyTrackingMode.GPS_DISABLED -> stringResource(R.string.journey_disabled_status)
+                    JourneyTrackingMode.PERMISSION_REQUIRED -> stringResource(R.string.journey_permission_status)
+                    JourneyTrackingMode.STOPPED -> stringResource(R.string.journey_stopped_status)
                 },
                 fontWeight = FontWeight.Bold,
             )
@@ -1410,9 +1481,9 @@ private fun TrackingStatusCard(mode: JourneyTrackingMode, localityName: String?,
                     modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
                 )
             }
-            localityName?.let { Text("Current locality: $it") }
-            lastCheckedAt?.let { Text("Last checked: ${DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(it))}", style = MaterialTheme.typography.bodySmall) }
-            detail?.takeUnless { it == "Acquiring locality…" }?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+            localityName?.let { Text(stringResource(R.string.journey_current_locality, it)) }
+            lastCheckedAt?.let { Text(stringResource(R.string.journey_last_checked, DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(it))), style = MaterialTheme.typography.bodySmall) }
+            detail?.takeUnless { mode == JourneyTrackingMode.ACQUIRING_LOCALITY }?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
         }
     }
 }
@@ -1434,7 +1505,7 @@ private fun ConfirmationDialog(title: String, message: String, confirmLabel: Str
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = { Text(message) },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } },
         confirmButton = { TextButton(onClick = onConfirm) { Text(confirmLabel, color = MaterialTheme.colorScheme.error) } },
     )
 }
