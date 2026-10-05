@@ -26,6 +26,7 @@ import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -37,17 +38,21 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.BrightnessAuto
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.MoreHoriz
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Route
@@ -93,6 +98,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.core.content.ContextCompat
@@ -120,6 +126,7 @@ import com.actionanand.localtell.app.journey.JourneyTrackingMode
 import com.actionanand.localtell.app.model.RadioCell
 import com.actionanand.localtell.app.model.SubscriptionCells
 import com.actionanand.localtell.app.survey.TowerSurveyScreen
+import com.actionanand.localtell.app.ui.LocationGuideScreen
 import com.actionanand.localtell.app.ui.theme.LocalTellTheme
 import com.actionanand.localtell.app.ui.theme.ThemeMode
 import com.actionanand.localtell.app.ui.SignalQuality
@@ -209,7 +216,7 @@ class MainActivity : ComponentActivity() {
 }
 
 private enum class RootTab { HOME, EASY, MORE }
-private enum class MoreDestination { MENU, SETTINGS, OFFLINE_DATA, JOURNEY, TOWER_SURVEY }
+private enum class MoreDestination { MENU, SETTINGS, OFFLINE_DATA, JOURNEY, TOWER_SURVEY, LOCATION_GUIDE }
 
 @Composable
 private fun LocalTellApp(defaultTab: RootTab, themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit) {
@@ -229,6 +236,7 @@ private fun LocalTellApp(defaultTab: RootTab, themeMode: ThemeMode, onThemeModeC
                 RootTab.EASY -> EasyScreen()
                 RootTab.MORE -> when (moreDestination) {
                     MoreDestination.MENU -> MoreScreen { moreDestination = it }
+                    MoreDestination.LOCATION_GUIDE -> MoreChild(onBack = { moreDestination = MoreDestination.MENU }) { LocationGuideScreen() }
                     MoreDestination.SETTINGS -> MoreChild(onBack = { moreDestination = MoreDestination.MENU }) { SettingsScreen(themeMode, onThemeModeChange) }
                     MoreDestination.OFFLINE_DATA -> MoreChild(onBack = { moreDestination = MoreDestination.MENU }) { PacksScreen() }
                     MoreDestination.JOURNEY -> MoreChild(onBack = { moreDestination = MoreDestination.MENU }) { JourneyScreen() }
@@ -262,6 +270,7 @@ private fun MoreScreen(onOpen: (MoreDestination) -> Unit) {
         item { MoreRow(Icons.Default.Route, stringResource(R.string.more_journey), stringResource(R.string.more_journey_description)) { onOpen(MoreDestination.JOURNEY) } }
         item { MoreRow(Icons.Default.Download, stringResource(R.string.more_offline), stringResource(R.string.more_offline_description)) { onOpen(MoreDestination.OFFLINE_DATA) } }
         if (BuildConfig.ENABLE_TOWER_SURVEY) item { MoreRow(Icons.Default.LocationOn, stringResource(R.string.more_survey), stringResource(R.string.more_survey_description)) { onOpen(MoreDestination.TOWER_SURVEY) } }
+        item { MoreRow(Icons.Default.LocationOn, stringResource(R.string.location_guide_title), stringResource(R.string.location_guide_description)) { onOpen(MoreDestination.LOCATION_GUIDE) } }
         item { MoreRow(Icons.Default.SettingsIcon, stringResource(R.string.more_settings), stringResource(R.string.more_settings_description)) { onOpen(MoreDestination.SETTINGS) } }
     }
 }
@@ -284,7 +293,7 @@ private fun SettingsScreen(
     ) {
         item { Text(stringResource(R.string.more_settings), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold) }
         item { Text(stringResource(R.string.more_settings_description), color = MaterialTheme.colorScheme.onSurfaceVariant) }
-        item { Text(stringResource(R.string.settings_general), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold) }
+        item { SettingsSectionHeader(Icons.Default.SettingsIcon, stringResource(R.string.settings_general)) }
         item {
             ElevatedCard(Modifier.fillMaxWidth()) {
                 Row(
@@ -330,45 +339,75 @@ private fun SettingsScreen(
                 }
             }
         }
-        item { Text(stringResource(R.string.settings_appearance), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold) }
+        item { SettingsSectionHeader(Icons.Default.Palette, stringResource(R.string.settings_appearance)) }
         item {
             ElevatedCard(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                        Icon(Icons.Default.BrightnessAuto, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                        Text(stringResource(R.string.settings_theme), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        FilterChip(selected = themeMode == ThemeMode.SYSTEM, onClick = { onThemeModeChange(ThemeMode.SYSTEM) }, label = { Text(stringResource(R.string.settings_theme_automatic)) })
-                        FilterChip(selected = themeMode == ThemeMode.LIGHT, onClick = { onThemeModeChange(ThemeMode.LIGHT) }, label = { Text(stringResource(R.string.settings_theme_light)) })
-                        FilterChip(selected = themeMode == ThemeMode.DARK, onClick = { onThemeModeChange(ThemeMode.DARK) }, label = { Text(stringResource(R.string.settings_theme_dark)) })
+                    Text(stringResource(R.string.settings_theme), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        FilterChip(
+                            selected = themeMode == ThemeMode.SYSTEM,
+                            onClick = { onThemeModeChange(ThemeMode.SYSTEM) },
+                            label = { Text(stringResource(R.string.settings_theme_automatic)) },
+                            leadingIcon = { Icon(Icons.Default.BrightnessAuto, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                        )
+                        FilterChip(
+                            selected = themeMode == ThemeMode.LIGHT,
+                            onClick = { onThemeModeChange(ThemeMode.LIGHT) },
+                            label = { Text(stringResource(R.string.settings_theme_light)) },
+                            leadingIcon = { Icon(Icons.Default.LightMode, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                        )
+                        FilterChip(
+                            selected = themeMode == ThemeMode.DARK,
+                            onClick = { onThemeModeChange(ThemeMode.DARK) },
+                            label = { Text(stringResource(R.string.settings_theme_dark)) },
+                            leadingIcon = { Icon(Icons.Default.DarkMode, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                        )
                     }
                 }
             }
         }
-        item { Text(stringResource(R.string.settings_language), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold) }
+        item { SettingsSectionHeader(Icons.Default.Language, stringResource(R.string.settings_language)) }
         items(listOf(AppLanguage.SYSTEM, AppLanguage.TAMIL, AppLanguage.ENGLISH, AppLanguage.SANSKRIT)) { language ->
             ElevatedCard(
-                onClick = {
-                    if (language != selectedLanguage) {
-                        selectedLanguage = language
-                        AppLanguageManager.apply(context, language)
-                        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) activity?.recreate()
-                    }
-                },
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().selectable(
+                    selected = selectedLanguage == language,
+                    role = Role.RadioButton,
+                    onClick = {
+                        if (language != selectedLanguage) {
+                            selectedLanguage = language
+                            AppLanguageManager.apply(context, language)
+                            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) activity?.recreate()
+                        }
+                    },
+                ),
             ) {
                 Row(
                     Modifier.padding(16.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    Icon(Icons.Default.Language, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                     RadioButton(selected = selectedLanguage == language, onClick = null)
-                    Text(languageDisplayName(language), style = MaterialTheme.typography.titleMedium)
+                    Text(languageDisplayName(language), modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun SettingsSectionHeader(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(start = 4.dp, top = 12.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Icon(icon, contentDescription = null, modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
+        Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
     }
 }
 
@@ -413,12 +452,13 @@ private fun EasyScreen(vm: EasyViewModel = viewModel()) {
         locationRequestObservedInFlight = false
         vm.getMyLocation()
     }
+    lateinit var requestLocation: () -> Unit
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
         if (granted[Manifest.permission.ACCESS_FINE_LOCATION] == true) {
-            beginLocationRequest()
+            requestLocation()
         }
     }
-    fun requestLocation() {
+    requestLocation = {
         when {
             !hasPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) -> permissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION))
             activity?.isLocationEnabled() == false -> activity.requestLocationEnable {
@@ -478,7 +518,7 @@ private fun EasyScreen(vm: EasyViewModel = viewModel()) {
         }
         item {
             Text(stringResource(R.string.easy_share_title), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-            Button(enabled = !state.locating, onClick = ::requestLocation) { Text(if (state.locating) stringResource(R.string.easy_getting_location) else stringResource(R.string.easy_get_location)) }
+            Button(enabled = !state.locating, onClick = requestLocation) { Text(if (state.locating) stringResource(R.string.easy_getting_location) else stringResource(R.string.easy_get_location)) }
             if (state.locating) {
                 LocationWaitingAnimation(
                     message = stringResource(R.string.home_loading_finding_location),
@@ -853,12 +893,17 @@ private fun HomeResults(
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(selectedSubscriptionId == null, { onSelect(null) }, { Text(stringResource(R.string.home_all_sims)) })
                 status.subscriptions.mapNotNull(SubscriptionCells::subscription).forEach { subscription ->
-                    FilterChip(selectedSubscriptionId == subscription.subscriptionId, { onSelect(subscription.subscriptionId) }, { Text("SIM ${subscription.simSlotIndex + 1} · ${subscription.carrierName}") })
+                    FilterChip(selectedSubscriptionId == subscription.subscriptionId, { onSelect(subscription.subscriptionId) }, { Text(stringResource(R.string.home_sim_label, subscription.simSlotIndex + 1)) })
                 }
             }
         }
         selected.forEach { group ->
-            val heading = group.subscription?.let { "SIM ${it.simSlotIndex + 1} · ${it.carrierName}" } ?: stringResource(R.string.home_serving_cell)
+            val subscription = group.subscription
+            val heading = if (subscription != null) {
+                "${stringResource(R.string.home_sim_label, subscription.simSlotIndex + 1)} · ${subscription.carrierName}"
+            } else {
+                stringResource(R.string.home_serving_cell)
+            }
             if (group.cells.isEmpty()) InfoCard(heading, stringResource(R.string.home_no_cell_identity))
             group.cells.forEach { cell -> CellCard(heading, cell) }
         }
@@ -1281,12 +1326,20 @@ private fun RegionDownloadCard(
             }
             BatchStatus(state.batch, regionPacks.region.manifestKey, onCancelBatch)
             if (required.isEmpty()) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(stringResource(R.string.offline_installed), style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(stringResource(R.string.offline_installed), modifier = Modifier.align(Alignment.CenterVertically), style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
                     onRemoveRegion?.let { OutlinedButton(enabled = removeEnabled, onClick = it) { Text(stringResource(R.string.offline_remove_region)) } }
                 }
             } else {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
                     OutlinedButton(enabled = batchStartEnabled, onClick = onDownload) { Text(batchActionLabel(regionPacks.packs, state.installed, BatchAction.DOWNLOAD_REGION).label()) }
                     if (installedPackCount > 0) {
                         onRemoveRegion?.let { OutlinedButton(enabled = removeEnabled, onClick = it) { Text(stringResource(R.string.offline_remove_region)) } }
