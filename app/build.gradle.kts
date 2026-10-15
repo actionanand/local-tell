@@ -18,6 +18,7 @@ fun quoted(value: String) = "\"${value.replace("\\", "\\\\").replace("\"", "\\\"
 
 val configuredApplicationId = appConfig["applicationId"] as String
 val configuredAppName = appConfig["appName"] as String
+val configuredHomeAnnouncementUrl = appConfig["homeAnnouncementUrl"] as String
 val configuredManifestSources = appConfig["dataManifestSources"] as List<*>
 val configuredTowerSurvey = appConfig["enableTowerSurvey"] as? Boolean ?: false
 
@@ -33,6 +34,7 @@ android {
         versionCode = (versionConfig["versionCode"] as Number).toInt()
         versionName = versionConfig["versionName"] as String
 
+        buildConfigField("String", "HOME_ANNOUNCEMENT_URL", quoted(configuredHomeAnnouncementUrl))
         buildConfigField("String", "DATA_MANIFEST_SOURCES_JSON", quoted(JsonOutput.toJson(configuredManifestSources)))
         buildConfigField("Boolean", "ENABLE_TOWER_SURVEY", configuredTowerSurvey.toString())
         resValue("string", "app_name", configuredAppName)

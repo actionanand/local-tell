@@ -3,6 +3,9 @@
     <string name="nav_home">முகப்பு</string>
     <string name="nav_easy">எளிது</string>
     <string name="nav_more">மேலும்</string>
+    <string name="announcement_new_badge">புதியது</string>
+    <string name="announcement_dismiss">அறிவிப்பை மூடு</string>
+    <string name="announcement_view_offline_data">இணையமில்லா தரவைப் பார்</string>
     <string name="easy_title">எளிது</string>
     <string name="easy_share_title">என் இருப்பிடத்தைப் பகிரவும்</string>
     <string name="easy_get_location">என் இருப்பிடத்தைக் கண்டறி</string>

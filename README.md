@@ -36,6 +36,7 @@ Single source for app identity and per-country data-manifest sources:
   "applicationId": "com.actionanand.localtell.app",
   "appName": "LocalTell",
   "releaseBaseName": "LocalTell",
+  "homeAnnouncementUrl": "https://raw.githubusercontent.com/actionanand/localtell-data/master/announcements/home.json",
   "dataManifestSources": [
     {
       "countryCode": "IN",
@@ -62,6 +63,8 @@ India retains its regions and State/UT packs. Sri Lanka displays nine Province p
 Manifests use explicit release tags rather than repository-wide latest-release URLs. Legacy India manifests inherit country metadata from configuration. Country manifests can declare `countryCode`, `countryName`, and `packType`; conflicting codes/types are rejected. Failed sources produce localized refresh feedback without hiding successful sources or removing installed packs.
 
 Canonical country, region, first-level subdivision, district and locality names remain untranslated. Localized labels surround those values. The generic schema-v3 resolver uses the same `state`/`state_code` columns for Sri Lankan provinces, with no country-specific lookup path or installed-pack migration.
+
+Home and Easy may show one static remote announcement from the configured `homeAnnouncementUrl`. The request contains no location or user data, and failures never block location features. Explicit dismissal is stored by announcement ID; a successful Home/Easy place result suppresses the card only for the current app process. Remote actions are limited to app-defined whitelist values. See [Home and Easy announcements](documentation/home-announcements.md) for the publishing schema and cache behavior.
 
 ### `android-version.json`
 

@@ -101,6 +101,7 @@ Current important fields include:
   "applicationId": "com.actionanand.localtell.app",
   "appName": "LocalTell",
   "releaseBaseName": "LocalTell",
+  "homeAnnouncementUrl": "https://raw.githubusercontent.com/actionanand/localtell-data/master/announcements/home.json",
   "dataManifestSources": [
     { "countryCode": "IN", "countryName": "India", "packType": "state_ut", "layout": "regions", "manifestUrl": "https://github.com/actionanand/localtell-data/releases/download/cell-data-v3/manifest.json" },
     { "countryCode": "LK", "countryName": "Sri Lanka", "packType": "province", "layout": "flat", "manifestUrl": "https://github.com/actionanand/localtell-data/releases/download/country-lk-v1/manifest-LK.json" }
@@ -110,6 +111,8 @@ Current important fields include:
 ```
 
 Do not hardcode replacements for these values in Kotlin when an existing config field should be used.
+
+Home and Easy share one root-scoped static announcement state. Its URL comes from `homeAnnouncementUrl`; requests must never contain location or user data, and failures must never block location behavior. Only explicit close actions persist dismissed announcement IDs. Successful place results suppress announcements for the current process only. Keep remote actions on the app-defined whitelist; never add arbitrary URLs, intents, HTML, analytics, or tracking.
 
 ## Main application structure
 

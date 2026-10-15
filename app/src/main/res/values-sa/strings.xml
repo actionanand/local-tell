@@ -3,6 +3,9 @@
     <string name="nav_home">मुखपृष्ठम्</string>
     <string name="nav_easy">सरलम्</string>
     <string name="nav_more">अधिकम्</string>
+    <string name="announcement_new_badge">नवीनम्</string>
+    <string name="announcement_dismiss">सूचनां पिधेहि</string>
+    <string name="announcement_view_offline_data">अन्तर्जालरहितदत्तांशं पश्य</string>
     <string name="easy_title">सरलम्</string>
     <string name="easy_share_title">मम स्थानं प्रेषय</string>
     <string name="easy_get_location">मम स्थानं प्राप्नुहि</string>

@@ -89,6 +89,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
@@ -112,10 +113,14 @@ import com.actionanand.localtell.app.data.InstalledPack
 import com.actionanand.localtell.app.data.IndiaRegion
 import com.actionanand.localtell.app.data.CountryPacks
 import com.actionanand.localtell.app.data.CountryLayout
+import com.actionanand.localtell.app.data.HomeAnnouncement
+import com.actionanand.localtell.app.data.HomeAnnouncementAction
+import com.actionanand.localtell.app.data.LocalizedHomeAnnouncement
 import com.actionanand.localtell.app.data.PackCatalog
 import com.actionanand.localtell.app.data.RegionPacks
 import com.actionanand.localtell.app.data.RemotePack
 import com.actionanand.localtell.app.data.formatPackBytes
+import com.actionanand.localtell.app.data.localize
 import com.actionanand.localtell.app.easy.EasyLocation
 import com.actionanand.localtell.app.easy.EasyError
 import com.actionanand.localtell.app.easy.EasyViewModel
@@ -224,6 +229,13 @@ private enum class MoreDestination { MENU, SETTINGS, OFFLINE_DATA, JOURNEY, TOWE
 private fun LocalTellApp(defaultTab: RootTab, themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit) {
     var tab by remember { mutableStateOf(defaultTab) }
     var moreDestination by remember { mutableStateOf(MoreDestination.MENU) }
+    val announcementViewModel: HomeAnnouncementViewModel = viewModel()
+    val announcementState by announcementViewModel.state.collectAsStateWithLifecycle()
+    val announcement = announcementState.visibleAnnouncement
+    val openOfflineData = {
+        tab = RootTab.MORE
+        moreDestination = MoreDestination.OFFLINE_DATA
+    }
     BackHandler(enabled = tab == RootTab.MORE && moreDestination != MoreDestination.MENU) { moreDestination = MoreDestination.MENU }
     Scaffold(bottomBar = {
         NavigationBar {
@@ -234,8 +246,18 @@ private fun LocalTellApp(defaultTab: RootTab, themeMode: ThemeMode, onThemeModeC
     }) { padding ->
         Box(Modifier.padding(padding)) {
             when (tab) {
-                RootTab.HOME -> HomeScreen()
-                RootTab.EASY -> EasyScreen()
+                RootTab.HOME -> HomeScreen(
+                    announcement = announcement,
+                    onDismissAnnouncement = announcementViewModel::dismissCurrent,
+                    onOpenOfflineData = openOfflineData,
+                    onSuccessfulPlace = announcementViewModel::suppressForSession,
+                )
+                RootTab.EASY -> EasyScreen(
+                    announcement = announcement,
+                    onDismissAnnouncement = announcementViewModel::dismissCurrent,
+                    onOpenOfflineData = openOfflineData,
+                    onSuccessfulPlace = announcementViewModel::suppressForSession,
+                )
                 RootTab.MORE -> when (moreDestination) {
                     MoreDestination.MENU -> MoreScreen { moreDestination = it }
                     MoreDestination.LOCATION_GUIDE -> MoreChild(onBack = { moreDestination = MoreDestination.MENU }) { LocationGuideScreen() }
@@ -436,7 +458,13 @@ private fun MoreRow(icon: androidx.compose.ui.graphics.vector.ImageVector, title
 }
 
 @Composable
-private fun EasyScreen(vm: EasyViewModel = viewModel()) {
+private fun EasyScreen(
+    announcement: HomeAnnouncement?,
+    onDismissAnnouncement: () -> Unit,
+    onOpenOfflineData: () -> Unit,
+    onSuccessfulPlace: () -> Unit,
+    vm: EasyViewModel = viewModel(),
+) {
     val context = LocalContext.current
     val activity = context as? MainActivity
     val state by vm.state.collectAsStateWithLifecycle()
@@ -446,6 +474,9 @@ private fun EasyScreen(vm: EasyViewModel = viewModel()) {
     var locationRequestObservedInFlight by remember { mutableStateOf(false) }
     var locationBeforeRequest by remember { mutableStateOf<EasyLocation?>(null) }
     var showLocationTurnOffReminder by remember { mutableStateOf(false) }
+    androidx.compose.runtime.LaunchedEffect(state.currentLocation != null, state.resolvedLocation != null) {
+        if (state.currentLocation != null || state.resolvedLocation != null) onSuccessfulPlace()
+    }
     val speaker = remember { TextToSpeech(context.applicationContext) { ttsReady = it == TextToSpeech.SUCCESS } }
     DisposableEffect(speaker) { onDispose { speaker.shutdown() } }
     fun beginLocationRequest() {
@@ -517,6 +548,11 @@ private fun EasyScreen(vm: EasyViewModel = viewModel()) {
     ) {
         item {
             Text(stringResource(R.string.easy_title), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+        }
+        announcement?.let { current ->
+            item(key = "home-announcement-${current.id}") {
+                AnnouncementCard(current, onDismissAnnouncement, onOpenOfflineData)
+            }
         }
         item {
             Text(stringResource(R.string.easy_share_title), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
@@ -682,7 +718,13 @@ private fun launchUber(context: Context, uri: android.net.Uri) {
 }
 
 @Composable
-private fun HomeScreen(vm: HomeViewModel = viewModel()) {
+private fun HomeScreen(
+    announcement: HomeAnnouncement?,
+    onDismissAnnouncement: () -> Unit,
+    onOpenOfflineData: () -> Unit,
+    onSuccessfulPlace: () -> Unit,
+    vm: HomeViewModel = viewModel(),
+) {
     val context = LocalContext.current
     val activity = context as? MainActivity
     val status by vm.status.collectAsStateWithLifecycle()
@@ -695,6 +737,9 @@ private fun HomeScreen(vm: HomeViewModel = viewModel()) {
     var homeStatusBeforeRequest by remember { mutableStateOf<HomeStatus?>(null) }
     var showLocationTurnOffReminder by remember { mutableStateOf(false) }
     val lifecycleOwner = LocalLifecycleOwner.current
+    androidx.compose.runtime.LaunchedEffect((status as? HomeStatus.Ready)?.locality) {
+        if ((status as? HomeStatus.Ready)?.locality != null) onSuccessfulPlace()
+    }
     fun syncLocationEnabled(): Boolean {
         val enabledNow = activity?.isLocationEnabled() == true
         locationEnabled = enabledNow
@@ -783,6 +828,11 @@ private fun HomeScreen(vm: HomeViewModel = viewModel()) {
         item {
             BrandHeader()
         }
+        announcement?.let { current ->
+            item(key = "home-announcement-${current.id}") {
+                AnnouncementCard(current, onDismissAnnouncement, onOpenOfflineData)
+            }
+        }
         if (!permissionGranted) item {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 InfoCard(stringResource(R.string.home_location_permission_title), stringResource(R.string.home_location_permission_message))
@@ -816,6 +866,77 @@ private fun HomeScreen(vm: HomeViewModel = viewModel()) {
         }
         if (status !is HomeStatus.Ready && status !is HomeStatus.Loading && status !is HomeStatus.AwaitingLocationChoice) item {
             RefreshLocalityButton(enabled = permissionGranted, onRefresh = refreshLocality)
+        }
+    }
+}
+
+@Composable
+private fun AnnouncementCard(
+    announcement: HomeAnnouncement,
+    onDismiss: () -> Unit,
+    onOpenOfflineData: () -> Unit,
+) {
+    val context = LocalContext.current
+    val localized = announcement.localize(
+        language = AppLanguageManager.current(context),
+        systemLanguageTag = Locale.getDefault().toLanguageTag(),
+    )
+    ElevatedCard(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+    ) {
+        Column(
+            modifier = Modifier.padding(start = 16.dp, top = 8.dp, end = 8.dp, bottom = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                PulsingNewBadge()
+                Spacer(Modifier.weight(1f))
+                IconButton(onClick = onDismiss) {
+                    Icon(Icons.Default.Close, contentDescription = stringResource(R.string.announcement_dismiss))
+                }
+            }
+            Text(localized.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text(localized.message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            AnnouncementAction(localized, onOpenOfflineData)
+        }
+    }
+}
+
+@Composable
+private fun PulsingNewBadge() {
+    val transition = rememberInfiniteTransition(label = "announcement_new_badge")
+    val badgeAlpha by transition.animateFloat(
+        initialValue = 0.55f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(animation = tween(1_000), repeatMode = RepeatMode.Reverse),
+        label = "announcement_new_badge_alpha",
+    )
+    Surface(
+        modifier = Modifier.alpha(badgeAlpha),
+        shape = RoundedCornerShape(50),
+        color = MaterialTheme.colorScheme.tertiaryContainer,
+        contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+    ) {
+        Text(
+            text = stringResource(R.string.announcement_new_badge),
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Bold,
+        )
+    }
+}
+
+@Composable
+private fun AnnouncementAction(
+    announcement: LocalizedHomeAnnouncement,
+    onOpenOfflineData: () -> Unit,
+) {
+    when (announcement.action) {
+        HomeAnnouncementAction.NONE -> Unit
+        HomeAnnouncementAction.OFFLINE_DATA -> Button(onClick = onOpenOfflineData) {
+            Text(stringResource(R.string.announcement_view_offline_data))
         }
     }
 }
