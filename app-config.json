@@ -2,6 +2,7 @@
   "applicationId": "com.actionanand.localtell.app",
   "appName": "LocalTell",
   "releaseBaseName": "LocalTell",
+  "homeAnnouncementUrl": "https://raw.githubusercontent.com/actionanand/localtell-data/master/announcements/home.json",
   "dataManifestSources": [
     {
       "countryCode": "IN",

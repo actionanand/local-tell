@@ -3,6 +3,9 @@
     <string name="nav_home">Home</string>
     <string name="nav_easy">Easy</string>
     <string name="nav_more">More</string>
+    <string name="announcement_new_badge">NEW</string>
+    <string name="announcement_dismiss">Dismiss announcement</string>
+    <string name="announcement_view_offline_data">View Offline Data</string>
     <string name="easy_title">Easy</string>
     <string name="easy_share_title">Share my location</string>
     <string name="easy_get_location">Get my location</string>
