@@ -57,7 +57,7 @@ Single source for app identity and per-country data-manifest sources:
 
 Change `applicationId` only before the first Play Store publication.
 
-India retains its regions and State/UT packs. Sri Lanka displays nine Province packs directly under its country heading. The configured array order controls country order, and `layout` controls regional versus flat presentation. To add a future flat country, add its manifest source with a unique country code and globally unique pack IDs; only countries with published manifests should be advertised.
+India retains its regions and State/UT packs. Sri Lanka displays nine Province packs directly under its country heading. India is pinned first in the UI; remaining countries follow configured `sourceOrder`, and `layout` controls regional versus flat presentation. To add a future flat country, add its manifest source with a unique country code and globally unique pack IDs; only countries with published manifests should be advertised.
 
 Manifests use explicit release tags rather than repository-wide latest-release URLs. Legacy India manifests inherit country metadata from configuration. Country manifests can declare `countryCode`, `countryName`, and `packType`; conflicting codes/types are rejected. Failed sources produce localized refresh feedback without hiding successful sources or removing installed packs.
 

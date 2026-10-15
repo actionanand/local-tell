@@ -162,20 +162,34 @@ class PackCatalogTest {
     }
 
     @Test
-    fun `countries follow source order and retain configured layout`() {
-        val india = remote("tn", "Tamil Nadu", "south", 1)
+    fun `India is always first and countries retain configured layout`() {
+        val india = remote("tn", "Tamil Nadu", "south", 1).copy(sourceOrder = 9)
         val sriLanka = RemotePack("LK-1", "Western Province", 1, null, 1, "https://example.com/LK-1", "b".repeat(64), 100, 200,
             countryCode = "LK", countryName = "Sri Lanka", packType = "province", adminCode = "LK-1",
-            layout = CountryLayout.FLAT, sourceOrder = 1)
+            layout = CountryLayout.FLAT, sourceOrder = 0)
 
         val countries = PackCatalog.countries(listOf(sriLanka, india))
 
         assertEquals(listOf("India", "Sri Lanka"), countries.map(CountryPacks::countryName))
         assertEquals(listOf(CountryLayout.REGIONS, CountryLayout.FLAT), countries.map(CountryPacks::layout))
-        assertEquals(listOf(0, 1), countries.map(CountryPacks::sourceOrder))
-        assertEquals(listOf("LK", "IN"), PackCatalog.countries(listOf(india.copy(sourceOrder = 3), sriLanka.copy(sourceOrder = 0))).map(CountryPacks::countryCode))
+        assertEquals(listOf(9, 0), countries.map(CountryPacks::sourceOrder))
         assertEquals(listOf("LK-1"), PackCatalog.filterPacks(countries[1].packs, "lk-1").map(RemotePack::id))
         assertEquals(listOf("LK-1"), PackCatalog.filterPacks(countries[1].packs, "western").map(RemotePack::id))
+    }
+
+    @Test
+    fun `non-India countries use source order then country code without mutating input`() {
+        val nepal = flatPack("NP", "Nepal", "NP-1", "Bagmati Province", sourceOrder = 2)
+        val maldives = flatPack("MV", "Maldives", "MV-1", "Malé", sourceOrder = 1)
+        val sriLanka = flatPack("LK", "Sri Lanka", "LK-1", "Western Province", sourceOrder = 2)
+        val india = remote("tn", "Tamil Nadu", "south", 1).copy(sourceOrder = 99)
+        val input = mutableListOf(nepal, india, sriLanka, maldives)
+        val original = input.toList()
+
+        val countries = PackCatalog.countries(input)
+
+        assertEquals(listOf("IN", "MV", "LK", "NP"), countries.map(CountryPacks::countryCode))
+        assertEquals(original, input)
     }
 
     @Test
@@ -197,11 +211,11 @@ class PackCatalogTest {
 
     @Test
     fun `a future flat country works from metadata without a country code branch`() {
-        val pack = RemotePack("ZZ-1", "Example Division", 1, null, 1, "https://example.com/ZZ-1", "c".repeat(64), 100, 200,
-            countryCode = "ZZ", countryName = "Example Country", packType = "division", layout = CountryLayout.FLAT, sourceOrder = 0)
+        val pack = flatPack("ZZ", "Example Country", "ZZ-1", "Example Division", sourceOrder = 0)
         val countries = PackCatalog.countries(listOf(pack))
         assertEquals(CountryLayout.FLAT, countries.single().layout)
         assertEquals(listOf(pack), PackCatalog.filterCountries(countries, "Example Country").single().packs)
+        assertEquals(listOf(pack), PackCatalog.filterCountries(countries, "Example Division").single().packs)
         assertEquals(listOf(pack), PackCatalog.filterCountries(countries, "ZZ-1").single().packs)
         assertTrue(PackCatalog.regions(listOf(pack)).isEmpty())
     }
@@ -230,4 +244,27 @@ class PackCatalogTest {
 
     private fun installed(id: String, name: String, version: Long) =
         InstalledPack(id, name, version, "/tmp/$id.db", 0)
+
+    private fun flatPack(
+        countryCode: String,
+        countryName: String,
+        id: String,
+        name: String,
+        sourceOrder: Int,
+    ) = RemotePack(
+        id = id,
+        name = name,
+        version = 1,
+        region = null,
+        displayOrder = 1,
+        downloadUrl = "https://example.com/$id",
+        sha256 = "c".repeat(64),
+        compressedBytes = 100,
+        uncompressedBytes = 200,
+        countryCode = countryCode,
+        countryName = countryName,
+        packType = "division",
+        layout = CountryLayout.FLAT,
+        sourceOrder = sourceOrder,
+    )
 }

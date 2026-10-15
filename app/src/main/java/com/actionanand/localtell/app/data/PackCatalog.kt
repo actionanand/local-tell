@@ -34,7 +34,11 @@ object PackCatalog {
             CountryPacks(first.countryCode, first.countryName, first.packType,
                 countryPacks.sortedWith(compareBy<RemotePack> { it.displayOrder }.thenBy { it.name }.thenBy { it.id }),
                 first.layout, first.sourceOrder)
-        }.sortedWith(compareBy<CountryPacks> { it.sourceOrder }.thenBy { it.countryCode })
+        }.sortedWith(
+            compareBy<CountryPacks> { if (it.countryCode.equals("IN", ignoreCase = true)) 0 else 1 }
+                .thenBy { it.sourceOrder }
+                .thenBy { it.countryCode.uppercase(Locale.ROOT) },
+        )
 
     fun filterCountries(countries: List<CountryPacks>, query: String): List<CountryPacks> {
         val normalizedQuery = normalizeSearch(query)
