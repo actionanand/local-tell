@@ -2,6 +2,21 @@
   "applicationId": "com.actionanand.localtell.app",
   "appName": "LocalTell",
   "releaseBaseName": "LocalTell",
-  "dataManifestUrl": "https://github.com/actionanand/localtell-data/releases/latest/download/manifest.json",
+  "dataManifestSources": [
+    {
+      "countryCode": "IN",
+      "countryName": "India",
+      "packType": "state_ut",
+      "layout": "regions",
+      "manifestUrl": "https://github.com/actionanand/localtell-data/releases/download/cell-data-v3/manifest.json"
+    },
+    {
+      "countryCode": "LK",
+      "countryName": "Sri Lanka",
+      "packType": "province",
+      "layout": "flat",
+      "manifestUrl": "https://github.com/actionanand/localtell-data/releases/download/country-lk-v1/manifest-LK.json"
+    }
+  ],
   "enableTowerSurvey": false
 }

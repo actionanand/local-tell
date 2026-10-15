@@ -54,7 +54,7 @@
     <string name="more_journey">Journey Mode</string>
     <string name="more_journey_description">Track locality changes during a trip</string>
     <string name="more_offline">Offline Data</string>
-    <string name="more_offline_description">Download India, region or State/UT locality packs</string>
+    <string name="more_offline_description">Download offline locality data for supported countries and regions</string>
     <string name="more_survey">Tower Survey</string>
     <string name="more_survey_description">Collect local cellular tower observations</string>
     <string name="more_settings">Settings</string>
@@ -120,7 +120,7 @@
     <string name="home_locality_unavailable_title">Locality unavailable</string>
     <string name="home_locality_unavailable_message">We couldn\'t identify the locality for this location.</string>
     <string name="home_offline_data_needed_title">Offline data needed</string>
-    <string name="home_offline_data_needed_message">Download locality data for your State/UT from More → Offline Data.</string>
+    <string name="home_offline_data_needed_message">Offline data for this area is not installed. Open More → Offline Data to download an available geographic pack.</string>
     <string name="journey_waiting_precise_location">Waiting for a precise location…</string>
     <string name="journey_location_off_tracking">Location is off. Turn on Location to continue tracking your locality.</string>
     <string name="journey_location_setting_message">Turn on Location to continue tracking your locality.</string>
@@ -151,7 +151,7 @@
     <string name="journey_acquiring_locality">Acquiring locality…</string>
     <string name="journey_approximate_location">Using an approximate location…</string>
     <string name="tower_survey_active">Tower Survey active · %1$d observations</string>
-    <string name="offline_title">Offline data</string><string name="offline_description">Download offline locality data for all India, a region, or individual State/UT.</string><string name="offline_refresh">Refresh list</string><string name="offline_search">Search State / UT or region</string><string name="offline_loading">Loading offline resources…</string><string name="offline_states_in_region">States / UTs in %1$s</string><string name="offline_expand_region">Expand %1$s</string><string name="offline_collapse_region">Collapse %1$s</string><string name="offline_installed">Installed</string><string name="offline_download">Download</string><string name="offline_update">Update</string><string name="offline_remove">Remove</string><string name="offline_remove_region">Remove region</string><string name="offline_download_all">Download all</string><string name="offline_download_region">Download region</string><string name="offline_download_remaining">Download remaining</string><string name="offline_update_all">Update all</string><string name="offline_starting">Starting download…</string><string name="offline_downloading_percent">Downloading %1$d%%</string><string name="offline_downloading_batch">Downloading %1$d of %2$d: %3$s</string><string name="offline_cancel_download">Cancel download</string><string name="offline_all_installed">All available packs are installed</string><string name="offline_pack_count">%1$d State/UT packs</string><string name="offline_search_description">Search offline resources</string><string name="offline_clear_search">Clear search</string>
+    <string name="offline_title">Offline data</string><string name="offline_description">Download offline locality data for India and supported nearby countries. More countries will be added in future updates.</string><string name="offline_refresh">Refresh list</string><string name="offline_search">Search country, region or offline pack</string><string name="offline_loading">Loading offline resources…</string><string name="offline_states_in_region">States / UTs in %1$s</string><string name="offline_expand_region">Expand %1$s</string><string name="offline_collapse_region">Collapse %1$s</string><string name="offline_installed">Installed</string><string name="offline_download">Download</string><string name="offline_update">Update</string><string name="offline_remove">Remove</string><string name="offline_remove_region">Remove region</string><string name="offline_download_all">Download all</string><string name="offline_download_region">Download region</string><string name="offline_download_remaining">Download remaining</string><string name="offline_update_all">Update all</string><string name="offline_starting">Starting download…</string><string name="offline_downloading_percent">Downloading %1$d%%</string><string name="offline_downloading_batch">Downloading %1$d of %2$d: %3$s</string><string name="offline_cancel_download">Cancel download</string><string name="offline_all_installed">All available packs are installed</string><string name="offline_pack_count">%1$d State/UT packs</string><string name="offline_search_description">Search offline resources</string><string name="offline_clear_search">Clear search</string>
     <string name="offline_size_unavailable">Size unavailable</string>
     <string name="offline_on_device">%1$s on device</string>
     <string name="offline_installed_version">V%1$d · Installed offline</string>
@@ -219,4 +219,9 @@
     <string name="location_guide_privacy_body">Downloaded geographic packs stay on your device. GPS coordinates can be matched to locality names locally without sending them to a LocalTell server. Assisted location is separate optional network help when it is needed.</string>
     <string name="location_guide_expand_answer">Expand answer</string>
     <string name="location_guide_collapse_answer">Collapse answer</string>
+    <string name="offline_province_pack_count">%1$d Province packs</string>
+    <string name="offline_generic_pack_count">%1$d offline packs</string>
+    <string name="offline_coverage_title">Coverage</string>
+    <string name="offline_coverage_message">LocalTell currently supports India and selected nearby countries. More countries are planned for future updates. If your country is not listed yet, please check again after a future update.</string>
+    <string name="offline_partial_refresh">Some country data could not be refreshed. Available countries and installed packs remain usable.</string>
 </resources>

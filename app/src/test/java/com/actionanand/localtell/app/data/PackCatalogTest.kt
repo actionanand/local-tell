@@ -161,6 +161,51 @@ class PackCatalogTest {
         assertTrue(PackCatalog.filterRegions(regions, "no such place").isEmpty())
     }
 
+    @Test
+    fun `countries follow source order and retain configured layout`() {
+        val india = remote("tn", "Tamil Nadu", "south", 1)
+        val sriLanka = RemotePack("LK-1", "Western Province", 1, null, 1, "https://example.com/LK-1", "b".repeat(64), 100, 200,
+            countryCode = "LK", countryName = "Sri Lanka", packType = "province", adminCode = "LK-1",
+            layout = CountryLayout.FLAT, sourceOrder = 1)
+
+        val countries = PackCatalog.countries(listOf(sriLanka, india))
+
+        assertEquals(listOf("India", "Sri Lanka"), countries.map(CountryPacks::countryName))
+        assertEquals(listOf(CountryLayout.REGIONS, CountryLayout.FLAT), countries.map(CountryPacks::layout))
+        assertEquals(listOf(0, 1), countries.map(CountryPacks::sourceOrder))
+        assertEquals(listOf("LK", "IN"), PackCatalog.countries(listOf(india.copy(sourceOrder = 3), sriLanka.copy(sourceOrder = 0))).map(CountryPacks::countryCode))
+        assertEquals(listOf("LK-1"), PackCatalog.filterPacks(countries[1].packs, "lk-1").map(RemotePack::id))
+        assertEquals(listOf("LK-1"), PackCatalog.filterPacks(countries[1].packs, "western").map(RemotePack::id))
+    }
+
+    @Test
+    fun `country search handles flat names IDs and configured regional presentation without changing sources`() {
+        val west = RemotePack("LK-1", "Western Province", 1, null, 1, "https://example.com/LK-1", "b".repeat(64), 100, 200,
+            countryCode = "LK", countryName = "Sri Lanka", packType = "province", layout = CountryLayout.FLAT, sourceOrder = 1)
+        val central = west.copy(id = "LK-2", name = "Central Province", displayOrder = 2)
+        val source = PackCatalog.countries(listOf(central, remote("TN", "Tamil Nadu", "south", 1), west))
+        assertEquals(listOf("LK-1", "LK-2"), source[1].packs.map(RemotePack::id))
+        assertEquals(listOf("LK-1", "LK-2"), PackCatalog.filterCountries(source, "Sri Lanka").single().packs.map(RemotePack::id))
+        assertEquals(listOf("LK-1"), PackCatalog.filterCountries(source, "Western").single().packs.map(RemotePack::id))
+        assertEquals(listOf("LK-2"), PackCatalog.filterCountries(source, "lk-2").single().packs.map(RemotePack::id))
+        assertEquals(listOf("TN"), PackCatalog.filterCountries(source, "India").single().packs.map(RemotePack::id))
+        assertEquals(listOf("TN"), PackCatalog.filterCountries(source, "South").single().packs.map(RemotePack::id))
+        assertEquals(listOf("TN"), PackCatalog.filterCountries(source, "Tamil").single().packs.map(RemotePack::id))
+        assertEquals(listOf("LK-1", "LK-2"), source[1].packs.map(RemotePack::id))
+        assertTrue(PackCatalog.filterCountries(source, "no such pack").isEmpty())
+    }
+
+    @Test
+    fun `a future flat country works from metadata without a country code branch`() {
+        val pack = RemotePack("ZZ-1", "Example Division", 1, null, 1, "https://example.com/ZZ-1", "c".repeat(64), 100, 200,
+            countryCode = "ZZ", countryName = "Example Country", packType = "division", layout = CountryLayout.FLAT, sourceOrder = 0)
+        val countries = PackCatalog.countries(listOf(pack))
+        assertEquals(CountryLayout.FLAT, countries.single().layout)
+        assertEquals(listOf(pack), PackCatalog.filterCountries(countries, "Example Country").single().packs)
+        assertEquals(listOf(pack), PackCatalog.filterCountries(countries, "ZZ-1").single().packs)
+        assertTrue(PackCatalog.regions(listOf(pack)).isEmpty())
+    }
+
     private fun catalogRegions() = PackCatalog.regions(
         listOf(
             remote("tn", "Tamil Nadu", "south", 2),

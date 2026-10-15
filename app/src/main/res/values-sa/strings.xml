@@ -54,7 +54,7 @@
     <string name="more_journey">यात्राविधिः</string>
     <string name="more_journey_description">यात्राकाले स्थानीयस्थानपरिवर्तनानि अनुगच्छ</string>
     <string name="more_offline">अन्तर्जालरहित-दत्तांशः</string>
-    <string name="more_offline_description">भारतस्य, प्रदेशस्य, राज्यस्य अथवा केन्द्रशासितप्रदेशस्य स्थानीयस्थानसञ्चयान् अवरोहय</string>
+    <string name="more_offline_description">समर्थितदेशानां प्रदेशानां च अन्तर्जालरहितस्थानीयस्थानदत्तांशम् अवरोहय</string>
     <string name="more_survey">चलसञ्चारस्तम्भसर्वेक्षणम्</string>
     <string name="more_survey_description">स्थानीयचलसञ्चारस्तम्भनिरीक्षणानि सङ्गृहाण</string>
     <string name="more_settings">विन्यासाः</string>
@@ -120,7 +120,7 @@
     <string name="home_locality_unavailable_title">स्थानीयस्थानम् अनुपलब्धम्</string>
     <string name="home_locality_unavailable_message">अस्य स्थानस्य स्थानीयस्थानं निर्धारयितुं न शक्यते।</string>
     <string name="home_offline_data_needed_title">अन्तर्जालरहित-दत्तांशः अपेक्षितः</string>
-    <string name="home_offline_data_needed_message">अधिकम् → अन्तर्जालरहित-दत्तांशः इत्यस्मात् विभागात् स्वस्य राज्यस्य अथवा केन्द्रशासितप्रदेशस्य स्थानीयस्थानदत्तांशम् अवरोहय।</string>
+    <string name="home_offline_data_needed_message">अस्य क्षेत्रस्य अन्तर्जालरहितदत्तांशः संस्थापितः नास्ति। उपलब्धं भौगोलिकसञ्चयं अवरोहयितुम् अधिकम् → अन्तर्जालरहित-दत्तांशः उद्घाटय।</string>
     <string name="journey_waiting_precise_location">यथार्थस्थानाय प्रतीक्ष्यते…</string>
     <string name="journey_location_off_tracking">स्थानं निष्क्रियम् अस्ति। स्थानीयस्थानम् अनुगन्तुं स्थानं प्रवर्तय।</string>
     <string name="journey_location_setting_message">स्थानीयस्थानम् अनुगन्तुं स्थानं प्रवर्तय।</string>
@@ -152,9 +152,9 @@
     <string name="journey_approximate_location">आनुमानिकस्थानम् उपयुज्यते…</string>
     <string name="tower_survey_active">चलसञ्चारस्तम्भसर्वेक्षणं प्रवर्तते · %1$d निरीक्षणानि</string>
     <string name="offline_title">अन्तर्जालरहित-दत्तांशः</string>
-    <string name="offline_description">सम्पूर्णभारतस्य, कस्यचित् प्रदेशस्य, पृथक् राज्यस्य वा केन्द्रशासितप्रदेशस्य वा अन्तर्जालरहितस्थानीयस्थानदत्तांशम् अवरोहय।</string>
+    <string name="offline_description">भारतस्य समर्थितसमीपवर्तिदेशानां च अन्तर्जालरहितस्थानीयस्थानदत्तांशम् अवरोहय। भविष्यत्-अद्यतनीकरणेषु अधिकदेशाः योजयिष्यन्ते।</string>
     <string name="offline_refresh">सूचीं पुनर्नवीकुरु</string>
-    <string name="offline_search">राज्यं, केन्द्रशासितप्रदेशम् अथवा प्रदेशम् अन्वेषय</string>
+    <string name="offline_search">देशं, प्रदेशं, अथवा अन्तर्जालरहितसञ्चयम् अन्वेषय</string>
     <string name="offline_loading">अन्तर्जालरहितसाधनानि आनीयन्ते…</string>
     <string name="offline_states_in_region">%1$s इत्यस्मिन् प्रदेशे राज्यानि केन्द्रशासितप्रदेशाश्च</string>
     <string name="offline_expand_region">%1$s इति प्रदेशं विस्तारय</string>
@@ -267,4 +267,9 @@
     <string name="location_guide_privacy_body">अवरोहिताः भौगोलिकदत्तांशसञ्चयाः तव यन्त्रे एव तिष्ठन्ति। GPS-निर्देशाङ्कान् LocalTell-सेवकयन्त्राय न प्रेषयित्वा तेभ्यः स्थानीयस्थाननामानि यन्त्रे एव निर्धारयितुं शक्यन्ते। सहायकस्थानप्राप्तिः आवश्यकतायां पृथग् ऐच्छिकी जालसहायता अस्ति।</string>
     <string name="location_guide_expand_answer">उत्तरं विस्तारय</string>
     <string name="location_guide_collapse_answer">उत्तरं सङ्कोचय</string>
+    <string name="offline_province_pack_count">%1$d प्रान्त-सञ्चयाः</string>
+    <string name="offline_generic_pack_count">%1$d अन्तर्जालरहित-सञ्चयाः</string>
+    <string name="offline_coverage_title">आवरणम्</string>
+    <string name="offline_coverage_message">LocalTell सम्प्रति भारतं तथा समर्थितान् कतिपयान् समीपवर्तिदेशान् समर्थयति। अधिकदेशानां समर्थनं भविष्यत्-अद्यतनीकरणेषु योजयिष्यते। यदि तव देशः अद्यापि सूच्यां नास्ति, भविष्यत्-अद्यतनीकरणानन्तरं पुनः परीक्षस्व।</string>
+    <string name="offline_partial_refresh">केषाञ्चित् देशानां दत्तांशः पुनर्नवीकर्तुं न शक्यते। उपलब्धदेशानां दत्तांशः संस्थापितसञ्चयाश्च उपयोक्तुं शक्यन्ते।</string>
 </resources>

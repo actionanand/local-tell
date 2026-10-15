@@ -54,7 +54,7 @@
     <string name="more_journey">பயண முறை</string>
     <string name="more_journey_description">பயணத்தின்போது பகுதி மாற்றங்களைக் கண்காணிக்கவும்</string>
     <string name="more_offline">இணையமில்லா தரவு</string>
-    <string name="more_offline_description">இந்தியா, பகுதி அல்லது மாநிலம் / ஒன்றிய நிலப்பரப்புக்கான பகுதித் தொகுப்புகளைப் பதிவிறக்கவும்</string>
+    <string name="more_offline_description">ஆதரிக்கப்படும் நாடுகள் மற்றும் பகுதிகளுக்கான இணையமில்லா பகுதி தரவைப் பதிவிறக்கவும்</string>
     <string name="more_survey">கோபுர ஆய்வு</string>
     <string name="more_survey_description">உள்ளூர் அலைபேசிப் பிணையக் கோபுரக் கூர்நோக்கல்களைச் சேகரிக்கவும்</string>
     <string name="more_settings">அமைப்புகள்</string>
@@ -120,7 +120,7 @@
     <string name="home_locality_unavailable_title">பகுதி கிடைக்கவில்லை</string>
     <string name="home_locality_unavailable_message">இந்த இருப்பிடத்திற்கான பகுதியை அடையாளம் காண முடியவில்லை.</string>
     <string name="home_offline_data_needed_title">இணையமில்லா தரவு தேவை</string>
-    <string name="home_offline_data_needed_message">மேலும் → இணையமில்லா தரவு என்பதில் உங்கள் மாநிலம் / ஒன்றிய நிலப்பரப்புக்கான பகுதித் தரவைப் பதிவிறக்கவும்.</string>
+    <string name="home_offline_data_needed_message">இந்தப் பகுதிக்கான இணையமில்லா தரவு நிறுவப்படவில்லை. கிடைக்கும் புவியியல் தொகுப்பைப் பதிவிறக்க மேலும் → இணையமில்லா தரவைத் திறக்கவும்.</string>
     <string name="journey_waiting_precise_location">துல்லியமான இருப்பிடத்திற்காகக் காத்திருக்கிறது…</string>
     <string name="journey_location_off_tracking">இருப்பிடம் முடக்கப்பட்டுள்ளது. உங்கள் பகுதியைக் கண்காணிக்க இருப்பிடத்தை இயக்கவும்.</string>
     <string name="journey_location_setting_message">உங்கள் பகுதியைக் கண்காணிக்க இருப்பிடத்தை இயக்கவும்.</string>
@@ -151,7 +151,7 @@
     <string name="journey_acquiring_locality">பகுதியைப் பெறுகிறது…</string>
     <string name="journey_approximate_location">தோராயமான இருப்பிடத்தைப் பயன்படுத்துகிறது…</string>
     <string name="tower_survey_active">கோபுர ஆய்வு செயலில் உள்ளது · %1$d கூர்நோக்கல்கள்</string>
-    <string name="offline_title">இணையமில்லா தரவு</string><string name="offline_description">இந்தியா முழுவதற்கும், ஒரு பகுதிக்கும் அல்லது தனிப்பட்ட மாநிலம் / ஒன்றிய நிலப்பரப்புக்கும் உரிய இணையமில்லா பகுதித் தரவைப் பதிவிறக்கவும்.</string><string name="offline_refresh">பட்டியலைப் புதுப்பி</string><string name="offline_search">மாநிலம் / ஒன்றிய நிலப்பரப்பு அல்லது பகுதியைத் தேடவும்</string><string name="offline_loading">இணையமில்லா வளங்கள் ஏற்றப்படுகின்றன…</string><string name="offline_states_in_region">%1$s-இல் உள்ள மாநிலங்களும் &amp; ஒன்றிய நிலப்பரப்புகளும்</string><string name="offline_expand_region">%1$s-ஐ விரிவாக்கு</string><string name="offline_collapse_region">%1$s-ஐ சுருக்கு</string><string name="offline_installed">நிறுவப்பட்டுள்ளது</string><string name="offline_download">பதிவிறக்கு</string><string name="offline_update">புதுப்பி</string><string name="offline_remove">அகற்று</string><string name="offline_remove_region">பகுதியை அகற்று</string><string name="offline_download_all">அனைத்தையும் பதிவிறக்கு</string><string name="offline_download_region">பகுதியைப் பதிவிறக்கு</string><string name="offline_download_remaining">மீதமுள்ளவற்றைப் பதிவிறக்கு</string><string name="offline_update_all">அனைத்தையும் புதுப்பி</string><string name="offline_starting">பதிவிறக்கம் தொடங்குகிறது…</string><string name="offline_downloading_percent">%1$d%% பதிவிறக்கப்படுகிறது</string><string name="offline_downloading_batch">%1$d / %2$d பதிவிறக்கப்படுகிறது: %3$s</string><string name="offline_cancel_download">பதிவிறக்கத்தை ரத்துசெய்</string><string name="offline_all_installed">கிடைக்கும் அனைத்துத் தொகுப்புகளும் நிறுவப்பட்டுள்ளன</string><string name="offline_pack_count">%1$d மாநில/ஒன்றிய நிலப்பரப்பு தொகுப்புகள்</string><string name="offline_search_description">இணையமில்லா வளங்களைத் தேடவும்</string><string name="offline_clear_search">தேடலை அழி</string>
+    <string name="offline_title">இணையமில்லா தரவு</string><string name="offline_description">இந்தியாவிற்கும் ஆதரிக்கப்படும் சில அண்டை நாடுகளுக்கும் இணையமில்லா பகுதி தரவைப் பதிவிறக்கவும். மேலும் நாடுகள் எதிர்காலப் புதுப்பிப்புகளில் சேர்க்கப்படும்.</string><string name="offline_refresh">பட்டியலைப் புதுப்பி</string><string name="offline_search">நாடு, பகுதி அல்லது இணையமில்லா தொகுப்பைத் தேடவும்</string><string name="offline_loading">இணையமில்லா வளங்கள் ஏற்றப்படுகின்றன…</string><string name="offline_states_in_region">%1$s-இல் உள்ள மாநிலங்களும் &amp; ஒன்றிய நிலப்பரப்புகளும்</string><string name="offline_expand_region">%1$s-ஐ விரிவாக்கு</string><string name="offline_collapse_region">%1$s-ஐ சுருக்கு</string><string name="offline_installed">நிறுவப்பட்டுள்ளது</string><string name="offline_download">பதிவிறக்கு</string><string name="offline_update">புதுப்பி</string><string name="offline_remove">அகற்று</string><string name="offline_remove_region">பகுதியை அகற்று</string><string name="offline_download_all">அனைத்தையும் பதிவிறக்கு</string><string name="offline_download_region">பகுதியைப் பதிவிறக்கு</string><string name="offline_download_remaining">மீதமுள்ளவற்றைப் பதிவிறக்கு</string><string name="offline_update_all">அனைத்தையும் புதுப்பி</string><string name="offline_starting">பதிவிறக்கம் தொடங்குகிறது…</string><string name="offline_downloading_percent">%1$d%% பதிவிறக்கப்படுகிறது</string><string name="offline_downloading_batch">%1$d / %2$d பதிவிறக்கப்படுகிறது: %3$s</string><string name="offline_cancel_download">பதிவிறக்கத்தை ரத்துசெய்</string><string name="offline_all_installed">கிடைக்கும் அனைத்துத் தொகுப்புகளும் நிறுவப்பட்டுள்ளன</string><string name="offline_pack_count">%1$d மாநில/ஒன்றிய நிலப்பரப்பு தொகுப்புகள்</string><string name="offline_search_description">இணையமில்லா வளங்களைத் தேடவும்</string><string name="offline_clear_search">தேடலை அழி</string>
     <string name="offline_size_unavailable">அளவு கிடைக்கவில்லை</string>
     <string name="offline_on_device">சாதனத்தில் %1$s</string>
     <string name="offline_installed_version">V%1$d · இணையமில்லா பயன்பாட்டிற்கு நிறுவப்பட்டுள்ளது</string>
@@ -219,4 +219,9 @@
     <string name="location_guide_privacy_body">பதிவிறக்கப்பட்ட புவியியல் தரவுத் தொகுப்புகள் உங்கள் சாதனத்திலேயே இருக்கும். GPS ஆயக்கூறுகளை LocalTell சேவையகத்திற்கு அனுப்பாமல், சாதனத்திலேயே பகுதிப் பெயர்களுடன் பொருத்த முடியும். உதவியுடன் இருப்பிடத்தைப் பெறுவது, தேவைப்படும்போது தேர்ந்தெடுக்கக்கூடிய தனியான பிணைய உதவியாகும்.</string>
     <string name="location_guide_expand_answer">பதிலை விரிவாக்கு</string>
     <string name="location_guide_collapse_answer">பதிலைச் சுருக்கு</string>
+    <string name="offline_province_pack_count">%1$d மாகாணத் தொகுப்புகள்</string>
+    <string name="offline_generic_pack_count">%1$d இணையமில்லா தொகுப்புகள்</string>
+    <string name="offline_coverage_title">ஆதரவு பரப்பு</string>
+    <string name="offline_coverage_message">LocalTell தற்போது இந்தியாவையும் ஆதரிக்கப்படும் சில அண்டை நாடுகளையும் ஆதரிக்கிறது. மேலும் நாடுகளுக்கான ஆதரவு எதிர்காலப் புதுப்பிப்புகளில் சேர்க்கப்படும். உங்கள் நாடு இன்னும் பட்டியலில் இல்லையெனில், எதிர்காலப் புதுப்பிப்புக்குப் பிறகு மீண்டும் பார்க்கவும்.</string>
+    <string name="offline_partial_refresh">சில நாடுகளின் தரவைப் புதுப்பிக்க முடியவில்லை. கிடைக்கும் நாடுகளின் தரவையும் நிறுவப்பட்ட தொகுப்புகளையும் தொடர்ந்து பயன்படுத்தலாம்.</string>
 </resources>

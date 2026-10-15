@@ -27,6 +27,7 @@ data class PackUiState(
     val activeDownloads: Set<String> = emptySet(),
     val batch: BatchDownloadProgress? = null,
     val error: String? = null,
+    val refreshWarning: String? = null,
 )
 
 class PacksViewModel(app: Application) : AndroidViewModel(app) {
@@ -41,10 +42,20 @@ class PacksViewModel(app: Application) : AndroidViewModel(app) {
     fun refresh() {
         if (_state.value.batch != null) return
         viewModelScope.launch {
-            _state.value = _state.value.copy(loading = true, error = null, installed = installed())
+            _state.value = _state.value.copy(loading = true, error = null, refreshWarning = null, installed = installed())
             runCatching { manifestRepository.fetch() }
-                .onSuccess { _state.value = _state.value.copy(loading = false, remote = it.packs, installed = installed()) }
-                .onFailure { _state.value = _state.value.copy(loading = false, error = AppLanguageManager.getString(getApplication(), R.string.offline_error_refresh)) }
+                .onSuccess { result ->
+                    _state.value = _state.value.copy(
+                        loading = false,
+                        remote = result.packs,
+                        installed = installed(),
+                        refreshWarning = if (result.failedSources.isNotEmpty()) AppLanguageManager.getString(getApplication(), R.string.offline_partial_refresh) else null,
+                    )
+                }
+                .onFailure {
+                    if (it is CancellationException) throw it
+                    _state.value = _state.value.copy(loading = false, error = AppLanguageManager.getString(getApplication(), R.string.offline_error_refresh))
+                }
         }
     }
 
@@ -71,9 +82,12 @@ class PacksViewModel(app: Application) : AndroidViewModel(app) {
         downloader.cancel(id)
     }
 
-    fun downloadAll() = downloadBatch("india", _state.value.remote)
+    fun downloadAll() = downloadCountry("IN")
 
-    fun downloadRegion(regionPacks: Collection<RemotePack>, regionKey: String) = downloadBatch(regionKey, regionPacks)
+    fun downloadCountry(countryCode: String) =
+        downloadBatch("country:$countryCode", _state.value.remote.filter { it.countryCode == countryCode })
+
+    fun downloadRegion(regionPacks: Collection<RemotePack>, regionKey: String) = downloadBatch("region:IN:$regionKey", regionPacks)
 
     private fun downloadBatch(scopeKey: String, packs: Collection<RemotePack>) {
         if (batchDownload?.isActive == true || individualDownloads.isNotEmpty() || _state.value.progress.isNotEmpty()) return
