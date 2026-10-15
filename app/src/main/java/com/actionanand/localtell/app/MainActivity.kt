@@ -110,6 +110,8 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.actionanand.localtell.app.data.InstalledPack
 import com.actionanand.localtell.app.data.IndiaRegion
+import com.actionanand.localtell.app.data.CountryPacks
+import com.actionanand.localtell.app.data.CountryLayout
 import com.actionanand.localtell.app.data.PackCatalog
 import com.actionanand.localtell.app.data.RegionPacks
 import com.actionanand.localtell.app.data.RemotePack
@@ -1126,10 +1128,10 @@ private fun PacksScreen(vm: PacksViewModel = viewModel()) {
     val firstRowRevealDistance = with(LocalDensity.current) { 132.dp.toPx() }
     val remoteIds = state.remote.mapTo(mutableSetOf()) { it.id }
     val installedOnly = state.installed.values.filter { it.id !in remoteIds }.sortedBy { it.name }
-    val regions = PackCatalog.regions(state.remote)
+    val countries = PackCatalog.countries(state.remote)
     val searchEnabled = !state.loading && state.remote.isNotEmpty()
     val searchActive = searchQuery.isNotBlank()
-    val displayedRegions = if (state.loading) emptyList() else PackCatalog.filterRegions(regions, searchQuery)
+    val displayedCountries = if (state.loading) emptyList() else PackCatalog.filterCountries(countries, searchQuery)
     androidx.compose.runtime.LaunchedEffect(Unit) { vm.refresh() }
     androidx.compose.runtime.LaunchedEffect(expandedRegionToReveal) {
         expandedRegionToReveal?.let { region ->
@@ -1176,47 +1178,65 @@ private fun PacksScreen(vm: PacksViewModel = viewModel()) {
             )
         }
         if (state.loading) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
-        if (!state.loading && state.remote.isNotEmpty() && !searchActive) {
-            item { IndiaDownloadCard(regions, state, vm) }
-        }
-        displayedRegions.forEach { displayedRegion ->
-            val fullRegion = regions.first { it.region == displayedRegion.region }
-            val expanded = searchActive || displayedRegion.region in expandedRegions
-            val installedRegionPacks = PackCatalog.installedPacks(fullRegion.packs, state.installed)
-            val regionBusy = state.batch != null || fullRegion.packs.any { state.activeDownloads.contains(it.id) }
-            item(key = "region-${displayedRegion.region.manifestKey}") {
-                RegionDownloadCard(
-                    regionPacks = fullRegion,
-                    state = state,
-                    expanded = expanded,
-                    expandable = !searchActive,
-                    onToggle = {
-                        val wasExpanded = displayedRegion.region in expandedRegions
-                        expandedRegions = if (wasExpanded) expandedRegions - displayedRegion.region else expandedRegions + displayedRegion.region
-                        if (!wasExpanded) {
-                            expandedRegionToReveal = displayedRegion.region
+        displayedCountries.forEach { country ->
+            val fullCountry = countries.first { it.countryCode == country.countryCode }
+            item(key = "country-${country.countryCode}") { CountryDownloadCard(fullCountry, state, vm) }
+            if (country.layout == CountryLayout.REGIONS) {
+                val regions = PackCatalog.regions(fullCountry.packs)
+                val displayedRegions = PackCatalog.regions(country.packs)
+                displayedRegions.forEach { displayedRegion ->
+                    val fullRegion = regions.first { it.region == displayedRegion.region }
+                    val expanded = searchActive || displayedRegion.region in expandedRegions
+                    val installedRegionPacks = PackCatalog.installedPacks(fullRegion.packs, state.installed)
+                    val regionBusy = state.batch != null || fullRegion.packs.any { state.activeDownloads.contains(it.id) }
+                    item(key = "region-${displayedRegion.region.manifestKey}") {
+                        RegionDownloadCard(
+                            regionPacks = fullRegion,
+                            state = state,
+                            expanded = expanded,
+                            expandable = !searchActive,
+                            onToggle = {
+                                val wasExpanded = displayedRegion.region in expandedRegions
+                                expandedRegions = if (wasExpanded) expandedRegions - displayedRegion.region else expandedRegions + displayedRegion.region
+                                if (!wasExpanded) {
+                                    expandedRegionToReveal = displayedRegion.region
+                                }
+                            },
+                            onDownload = { vm.downloadRegion(fullRegion.packs, fullRegion.region.manifestKey) },
+                            batchStartEnabled = state.batch == null && state.activeDownloads.isEmpty(),
+                            installedPackCount = installedRegionPacks.size,
+                            removeEnabled = !regionBusy,
+                            onRemoveRegion = installedRegionPacks.takeIf { it.isNotEmpty() }?.let { installedPacks ->
+                                { pendingRegionRemoval = RegionRemoval(fullRegion.region.displayName, installedPacks) }
+                            },
+                            onCancelBatch = vm::cancelBatchDownload,
+                        )
+                    }
+                    if (expanded) {
+                        item(key = "region-label-${displayedRegion.region.manifestKey}") {
+                            Text(
+                                text = stringResource(R.string.offline_states_in_region, fullRegion.region.displayName),
+                                modifier = Modifier.padding(start = 16.dp),
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
                         }
-                    },
-                    onDownload = { vm.downloadRegion(fullRegion.packs, fullRegion.region.manifestKey) },
-                    batchStartEnabled = state.batch == null && state.activeDownloads.isEmpty(),
-                    installedPackCount = installedRegionPacks.size,
-                    removeEnabled = !regionBusy,
-                    onRemoveRegion = installedRegionPacks.takeIf { it.isNotEmpty() }?.let { installedPacks ->
-                        { pendingRegionRemoval = RegionRemoval(fullRegion.region.displayName, installedPacks) }
-                    },
-                    onCancelBatch = vm::cancelBatchDownload,
-                )
-            }
-            if (expanded) {
-                item(key = "region-label-${displayedRegion.region.manifestKey}") {
-                    Text(
-                        text = stringResource(R.string.offline_states_in_region, fullRegion.region.displayName),
-                        modifier = Modifier.padding(start = 16.dp),
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                        items(displayedRegion.packs, key = RemotePack::id) { pack ->
+                            StatePackRow(
+                                pack = pack,
+                                installedVersion = state.installed[pack.id]?.version,
+                                progress = state.progress[pack.id],
+                                busy = state.activeDownloads.contains(pack.id),
+                                batchActive = state.batch != null,
+                                onDownload = { vm.download(pack) },
+                                onCancel = { vm.cancelDownload(pack.id) },
+                                onRemoveRequested = { pendingRemoval = PackRemoval(pack.id, pack.name) },
+                            )
+                        }
+                    }
                 }
-                items(displayedRegion.packs, key = RemotePack::id) { pack ->
+            } else {
+                items(country.packs, key = RemotePack::id) { pack ->
                     StatePackRow(
                         pack = pack,
                         installedVersion = state.installed[pack.id]?.version,
@@ -1230,15 +1250,19 @@ private fun PacksScreen(vm: PacksViewModel = viewModel()) {
                 }
             }
         }
+        if (!state.loading && state.remote.isNotEmpty() && !searchActive) {
+            item { InfoCard(stringResource(R.string.offline_coverage_title), stringResource(R.string.offline_coverage_message)) }
+        }
         if (!state.loading && !searchActive) {
             items(installedOnly, key = { it.id }) { pack ->
                 InstalledOnlyPackRow(pack, state.batch != null) { pendingRemoval = PackRemoval(pack.id, pack.name) }
             }
         }
-        if (!state.loading && searchEnabled && searchActive && displayedRegions.isEmpty()) {
+        if (!state.loading && searchEnabled && searchActive && displayedCountries.isEmpty()) {
             item { InfoCard(stringResource(R.string.offline_no_resources_title), stringResource(R.string.offline_no_resources_message, searchQuery.trim())) }
         }
         state.error?.let { error -> item { InfoCard(stringResource(R.string.offline_title), error) } }
+        state.refreshWarning?.let { warning -> item { InfoCard(stringResource(R.string.offline_title), warning) } }
         if (!state.loading && state.remote.isEmpty() && state.installed.isEmpty() && state.error == null) {
             item { InfoCard(stringResource(R.string.offline_no_packs_title), stringResource(R.string.offline_no_packs_message)) }
         }
@@ -1264,20 +1288,25 @@ private fun PacksScreen(vm: PacksViewModel = viewModel()) {
 }
 
 @Composable
-private fun IndiaDownloadCard(regions: List<RegionPacks>, state: PackUiState, vm: PacksViewModel) {
-    val packs = regions.flatMap(RegionPacks::packs)
-    val required = PackCatalog.requiredPacks(packs, state.installed)
-    val totals = PackCatalog.totals(packs)
+private fun CountryDownloadCard(country: CountryPacks, state: PackUiState, vm: PacksViewModel) {
+    val required = PackCatalog.requiredPacks(country.packs, state.installed)
     ElevatedCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text("India", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-            Text(stringResource(R.string.offline_pack_count, packs.size), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(packSizeSummary(totals), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            BatchStatus(state.batch, "india", vm::cancelBatchDownload)
-            if (required.isEmpty()) {
-                Text(stringResource(R.string.offline_all_installed), fontWeight = FontWeight.SemiBold)
-            } else {
-                Button(enabled = state.batch == null && state.activeDownloads.isEmpty(), onClick = vm::downloadAll) { Text(batchActionLabel(packs, state.installed, BatchAction.DOWNLOAD_ALL).label()) }
+            Text(country.countryName, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Text(
+                when (country.packType) {
+                    "state_ut" -> stringResource(R.string.offline_pack_count, country.packs.size)
+                    "province" -> stringResource(R.string.offline_province_pack_count, country.packs.size)
+                    else -> stringResource(R.string.offline_generic_pack_count, country.packs.size)
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(packSizeSummary(PackCatalog.totals(country.packs)), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            BatchStatus(state.batch, "country:${country.countryCode}", vm::cancelBatchDownload)
+            if (required.isEmpty()) Text(stringResource(R.string.offline_all_installed), fontWeight = FontWeight.SemiBold)
+            else Button(enabled = state.batch == null && state.activeDownloads.isEmpty(), onClick = { vm.downloadCountry(country.countryCode) }) {
+                Text(batchActionLabel(country.packs, state.installed, BatchAction.DOWNLOAD_ALL).label())
             }
         }
     }
@@ -1324,7 +1353,7 @@ private fun RegionDownloadCard(
                     Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, contentDescription = null)
                 }
             }
-            BatchStatus(state.batch, regionPacks.region.manifestKey, onCancelBatch)
+            BatchStatus(state.batch, "region:IN:${regionPacks.region.manifestKey}", onCancelBatch)
             if (required.isEmpty()) {
                 FlowRow(
                     modifier = Modifier.fillMaxWidth(),

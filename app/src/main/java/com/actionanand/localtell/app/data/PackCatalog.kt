@@ -17,10 +17,48 @@ data class RegionPacks(val region: IndiaRegion, val packs: List<RemotePack>) {
     val totals: PackTotals get() = PackCatalog.totals(packs)
 }
 
+data class CountryPacks(
+    val countryCode: String,
+    val countryName: String,
+    val packType: String,
+    val packs: List<RemotePack>,
+    val layout: CountryLayout,
+    val sourceOrder: Int,
+)
+
 /** Presentation-only catalog rules; membership and per-region ordering come from the manifest. */
 object PackCatalog {
+    fun countries(packs: List<RemotePack>): List<CountryPacks> = packs.groupBy(RemotePack::countryCode)
+        .values.map { countryPacks ->
+            val first = countryPacks.first()
+            CountryPacks(first.countryCode, first.countryName, first.packType,
+                countryPacks.sortedWith(compareBy<RemotePack> { it.displayOrder }.thenBy { it.name }.thenBy { it.id }),
+                first.layout, first.sourceOrder)
+        }.sortedWith(compareBy<CountryPacks> { it.sourceOrder }.thenBy { it.countryCode })
+
+    fun filterCountries(countries: List<CountryPacks>, query: String): List<CountryPacks> {
+        val normalizedQuery = normalizeSearch(query)
+        if (normalizedQuery.isEmpty()) return countries
+        return countries.mapNotNull { country ->
+            val matching = when {
+                matches(country.countryName, normalizedQuery) || matches(country.countryCode, normalizedQuery) -> country.packs
+                country.layout == CountryLayout.REGIONS -> filterRegions(regions(country.packs), query).flatMap(RegionPacks::packs)
+                else -> filterPacks(country.packs, query)
+            }
+            matching.takeIf { it.isNotEmpty() }?.let { country.copy(packs = it) }
+        }
+    }
+
+    fun filterPacks(packs: List<RemotePack>, query: String): List<RemotePack> {
+        val normalizedQuery = normalizeSearch(query)
+        return if (normalizedQuery.isEmpty()) packs else packs.filter {
+            matches(it.name, normalizedQuery) || matches(it.id, normalizedQuery) ||
+                matches(it.countryName, normalizedQuery) || matches(it.region ?: "", normalizedQuery)
+        }
+    }
+
     fun regions(packs: List<RemotePack>): List<RegionPacks> = IndiaRegion.values().mapNotNull { region ->
-        packs.filter { it.region == region.manifestKey }
+        packs.filter { it.layout == CountryLayout.REGIONS && it.countryCode == "IN" && it.region == region.manifestKey }
             .sortedWith(compareBy<RemotePack> { it.displayOrder }.thenBy { it.name })
             .takeIf { it.isNotEmpty() }
             ?.let { RegionPacks(region, it) }

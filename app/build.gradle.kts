@@ -1,5 +1,6 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import groovy.json.JsonSlurper
+import groovy.json.JsonOutput
 import java.util.Properties
 
 plugins {
@@ -17,7 +18,7 @@ fun quoted(value: String) = "\"${value.replace("\\", "\\\\").replace("\"", "\\\"
 
 val configuredApplicationId = appConfig["applicationId"] as String
 val configuredAppName = appConfig["appName"] as String
-val configuredManifestUrl = appConfig["dataManifestUrl"] as String
+val configuredManifestSources = appConfig["dataManifestSources"] as List<*>
 val configuredTowerSurvey = appConfig["enableTowerSurvey"] as? Boolean ?: false
 
 android {
@@ -32,7 +33,7 @@ android {
         versionCode = (versionConfig["versionCode"] as Number).toInt()
         versionName = versionConfig["versionName"] as String
 
-        buildConfigField("String", "DATA_MANIFEST_URL", quoted(configuredManifestUrl))
+        buildConfigField("String", "DATA_MANIFEST_SOURCES_JSON", quoted(JsonOutput.toJson(configuredManifestSources)))
         buildConfigField("Boolean", "ENABLE_TOWER_SURVEY", configuredTowerSurvey.toString())
         resValue("string", "app_name", configuredAppName)
     }
@@ -98,4 +99,6 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.tooling)
 
     testImplementation("junit:junit:4.13.2")
+    // Android's org.json stubs cannot parse manifests in local JVM tests.
+    testImplementation("org.json:json:20240303")
 }

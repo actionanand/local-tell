@@ -1,11 +1,11 @@
 # LocalTell
 
-**LocalTell** is a native Android app that resolves the current serving cellular identity to an **approximate locality using offline SQLite data packs**. The normal lookup path uses no web API and does not request GPS coordinates.
+**LocalTell** is a native Android app that resolves the current locality using on-device GNSS and offline SQLite geographic packs. India and Sri Lanka are currently configured data sources; locality lookup runs locally after a pack is installed.
 
 ## Core idea
 
 ```
-Serving cell (MCC + MNC + RAT + TAC/LAC + Cell ID/NCI)
+On-device location
                          ↓
                 downloaded SQLite pack
                          ↓
@@ -19,7 +19,7 @@ Internet is used only to download/update offline data packs from a configurable 
 - Kotlin
 - Jetpack Compose
 - `TelephonyManager` / `CellInfo`
-- Android SQLite for read-only state packs
+- Android SQLite for read-only geographic packs
 - SQLiteOpenHelper for local journey history
 - WorkManager for weekly update checks
 - Foreground service for optional journey tracking
@@ -29,18 +29,39 @@ Internet is used only to download/update offline data packs from a configurable 
 
 ### `app-config.json`
 
-Single source for app identity and data-manifest location:
+Single source for app identity and per-country data-manifest sources:
 
 ```json
 {
   "applicationId": "com.actionanand.localtell.app",
   "appName": "LocalTell",
   "releaseBaseName": "LocalTell",
-  "dataManifestUrl": "https://github.com/actionanand/localtell-data/releases/latest/download/manifest.json"
+  "dataManifestSources": [
+    {
+      "countryCode": "IN",
+      "countryName": "India",
+      "packType": "state_ut",
+      "layout": "regions",
+      "manifestUrl": "https://github.com/actionanand/localtell-data/releases/download/cell-data-v3/manifest.json"
+    },
+    {
+      "countryCode": "LK",
+      "countryName": "Sri Lanka",
+      "packType": "province",
+      "layout": "flat",
+      "manifestUrl": "https://github.com/actionanand/localtell-data/releases/download/country-lk-v1/manifest-LK.json"
+    }
+  ]
 }
 ```
 
 Change `applicationId` only before the first Play Store publication.
+
+India retains its regions and State/UT packs. Sri Lanka displays nine Province packs directly under its country heading. The configured array order controls country order, and `layout` controls regional versus flat presentation. To add a future flat country, add its manifest source with a unique country code and globally unique pack IDs; only countries with published manifests should be advertised.
+
+Manifests use explicit release tags rather than repository-wide latest-release URLs. Legacy India manifests inherit country metadata from configuration. Country manifests can declare `countryCode`, `countryName`, and `packType`; conflicting codes/types are rejected. Failed sources produce localized refresh feedback without hiding successful sources or removing installed packs.
+
+Canonical country, region, first-level subdivision, district and locality names remain untranslated. Localized labels surround those values. The generic schema-v3 resolver uses the same `state`/`state_code` columns for Sri Lankan provinces, with no country-specific lookup path or installed-pack migration.
 
 ### `android-version.json`
 
@@ -116,7 +137,7 @@ Upload the **contents** of `keystore.b64.txt` as `KEYSTORE_BASE64`, then securel
 
 ## Offline data pack format
 
-A schema-v2 downloaded pack is a normal SQLite database with:
+Current geographic packs use schema-v3 (`pack_meta`, `place`, `place_geometry`, `place_geometry_rtree`), with a level-4 pack boundary, locality polygon lookup, and nearest-place fallback. Existing India DB filenames and `offline_packs` persistence remain compatible. The following schema-v2 cell/tower format is retained for legacy pack compatibility:
 
 ```sql
 tower_site(
@@ -209,7 +230,7 @@ gradle :app:bundleRelease
 
 1. Create the GitHub repo and branch `main-android`.
 2. Add the four signing secrets.
-3. Create `actionanand/localtell-data` (or change `dataManifestUrl`).
+3. Verify the configured sources in `dataManifestSources` against the published releases in `actionanand/localtell-data`.
 4. Publish a real locality-enriched state pack and `manifest.json` as GitHub Release assets.
 5. Install the generated signed APK and test cell visibility on the target SIM/device.
 

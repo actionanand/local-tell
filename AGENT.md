@@ -14,7 +14,7 @@ com.actionanand.localtell.app
 
 Primary goals:
 
-- resolve the user's current locality using offline State/UT geographic packs;
+- resolve the user's current locality using offline geographic packs for configured countries;
 - work primarily offline after the required pack is installed;
 - show useful cellular diagnostics for the active SIMs;
 - provide an Easy location-sharing/code workflow;
@@ -101,7 +101,10 @@ Current important fields include:
   "applicationId": "com.actionanand.localtell.app",
   "appName": "LocalTell",
   "releaseBaseName": "LocalTell",
-  "dataManifestUrl": "https://github.com/actionanand/localtell-data/releases/latest/download/manifest.json",
+  "dataManifestSources": [
+    { "countryCode": "IN", "countryName": "India", "packType": "state_ut", "layout": "regions", "manifestUrl": "https://github.com/actionanand/localtell-data/releases/download/cell-data-v3/manifest.json" },
+    { "countryCode": "LK", "countryName": "Sri Lanka", "packType": "province", "layout": "flat", "manifestUrl": "https://github.com/actionanand/localtell-data/releases/download/country-lk-v1/manifest-LK.json" }
+  ],
   "enableTowerSurvey": false
 }
 ```
@@ -244,11 +247,18 @@ Do not duplicate reminder-state logic independently in each screen.
 
 ## Offline geographic packs
 
-Offline locality lookup uses State/UT packs distributed from:
+Offline locality lookup uses schema-v3 geographic packs distributed from:
 
 ```text
 actionanand/localtell-data
 ```
+
+India uses the configured `REGIONS` layout: country → India regions → State/UT packs.
+Sri Lanka uses `FLAT`: country → Province packs (`LK-1` through `LK-9`).
+`dataManifestSources` is authoritative; array position becomes `sourceOrder` and controls country display order.
+Future flat countries need a configured source and compatible schema-v3 packs, not country-specific networking or lookup code.
+Only India currently defines a regional catalog (`IndiaRegion`); other regional catalogs must be explicitly implemented before configuring them.
+Use explicit release-tag manifest URLs. Independent source failures must preserve successful catalogs and installed databases, with localized partial-refresh feedback.
 
 Current geographic resolver:
 
@@ -259,7 +269,7 @@ data/OfflineLocalityResolver.kt
 Resolution order is intentionally:
 
 ```text
-inside State/UT boundary
+inside level-4 pack boundary (state/UT or province)
     ↓
 locality polygon match
     ↓
@@ -283,9 +293,9 @@ Never translate, rename, or remap canonical geographic data for UI localization.
 
 Keep unchanged:
 
-- `India`;
+- country names such as `India` and `Sri Lanka`;
 - region names;
-- State/UT names;
+- first-level subdivision names (State/UT or Province);
 - `pack.name`;
 - locality names;
 - district/sub-district/state values;
@@ -305,9 +315,9 @@ Preserve:
 - atomic activation;
 - update safety;
 - individual cancellation;
-- region/India batch cancellation;
+- region/country batch cancellation;
 - region removal;
-- State/UT removal.
+- individual geographic-pack removal.
 
 Cancellation of an update must preserve the previously installed valid database.
 
@@ -498,7 +508,7 @@ All app-owned UI must remain resource-backed.
 
 Never translate:
 
-- geographic/database data;
+- geographic/database data, including country, first-level subdivision, district, and locality names;
 - carrier names;
 - locality names;
 - pack names;
