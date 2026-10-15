@@ -96,6 +96,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLocale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
@@ -879,7 +880,7 @@ private fun AnnouncementCard(
     val context = LocalContext.current
     val localized = announcement.localize(
         language = AppLanguageManager.current(context),
-        systemLanguageTag = Locale.getDefault().toLanguageTag(),
+        systemLanguageTag = LocalLocale.current.platformLocale.toLanguageTag(),
     )
     ElevatedCard(
         modifier = Modifier.fillMaxWidth(),
