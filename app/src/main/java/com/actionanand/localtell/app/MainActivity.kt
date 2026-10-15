@@ -1121,6 +1121,7 @@ private fun PacksScreen(vm: PacksViewModel = viewModel()) {
     val state by vm.state.collectAsStateWithLifecycle()
     var pendingRemoval by remember { mutableStateOf<PackRemoval?>(null) }
     var pendingRegionRemoval by remember { mutableStateOf<RegionRemoval?>(null) }
+    var expandedCountryCodes by rememberSaveable { mutableStateOf(emptyList<String>()) }
     var expandedRegions by remember { mutableStateOf(emptySet<IndiaRegion>()) }
     var expandedRegionToReveal by remember { mutableStateOf<IndiaRegion?>(null) }
     var searchQuery by rememberSaveable { mutableStateOf("") }
@@ -1136,7 +1137,7 @@ private fun PacksScreen(vm: PacksViewModel = viewModel()) {
     androidx.compose.runtime.LaunchedEffect(expandedRegionToReveal) {
         expandedRegionToReveal?.let { region ->
             val regionHeader = packListState.layoutInfo.visibleItemsInfo.firstOrNull {
-                it.key == "region-${region.manifestKey}"
+                it.key == "region-IN-${region.manifestKey}"
             }
             if (regionHeader != null) {
                 val scrollDistance = (
@@ -1180,8 +1181,24 @@ private fun PacksScreen(vm: PacksViewModel = viewModel()) {
         if (state.loading) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
         displayedCountries.forEach { country ->
             val fullCountry = countries.first { it.countryCode == country.countryCode }
-            item(key = "country-${country.countryCode}") { CountryDownloadCard(fullCountry, state, vm) }
-            if (country.layout == CountryLayout.REGIONS) {
+            val countryExpanded = searchActive || country.countryCode in expandedCountryCodes
+            item(key = "country-${country.countryCode}") {
+                CountryDownloadCard(
+                    country = fullCountry,
+                    state = state,
+                    expanded = countryExpanded,
+                    expandable = !searchActive,
+                    onToggle = {
+                        expandedCountryCodes = if (country.countryCode in expandedCountryCodes) {
+                            expandedCountryCodes - country.countryCode
+                        } else {
+                            expandedCountryCodes + country.countryCode
+                        }
+                    },
+                    vm = vm,
+                )
+            }
+            if (countryExpanded && country.layout == CountryLayout.REGIONS) {
                 val regions = PackCatalog.regions(fullCountry.packs)
                 val displayedRegions = PackCatalog.regions(country.packs)
                 displayedRegions.forEach { displayedRegion ->
@@ -1189,7 +1206,7 @@ private fun PacksScreen(vm: PacksViewModel = viewModel()) {
                     val expanded = searchActive || displayedRegion.region in expandedRegions
                     val installedRegionPacks = PackCatalog.installedPacks(fullRegion.packs, state.installed)
                     val regionBusy = state.batch != null || fullRegion.packs.any { state.activeDownloads.contains(it.id) }
-                    item(key = "region-${displayedRegion.region.manifestKey}") {
+                    item(key = "region-${country.countryCode}-${displayedRegion.region.manifestKey}") {
                         RegionDownloadCard(
                             regionPacks = fullRegion,
                             state = state,
@@ -1213,16 +1230,17 @@ private fun PacksScreen(vm: PacksViewModel = viewModel()) {
                         )
                     }
                     if (expanded) {
-                        item(key = "region-label-${displayedRegion.region.manifestKey}") {
+                        item(key = "region-label-${country.countryCode}-${displayedRegion.region.manifestKey}") {
                             Text(
                                 text = stringResource(R.string.offline_states_in_region, fullRegion.region.displayName),
-                                modifier = Modifier.padding(start = 16.dp),
+                                modifier = Modifier.padding(start = 28.dp),
                                 style = MaterialTheme.typography.labelLarge,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
                         items(displayedRegion.packs, key = RemotePack::id) { pack ->
                             StatePackRow(
+                                modifier = Modifier.padding(start = 28.dp, end = 4.dp),
                                 pack = pack,
                                 installedVersion = state.installed[pack.id]?.version,
                                 progress = state.progress[pack.id],
@@ -1235,9 +1253,10 @@ private fun PacksScreen(vm: PacksViewModel = viewModel()) {
                         }
                     }
                 }
-            } else {
+            } else if (countryExpanded) {
                 items(country.packs, key = RemotePack::id) { pack ->
                     StatePackRow(
+                        modifier = Modifier.padding(start = 12.dp, end = 4.dp),
                         pack = pack,
                         installedVersion = state.installed[pack.id]?.version,
                         progress = state.progress[pack.id],
@@ -1288,21 +1307,52 @@ private fun PacksScreen(vm: PacksViewModel = viewModel()) {
 }
 
 @Composable
-private fun CountryDownloadCard(country: CountryPacks, state: PackUiState, vm: PacksViewModel) {
+private fun CountryDownloadCard(
+    country: CountryPacks,
+    state: PackUiState,
+    expanded: Boolean,
+    expandable: Boolean,
+    onToggle: () -> Unit,
+    vm: PacksViewModel,
+) {
     val required = PackCatalog.requiredPacks(country.packs, state.installed)
-    ElevatedCard(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(country.countryName, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-            Text(
-                when (country.packType) {
-                    "state_ut" -> stringResource(R.string.offline_pack_count, country.packs.size)
-                    "province" -> stringResource(R.string.offline_province_pack_count, country.packs.size)
-                    else -> stringResource(R.string.offline_generic_pack_count, country.packs.size)
+    val toggleLabel = if (expanded) {
+        stringResource(R.string.offline_collapse_country, country.countryName)
+    } else {
+        stringResource(R.string.offline_expand_country, country.countryName)
+    }
+    ElevatedCard(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+    ) {
+        Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            Row(
+                modifier = if (expandable) {
+                    Modifier.fillMaxWidth().clickable(onClickLabel = toggleLabel, onClick = onToggle)
+                } else {
+                    Modifier.fillMaxWidth()
                 },
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Text(packSizeSummary(PackCatalog.totals(country.packs)), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(country.countryName, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Text(
+                        when (country.packType) {
+                            "state_ut" -> stringResource(R.string.offline_pack_count, country.packs.size)
+                            "province" -> stringResource(R.string.offline_province_pack_count, country.packs.size)
+                            else -> stringResource(R.string.offline_generic_pack_count, country.packs.size)
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        packSizeSummary(PackCatalog.totals(country.packs)),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, contentDescription = null)
+            }
             BatchStatus(state.batch, "country:${country.countryCode}", vm::cancelBatchDownload)
             if (required.isEmpty()) Text(stringResource(R.string.offline_all_installed), fontWeight = FontWeight.SemiBold)
             else Button(enabled = state.batch == null && state.activeDownloads.isEmpty(), onClick = { vm.downloadCountry(country.countryCode) }) {
@@ -1329,12 +1379,11 @@ private fun RegionDownloadCard(
     val required = PackCatalog.requiredPacks(regionPacks.packs, state.installed)
     val regionName = regionPacks.region.displayName
     val toggleLabel = if (expanded) stringResource(R.string.offline_collapse_region, regionName) else stringResource(R.string.offline_expand_region, regionName)
-    val containerColor = if (expanded) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerLow
-    val contentColor = if (expanded) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
-    val supportingColor = if (expanded) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.78f) else MaterialTheme.colorScheme.onSurfaceVariant
+    val containerColor = if (expanded) MaterialTheme.colorScheme.surfaceContainerLow else MaterialTheme.colorScheme.surfaceContainerLowest
     ElevatedCard(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.elevatedCardColors(containerColor = containerColor, contentColor = contentColor),
+        modifier = Modifier.fillMaxWidth().padding(start = 12.dp),
+        colors = CardDefaults.elevatedCardColors(containerColor = containerColor),
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 1.dp),
     ) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
             Row(
@@ -1347,11 +1396,9 @@ private fun RegionDownloadCard(
             ) {
                 Column(Modifier.weight(1f)) {
                     Text(regionName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    Text("${stringResource(R.string.offline_pack_count, regionPacks.packs.size)} · ${packSizeSummary(regionPacks.totals)}", style = MaterialTheme.typography.bodySmall, color = supportingColor)
+                    Text("${stringResource(R.string.offline_pack_count, regionPacks.packs.size)} · ${packSizeSummary(regionPacks.totals)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                if (expandable) {
-                    Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, contentDescription = null)
-                }
+                Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, contentDescription = null)
             }
             BatchStatus(state.batch, "region:IN:${regionPacks.region.manifestKey}", onCancelBatch)
             if (required.isEmpty()) {
@@ -1389,9 +1436,19 @@ private fun BatchStatus(batch: BatchDownloadProgress?, scopeKey: String, onCance
 }
 
 @Composable
-private fun StatePackRow(pack: RemotePack, installedVersion: Long?, progress: Int?, busy: Boolean, batchActive: Boolean, onDownload: () -> Unit, onCancel: () -> Unit, onRemoveRequested: () -> Unit) {
+private fun StatePackRow(
+    modifier: Modifier = Modifier,
+    pack: RemotePack,
+    installedVersion: Long?,
+    progress: Int?,
+    busy: Boolean,
+    batchActive: Boolean,
+    onDownload: () -> Unit,
+    onCancel: () -> Unit,
+    onRemoveRequested: () -> Unit,
+) {
     Surface(
-        modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp),
+        modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
         color = MaterialTheme.colorScheme.surfaceContainerLowest,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),

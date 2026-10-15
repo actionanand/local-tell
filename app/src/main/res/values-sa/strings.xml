@@ -157,6 +157,8 @@
     <string name="offline_search">देशं, प्रदेशं, अथवा अन्तर्जालरहितसञ्चयम् अन्वेषय</string>
     <string name="offline_loading">अन्तर्जालरहितसाधनानि आनीयन्ते…</string>
     <string name="offline_states_in_region">%1$s इत्यस्मिन् प्रदेशे राज्यानि केन्द्रशासितप्रदेशाश्च</string>
+    <string name="offline_expand_country">%1$s इति देशं विस्तारय</string>
+    <string name="offline_collapse_country">%1$s इति देशं सङ्कोचय</string>
     <string name="offline_expand_region">%1$s इति प्रदेशं विस्तारय</string>
     <string name="offline_collapse_region">%1$s इति प्रदेशं सङ्कोचय</string>
     <string name="offline_installed">स्थापितम्</string>

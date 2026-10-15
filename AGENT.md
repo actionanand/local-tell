@@ -255,7 +255,7 @@ actionanand/localtell-data
 
 India uses the configured `REGIONS` layout: country → India regions → State/UT packs.
 Sri Lanka uses `FLAT`: country → Province packs (`LK-1` through `LK-9`).
-`dataManifestSources` is authoritative; array position becomes `sourceOrder` and controls country display order.
+`dataManifestSources` is authoritative; India is pinned first in the UI, while remaining countries follow the `sourceOrder` derived from array position.
 Future flat countries need a configured source and compatible schema-v3 packs, not country-specific networking or lookup code.
 Only India currently defines a regional catalog (`IndiaRegion`); other regional catalogs must be explicitly implemented before configuring them.
 Use explicit release-tag manifest URLs. Independent source failures must preserve successful catalogs and installed databases, with localized partial-refresh feedback.
