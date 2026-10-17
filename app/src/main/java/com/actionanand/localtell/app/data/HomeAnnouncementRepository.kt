@@ -9,13 +9,16 @@ import javax.net.ssl.HttpsURLConnection
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlin.coroutines.coroutineContext
 
 class HomeAnnouncementRepository(
     context: Context,
     private val remoteLoader: HomeAnnouncementRemoteLoader = HomeAnnouncementRemoteLoader(BuildConfig.HOME_ANNOUNCEMENT_URL),
 ) {
-    private val preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
+    private val preferences by lazy { context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE) }
+    private val dismissalMutex = Mutex()
     private val cache = AnnouncementDocumentCache(
         read = { preferences.getString(CACHED_JSON_KEY, null) },
         write = { preferences.edit().putString(CACHED_JSON_KEY, it).apply() },
@@ -54,10 +57,12 @@ class HomeAnnouncementRepository(
         return revisions
     }
 
-    fun dismiss(announcement: HomeAnnouncement) {
-        if (announcement.repeatPolicy != AnnouncementRepeatPolicy.ONCE_PER_REVISION) return
-        val key = "revision:${announcement.id}"
-        preferences.edit().putInt(key, maxOf(preferences.getInt(key, 0), announcement.revision)).apply()
+    suspend fun dismiss(announcement: HomeAnnouncement) = withContext(Dispatchers.IO) {
+        if (announcement.repeatPolicy != AnnouncementRepeatPolicy.ONCE_PER_REVISION) return@withContext
+        dismissalMutex.withLock {
+            val key = "revision:${announcement.id}"
+            preferences.edit().putInt(key, maxOf(preferences.getInt(key, 0), announcement.revision)).apply()
+        }
     }
 
     private companion object {

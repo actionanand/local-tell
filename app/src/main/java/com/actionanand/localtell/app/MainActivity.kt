@@ -8,7 +8,6 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
-import android.speech.tts.TextToSpeech
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.ComponentActivity
@@ -90,6 +89,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -132,6 +132,7 @@ import com.actionanand.localtell.app.data.localize
 import com.actionanand.localtell.app.easy.EasyLocation
 import com.actionanand.localtell.app.easy.EasyError
 import com.actionanand.localtell.app.easy.EasyViewModel
+import com.actionanand.localtell.app.easy.EasySpeech
 import com.actionanand.localtell.app.external.MapLinkBuilder
 import com.actionanand.localtell.app.external.RideDestination
 import com.actionanand.localtell.app.external.RideLinkBuilder
@@ -150,6 +151,7 @@ import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
 import kotlin.math.roundToInt
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     private lateinit var locationEnablement: LocationEnablement
@@ -240,9 +242,13 @@ private fun LocalTellApp(defaultTab: RootTab, themeMode: ThemeMode, onThemeModeC
     val announcementViewModel: HomeAnnouncementViewModel = viewModel()
     val homeViewModel: HomeViewModel = viewModel()
     val easyViewModel: EasyViewModel = viewModel()
-    val homeStatus by homeViewModel.status.collectAsStateWithLifecycle()
-    val easyState by easyViewModel.state.collectAsStateWithLifecycle()
-    val resultsLoaded = homeStatus is HomeStatus.Ready || easyState.currentLocation != null || easyState.resolvedLocation != null
+    val readiness = remember(homeViewModel, easyViewModel) {
+        announcementResultsLoaded(homeViewModel.status, easyViewModel.state)
+    }
+    val resultsLoaded by readiness.collectAsStateWithLifecycle(
+        initialValue = homeViewModel.status.value is HomeStatus.Ready ||
+            easyViewModel.state.value.currentLocation != null || easyViewModel.state.value.resolvedLocation != null,
+    )
     val announcementState by announcementViewModel.state.collectAsStateWithLifecycle()
     val announcement = announcementState.visibleAnnouncement.takeUnless { resultsLoaded }
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -490,13 +496,13 @@ private fun EasyScreen(
     val activity = context as? MainActivity
     val state by vm.state.collectAsStateWithLifecycle()
     var findInput by rememberSaveable { mutableStateOf("") }
-    var ttsReady by remember { mutableStateOf(false) }
     var locationRequestAwaitingResult by remember { mutableStateOf(false) }
     var locationRequestObservedInFlight by remember { mutableStateOf(false) }
     var locationBeforeRequest by remember { mutableStateOf<EasyLocation?>(null) }
     var showLocationTurnOffReminder by remember { mutableStateOf(false) }
-    val speaker = remember { TextToSpeech(context.applicationContext) { ttsReady = it == TextToSpeech.SUCCESS } }
-    DisposableEffect(speaker) { onDispose { speaker.shutdown() } }
+    val speechScope = rememberCoroutineScope()
+    val speaker = remember { EasySpeech(context.applicationContext) }
+    DisposableEffect(speaker) { onDispose { speaker.close() } }
     fun beginLocationRequest() {
         locationBeforeRequest = state.currentLocation
         locationRequestAwaitingResult = true
@@ -578,7 +584,11 @@ private fun EasyScreen(
             }
         }
         state.currentLocation?.let { location -> item { EasyLocationCard(location, showAccuracy = true, onSpeak = {
-            if (ttsReady) speaker.speak(location.encoded.numericCode.filter(Char::isDigit).map { it.toString() }.joinToString(" "), TextToSpeech.QUEUE_FLUSH, null, "localtell-number") else Toast.makeText(context, R.string.easy_tts_unavailable, Toast.LENGTH_SHORT).show()
+            speechScope.launch {
+                if (!speaker.speakNumber(location.encoded.numericCode)) {
+                    Toast.makeText(context, R.string.easy_tts_unavailable, Toast.LENGTH_SHORT).show()
+                }
+            }
         }, onCopy = { copyText(context, location.encoded.numericCode) }, onShare = { shareEasyLocation(context, location) }) } }
         item {
             Text(stringResource(R.string.easy_find_title), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)

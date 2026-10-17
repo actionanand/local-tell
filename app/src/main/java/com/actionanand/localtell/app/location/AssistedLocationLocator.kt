@@ -13,6 +13,9 @@ import com.google.android.gms.location.Priority
 import com.google.android.gms.tasks.CancellationTokenSource
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.asExecutor
+import kotlinx.coroutines.withContext
 import kotlin.coroutines.resume
 
 sealed interface AssistedLocationResult {
@@ -25,13 +28,14 @@ sealed interface AssistedLocationResult {
 
 /** Explicit, foreground-only assisted fallback. It never resolves a locality online. */
 class AssistedLocationLocator(private val context: Context) {
-    private val client = LocationServices.getFusedLocationProviderClient(context)
+    private val client by lazy { LocationServices.getFusedLocationProviderClient(context) }
+    private val executor = Dispatchers.IO.asExecutor()
 
-    suspend fun getLocation(): AssistedLocationResult {
+    suspend fun getLocation(): AssistedLocationResult = withContext(Dispatchers.IO) {
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            return AssistedLocationResult.PermissionMissing
+            return@withContext AssistedLocationResult.PermissionMissing
         }
-        return getLocationWithPermission()
+        getLocationWithPermission()
     }
 
     @RequiresPermission(Manifest.permission.ACCESS_FINE_LOCATION)
@@ -41,7 +45,7 @@ class AssistedLocationLocator(private val context: Context) {
                 val tokenSource = CancellationTokenSource()
                 continuation.invokeOnCancellation { tokenSource.cancel() }
                 client.getCurrentLocation(Priority.PRIORITY_BALANCED_POWER_ACCURACY, tokenSource.token)
-                    .addOnSuccessListener { location ->
+                    .addOnSuccessListener(executor) { location ->
                         if (!continuation.isActive) return@addOnSuccessListener
                         val result = when (LocationAccuracy.classify(location?.hasAccuracy() == true, location?.accuracy ?: Float.MAX_VALUE)) {
                             LocationQuality.PRECISE -> AssistedLocationResult.Precise(Location(location!!))
@@ -50,7 +54,7 @@ class AssistedLocationLocator(private val context: Context) {
                         }
                         continuation.resume(result)
                     }
-                    .addOnFailureListener { error ->
+                    .addOnFailureListener(executor) { error ->
                         if (continuation.isActive) continuation.resume(AssistedLocationResult.Error(error))
                     }
             }

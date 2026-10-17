@@ -1,0 +1,90 @@
+name: Android Feature Validation
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'feature/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: localtell-android-feature-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Load Android SDK configuration
+        shell: bash
+        run: |
+          while IFS='=' read -r key value; do
+            [[ -z "$key" || "$key" =~ ^# ]] && continue
+            echo "$key=$value" >> "$GITHUB_ENV"
+          done < android-sdk.properties
+
+      - name: Setup Java
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: ''
+
+      - name: Install Android CLI
+        shell: bash
+        run: |
+          curl -fsSL https://dl.google.com/android/cli/latest/linux_x86_64/install.sh | bash
+          test -n "${ANDROID_HOME:-}"
+          printf '%s\n' "--sdk=${ANDROID_HOME}" > "$HOME/.androidrc"
+          echo "$HOME/.android/bin" >> "$GITHUB_PATH"
+
+      - name: Install Android SDK platform and build tools
+        shell: bash
+        run: |
+          android --version
+          android sdk install \
+            "platforms/android-${COMPILE_SDK_VERSION}" \
+            "build-tools/${BUILD_TOOLS_VERSION}" \
+            "platform-tools"
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.5.0'
+
+      - name: Validate configuration, lint and unit tests
+        run: |
+          python3 -m json.tool app-config.json >/dev/null
+          python3 -m json.tool android-version.json >/dev/null
+          gradle lint testDebugUnitTest
+
+      - name: Build installable debug APK
+        run: gradle assembleDebug
+
+      # Release outputs stay under app/build; no production signing or publishing.
+      - name: Validate release compilation and R8
+        run: gradle assembleRelease bundleRelease
+
+      - name: Verify debug APK exists
+        run: test -s app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Upload debug APK
+        if: ${{ success() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: localtell-feature-debug-${{ github.run_id }}-${{ github.run_attempt }}
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14

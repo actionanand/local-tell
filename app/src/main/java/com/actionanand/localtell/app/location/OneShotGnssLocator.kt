@@ -11,10 +11,12 @@ import android.os.SystemClock
 import android.util.Log
 import androidx.annotation.RequiresPermission
 import androidx.core.content.ContextCompat
-import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withContext
 import java.util.concurrent.atomic.AtomicReference
-import kotlin.coroutines.resume
 
 sealed interface GnssFixResult {
     data class Precise(val location: Location) : GnssFixResult
@@ -35,23 +37,35 @@ class OneShotGnssLocator(private val context: Context) {
         private const val TAG = "OneShotGnssLocator"
     }
 
-    private val manager = context.getSystemService(LocationManager::class.java)
+    private val manager by lazy { context.getSystemService(LocationManager::class.java) }
 
-    suspend fun getLocation(): GnssFixResult {
+    suspend fun getLocation(): GnssFixResult = withContext(Dispatchers.IO) {
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            return GnssFixResult.PermissionMissing
+            return@withContext GnssFixResult.PermissionMissing
         }
-        if (!manager.isProviderEnabled(LocationManager.GPS_PROVIDER)) return GnssFixResult.ProviderDisabled
-        return requestFixWithPermission()
+        try {
+            if (!manager.isProviderEnabled(LocationManager.GPS_PROVIDER)) return@withContext GnssFixResult.ProviderDisabled
+            requestFixWithPermission()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: SecurityException) {
+            currentCoroutineContext().ensureActive()
+            GnssFixResult.PermissionMissing
+        } catch (error: Exception) {
+            currentCoroutineContext().ensureActive()
+            GnssFixResult.Error(error)
+        }
     }
 
     @RequiresPermission(Manifest.permission.ACCESS_FINE_LOCATION)
     private suspend fun requestFixWithPermission(): GnssFixResult {
         val lastKnown = try {
             manager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (_: SecurityException) {
             return GnssFixResult.PermissionMissing
-        } catch (error: Throwable) {
+        } catch (error: Exception) {
             return GnssFixResult.Error(error)
         }
         var recentApproximate: Location? = null
@@ -85,14 +99,11 @@ class OneShotGnssLocator(private val context: Context) {
         }
 
         val bestApproximate = AtomicReference(recentApproximate)
-        return withTimeoutOrNull(TIMEOUT_MS) {
-            suspendCancellableCoroutine { continuation ->
-                lateinit var listener: LocationListener
-                fun finish(result: GnssFixResult) {
-                    runCatching { manager.removeUpdates(listener) }
-                    if (continuation.isActive) continuation.resume(result)
-                }
-                listener = object : LocationListener {
+        var listener: LocationListener? = null
+        return awaitRegisteredLocation<GnssFixResult>(
+            timeoutMillis = TIMEOUT_MS,
+            register = { finish ->
+                val callback = object : LocationListener {
                     override fun onLocationChanged(location: Location) {
                         when (LocationAccuracy.classify(location.hasAccuracy(), location.accuracy)) {
                             LocationQuality.PRECISE -> {
@@ -112,16 +123,21 @@ class OneShotGnssLocator(private val context: Context) {
 
                     override fun onProviderDisabled(provider: String) = finish(GnssFixResult.ProviderDisabled)
                 }
-                continuation.invokeOnCancellation { runCatching { manager.removeUpdates(listener) } }
+                // API 26-compatible overload. Register is synchronous on IO; updates use
+                // the explicit main looper and never remove a listener from a callback.
+                listener = callback
+                manager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 0L, 0f, callback, Looper.getMainLooper())
+            },
+            unregister = {
+                // Do not silently swallow system-service cleanup failures.
                 try {
-                    manager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 0L, 0f, listener, Looper.getMainLooper())
-                } catch (error: SecurityException) {
-                    finish(GnssFixResult.PermissionMissing)
-                } catch (error: Throwable) {
-                    finish(GnssFixResult.Error(error))
+                    listener?.let { manager.removeUpdates(it) }
+                } catch (error: Exception) {
+                    Log.e(TAG, "Unable to remove GPS listener", error)
+                    throw error
                 }
-            }
-        } ?: run {
+            },
+        ) ?: run {
             Log.d(TAG, "GPS acquisition timed out after ${TIMEOUT_MS / 1_000L}s")
             bestApproximate.get()?.let(GnssFixResult::Approximate) ?: GnssFixResult.Timeout
         }

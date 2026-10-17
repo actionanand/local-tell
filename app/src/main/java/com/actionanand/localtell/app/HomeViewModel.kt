@@ -23,10 +23,12 @@ import com.actionanand.localtell.app.model.RadioCell
 import com.actionanand.localtell.app.model.SubscriptionCells
 import com.actionanand.localtell.app.telephony.CellReader
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 enum class LocalityState {
@@ -75,13 +77,16 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
     private val assistedFallbackNotice = app.getString(R.string.location_assisted_fallback)
     private val _status = MutableStateFlow<HomeStatus>(HomeStatus.Idle)
     val status: StateFlow<HomeStatus> = _status.asStateFlow()
+    private val requests = HomeRequestRunner(viewModelScope, onFailure = {
+        _status.value = HomeStatus.Error(AppLanguageManager.getString(getApplication(), R.string.home_error_gnss))
+    })
 
     fun refresh() {
-        if (!reader.hasPermission()) {
-            _status.value = HomeStatus.Error(AppLanguageManager.getString(getApplication(), R.string.home_error_permission))
-            return
-        }
-        viewModelScope.launch {
+        requests.submit {
+            if (!reader.hasPermission()) {
+                _status.value = HomeStatus.Error(AppLanguageManager.getString(getApplication(), R.string.home_error_permission))
+                return@submit
+            }
             _status.value = HomeStatus.Loading(LocalityState.READING_CELLULAR)
             runCatching {
                 val subscriptions = reader.requestSubscriptionCells()
@@ -118,19 +123,26 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
                     GnssFixResult.PermissionMissing -> HomeStatus.Ready(subscriptions, null, LocalityState.PERMISSION_MISSING)
                     is GnssFixResult.Error -> HomeStatus.Error(AppLanguageManager.getString(getApplication(), R.string.home_error_gnss))
                 }
-            }.onSuccess { _status.value = it }
-                .onFailure { _status.value = HomeStatus.Error(AppLanguageManager.getString(getApplication(), R.string.home_error_cellular)) }
+            }.onSuccess {
+                currentCoroutineContext().ensureActive()
+                _status.value = it
+            }
+                .onFailure {
+                    if (it is CancellationException) throw it
+                    currentCoroutineContext().ensureActive()
+                    _status.value = HomeStatus.Error(AppLanguageManager.getString(getApplication(), R.string.home_error_cellular))
+                }
         }
     }
 
     fun useApproximateLocation() {
         val pending = _status.value as? HomeStatus.AwaitingLocationChoice ?: return
         val location = pending.approximateLocation
-        if (location == null) {
-            _status.value = HomeStatus.Ready(pending.subscriptions, null, LocalityState.GNSS_TIMEOUT)
-            return
-        }
-        viewModelScope.launch {
+        requests.submit {
+            if (location == null) {
+                _status.value = HomeStatus.Ready(pending.subscriptions, null, LocalityState.GNSS_TIMEOUT)
+                return@submit
+            }
             _status.value = HomeStatus.Loading(LocalityState.RESOLVING_OFFLINE_LOCALITY, pending.subscriptions)
             _status.value = resolveLocation(pending.subscriptions, CellularFingerprint.from(pending.subscriptions.flatMap(SubscriptionCells::cells)), location, LocationSource.GPS, LocationQuality.APPROXIMATE)
         }
@@ -139,7 +151,7 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
     fun useAssistedLocation() {
         val pending = _status.value as? HomeStatus.AwaitingLocationChoice ?: return
         val approximateLocation = pending.approximateLocation
-        viewModelScope.launch {
+        requests.submit {
             val fingerprint = CellularFingerprint.from(pending.subscriptions.flatMap(SubscriptionCells::cells))
             if (!NetworkAvailability.hasUsableNetwork(getApplication())) {
                 _status.value = if (approximateLocation != null) {
@@ -152,7 +164,7 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
                         locationNotice = AppLanguageManager.getString(getApplication(), R.string.location_connect_network),
                     )
                 }
-                return@launch
+                return@submit
             }
             _status.value = HomeStatus.Loading(LocalityState.ACQUIRING_GNSS, pending.subscriptions)
             when (val assisted = assistedLocator.getLocation()) {
@@ -177,6 +189,7 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
     ): HomeStatus.Ready {
         _status.value = HomeStatus.Loading(LocalityState.RESOLVING_OFFLINE_LOCALITY, subscriptions)
         val locality = withContext(Dispatchers.IO) { localityResolver.resolve(location.latitude, location.longitude) }
+        currentCoroutineContext().ensureActive()
         if (locality != null && fingerprint != null) localityCache.save(locality, location.accuracy, fingerprint, source, quality)
         return HomeStatus.Ready(
             subscriptions = subscriptions,

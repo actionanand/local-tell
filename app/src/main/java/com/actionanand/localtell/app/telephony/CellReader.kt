@@ -23,46 +23,57 @@ import androidx.core.content.ContextCompat
 import com.actionanand.localtell.app.model.ActiveSubscription
 import com.actionanand.localtell.app.model.RadioCell
 import com.actionanand.localtell.app.model.SubscriptionCells
-import kotlinx.coroutines.suspendCancellableCoroutine
-import java.util.concurrent.Executor
-import kotlin.coroutines.resume
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.asExecutor
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withContext
 
 /** Reads Android-provided cellular identity only; it never accesses numbers or device identifiers. */
 class CellReader(private val context: Context) {
-    private val telephonyManager = context.getSystemService(TelephonyManager::class.java)
-    private val subscriptionManager = context.getSystemService(SubscriptionManager::class.java)
-    private val executor = Executor { command -> command.run() }
+    private companion object { const val CELL_INFO_TIMEOUT_MS = 5_000L }
+    private val telephonyManager by lazy { context.getSystemService(TelephonyManager::class.java) }
+    private val subscriptionManager by lazy { context.getSystemService(SubscriptionManager::class.java) }
+    // Binder may invoke the callback inline. Never run fallback Binder reads or conversion on
+    // the requesting/UI thread, and do not allocate a thread pool per CellReader instance.
+    private val executor = Dispatchers.IO.asExecutor()
 
     fun hasPermission(): Boolean = hasFineLocationPermission()
 
     fun hasPhoneStatePermission(): Boolean =
         ContextCompat.checkSelfPermission(context, Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED
 
-    fun cachedServingCells(): List<RadioCell> = cachedServingCellsSafely(telephonyManager, null)
+    suspend fun cachedServingCells(): List<RadioCell> = withContext(Dispatchers.IO) {
+        cachedServingCellsSafely(telephonyManager, null)
+    }
 
     /** Groups diagnostics by active subscription when the optional phone-state permission is granted. */
-    suspend fun requestSubscriptionCells(): List<SubscriptionCells> {
-        if (!hasFineLocationPermission()) return emptyList()
+    suspend fun requestSubscriptionCells(): List<SubscriptionCells> = withContext(Dispatchers.IO) {
+        if (!hasFineLocationPermission()) return@withContext emptyList()
         val subscriptions = activeSubscriptions()
-        if (subscriptions.isEmpty()) return listOf(SubscriptionCells(null, requestServingCells()))
-        return subscriptions.map { subscription ->
+        if (subscriptions.isEmpty()) return@withContext listOf(SubscriptionCells(null, requestServingCells()))
+        subscriptions.map { subscription ->
+            ensureActive()
             val manager = telephonyManager.createForSubscriptionId(subscription.subscriptionId)
             SubscriptionCells(subscription, requestServingCells(manager, subscription))
         }
     }
 
-    suspend fun requestServingCells(): List<RadioCell> = requestServingCells(telephonyManager, null)
+    suspend fun requestServingCells(): List<RadioCell> = withContext(Dispatchers.IO) {
+        requestServingCells(telephonyManager, null)
+    }
 
-    private suspend fun requestServingCells(manager: TelephonyManager, subscription: ActiveSubscription?): List<RadioCell> {
-        if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) return emptyList()
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return cachedServingCellsSafely(manager, subscription)
-        return requestServingCellsWithPermission(manager, subscription)
+    private suspend fun requestServingCells(manager: TelephonyManager, subscription: ActiveSubscription?): List<RadioCell> = withContext(Dispatchers.IO) {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) return@withContext emptyList()
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return@withContext cachedServingCellsSafely(manager, subscription)
+        requestServingCellsWithPermission(manager, subscription)
     }
 
     private fun cachedServingCellsSafely(
         manager: TelephonyManager,
         subscription: ActiveSubscription?,
-    ): List<RadioCell> {
+    ): List<RadioCell> = cachedCellInfoSafely(manager).toRadioCells(subscription).sortedByDescending(RadioCell::registered)
+
+    private fun cachedCellInfoSafely(manager: TelephonyManager): List<CellInfo> {
         if (
             ContextCompat.checkSelfPermission(
                 context,
@@ -75,9 +86,7 @@ class CellReader(private val context: Context) {
         return try {
             manager.allCellInfo
                 .orEmpty()
-                .toRadioCells(subscription)
-                .sortedByDescending(RadioCell::registered)
-        } catch (_: SecurityException) {
+        } catch (_: RuntimeException) {
             emptyList()
         }
     }
@@ -85,21 +94,22 @@ class CellReader(private val context: Context) {
     @RequiresApi(Build.VERSION_CODES.Q)
     @RequiresPermission(Manifest.permission.ACCESS_FINE_LOCATION)
     private suspend fun requestServingCellsWithPermission(manager: TelephonyManager, subscription: ActiveSubscription?): List<RadioCell> =
-        suspendCancellableCoroutine { continuation ->
-            val callback = object : TelephonyManager.CellInfoCallback() {
-                override fun onCellInfo(cellInfo: MutableList<CellInfo>) {
-                    if (continuation.isActive) continuation.resume(cellInfo.toRadioCells(subscription).sortedByDescending(RadioCell::registered))
-                }
+        cellInfoOrCached<List<CellInfo>>(
+            timeoutMillis = CELL_INFO_TIMEOUT_MS,
+            request = { complete ->
+                val callback = object : TelephonyManager.CellInfoCallback() {
+                    override fun onCellInfo(cellInfo: MutableList<CellInfo>) {
+                        complete(Result.success(cellInfo))
+                    }
 
-                override fun onError(errorCode: Int, detail: Throwable?) {
-                    if (continuation.isActive) continuation.resume(cachedServingCellsSafely(manager, subscription))
+                    override fun onError(errorCode: Int, detail: Throwable?) {
+                        complete(Result.failure(detail ?: IllegalStateException("Cell info update failed: $errorCode")))
+                    }
                 }
-            }
-            runCatching { manager.requestCellInfoUpdate(executor, callback) }
-                .onFailure {
-                    if (continuation.isActive) continuation.resume(cachedServingCellsSafely(manager, subscription))
-                }
-        }
+                manager.requestCellInfoUpdate(executor, callback)
+            },
+            cached = { cachedCellInfoSafely(manager) },
+        ).toRadioCells(subscription).sortedByDescending(RadioCell::registered)
 
     private fun activeSubscriptions(): List<ActiveSubscription> {
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_PHONE_STATE) != PackageManager.PERMISSION_GRANTED) return emptyList()

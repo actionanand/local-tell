@@ -31,7 +31,7 @@ object LocalityCachePolicy {
 }
 
 class LocalityCache(context: Context) {
-    private val preferences = context.getSharedPreferences("locality_cache", Context.MODE_PRIVATE)
+    private val preferences by lazy { context.getSharedPreferences("locality_cache", Context.MODE_PRIVATE) }
 
     fun read(): CachedLocality? = runCatching {
         val value = preferences.getString("recent", null) ?: return null

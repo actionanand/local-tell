@@ -2,6 +2,8 @@ package com.actionanand.localtell.app
 
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import com.actionanand.localtell.app.easy.EasyUiState
 import com.actionanand.localtell.app.data.AnnouncementSession
 import com.actionanand.localtell.app.data.HomeAnnouncement
 import com.actionanand.localtell.app.data.HomeAnnouncementRepository
@@ -13,6 +15,11 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 class HomeAnnouncementViewModel(app: Application) : AndroidViewModel(app) {
@@ -66,8 +73,17 @@ class HomeAnnouncementViewModel(app: Application) : AndroidViewModel(app) {
     fun dismissCurrent() {
         val current = _state.value.visibleAnnouncement ?: return
         session?.dismiss(current)
-        repository.dismiss(current)
         updateSelection()
+        // Session dismissal is immediate; preference loading/writing must not delay the tap.
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                repository.dismiss(current)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // A persistence failure must not undo the in-memory/session dismissal.
+            }
+        }
     }
 
     fun suppressForSession() {
@@ -80,3 +96,10 @@ class HomeAnnouncementViewModel(app: Application) : AndroidViewModel(app) {
         _state.value = _state.value.withAnnouncement(selected)
     }
 }
+
+/** Navigation only needs readiness, not every loading phase, cell list or Easy error update. */
+internal fun announcementResultsLoaded(home: Flow<HomeStatus>, easy: Flow<EasyUiState>): Flow<Boolean> =
+    combine(
+        home.map { it is HomeStatus.Ready }.distinctUntilChanged(),
+        easy.map { it.currentLocation != null || it.resolvedLocation != null }.distinctUntilChanged(),
+    ) { homeReady, easyReady -> homeReady || easyReady }.distinctUntilChanged()

@@ -100,7 +100,7 @@ class EasyViewModel(app: Application) : AndroidViewModel(app) {
         val approximate = pending.approximateLocation
         _state.value = _state.value.copy(locating = true, pendingLocationChoice = null)
         viewModelScope.launch {
-            if (!NetworkAvailability.hasUsableNetwork(getApplication())) {
+            if (!withContext(Dispatchers.IO) { NetworkAvailability.hasUsableNetwork(getApplication()) }) {
                 if (approximate != null) {
                     setCurrent(approximate, LocationSource.GPS, LocationQuality.APPROXIMATE, assistedFallbackNotice)
                 } else {

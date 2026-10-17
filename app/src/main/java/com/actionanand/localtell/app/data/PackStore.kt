@@ -6,8 +6,10 @@ import org.json.JSONObject
 import java.io.File
 
 class PackStore(private val context: Context) {
-    private val prefs = context.getSharedPreferences("offline_packs", Context.MODE_PRIVATE)
-    val directory: File = File(context.filesDir, "offline-packs").apply { mkdirs() }
+    private val prefs by lazy { context.getSharedPreferences("offline_packs", Context.MODE_PRIVATE) }
+    // ViewModels are constructed during navigation composition. Create directories only when
+    // the downloader actually needs them, on its IO dispatcher.
+    val directory: File by lazy { File(context.filesDir, "offline-packs").apply { mkdirs() } }
 
     fun all(): List<InstalledPack> {
         val raw = prefs.getString("installed", "[]") ?: "[]"
