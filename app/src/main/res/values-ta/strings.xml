@@ -227,4 +227,11 @@
     <string name="offline_coverage_title">ஆதரவு பரப்பு</string>
     <string name="offline_coverage_message">LocalTell தற்போது இந்தியாவையும் ஆதரிக்கப்படும் சில அண்டை நாடுகளையும் ஆதரிக்கிறது. மேலும் நாடுகளுக்கான ஆதரவு எதிர்காலப் புதுப்பிப்புகளில் சேர்க்கப்படும். உங்கள் நாடு இன்னும் பட்டியலில் இல்லையெனில், எதிர்காலப் புதுப்பிப்புக்குப் பிறகு மீண்டும் பார்க்கவும்.</string>
     <string name="offline_partial_refresh">சில நாடுகளின் தரவைப் புதுப்பிக்க முடியவில்லை. கிடைக்கும் நாடுகளின் தரவையும் நிறுவப்பட்ட தொகுப்புகளையும் தொடர்ந்து பயன்படுத்தலாம்.</string>
+    <string name="announcement_type_general">தகவல்</string>
+    <string name="announcement_type_feature">புதிய வசதி</string>
+    <string name="announcement_type_maintenance">பராமரிப்பு</string>
+    <string name="announcement_type_downtime">சேவைத் தடை</string>
+    <string name="announcement_type_migration">செயலி மாற்றம்</string>
+    <string name="announcement_type_critical">முக்கியம்</string>
+    <string name="announcement_open_play_store">Google Play-இல் பார்க்கவும்</string>
 </resources>

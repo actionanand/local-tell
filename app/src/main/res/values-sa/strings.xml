@@ -277,4 +277,11 @@
     <string name="offline_coverage_title">आवरणम्</string>
     <string name="offline_coverage_message">LocalTell सम्प्रति भारतं तथा समर्थितान् कतिपयान् समीपवर्तिदेशान् समर्थयति। अधिकदेशानां समर्थनं भविष्यत्-अद्यतनीकरणेषु योजयिष्यते। यदि तव देशः अद्यापि सूच्यां नास्ति, भविष्यत्-अद्यतनीकरणानन्तरं पुनः परीक्षस्व।</string>
     <string name="offline_partial_refresh">केषाञ्चित् देशानां दत्तांशः पुनर्नवीकर्तुं न शक्यते। उपलब्धदेशानां दत्तांशः संस्थापितसञ्चयाश्च उपयोक्तुं शक्यन्ते।</string>
+    <string name="announcement_type_general">सूचना</string>
+    <string name="announcement_type_feature">नूतनसुविधा</string>
+    <string name="announcement_type_maintenance">अनुरक्षणम्</string>
+    <string name="announcement_type_downtime">सेवावरोधः</string>
+    <string name="announcement_type_migration">अनुप्रयोगान्तरणम्</string>
+    <string name="announcement_type_critical">महत्त्वपूर्णम्</string>
+    <string name="announcement_open_play_store">Google Play मध्ये पश्य</string>
 </resources>

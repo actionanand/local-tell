@@ -227,4 +227,11 @@
     <string name="offline_coverage_title">Coverage</string>
     <string name="offline_coverage_message">LocalTell currently supports India and selected nearby countries. More countries are planned for future updates. If your country is not listed yet, please check again after a future update.</string>
     <string name="offline_partial_refresh">Some country data could not be refreshed. Available countries and installed packs remain usable.</string>
+    <string name="announcement_type_general">Information</string>
+    <string name="announcement_type_feature">Feature</string>
+    <string name="announcement_type_maintenance">Maintenance</string>
+    <string name="announcement_type_downtime">Service interruption</string>
+    <string name="announcement_type_migration">App migration</string>
+    <string name="announcement_type_critical">Important</string>
+    <string name="announcement_open_play_store">View on Google Play</string>
 </resources>

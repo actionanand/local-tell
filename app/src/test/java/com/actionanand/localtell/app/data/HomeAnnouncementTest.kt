@@ -2,6 +2,7 @@ package com.actionanand.localtell.app.data
 
 import com.actionanand.localtell.app.AppLanguage
 import java.time.Instant
+import kotlinx.coroutines.runBlocking
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
@@ -180,6 +181,96 @@ class HomeAnnouncementTest {
         assertTrue(refreshed.sessionSuppressed)
         assertNull(refreshed.visibleAnnouncement)
         assertSame(initial, initial.suppressForSession())
+    }
+
+    @Test fun `legacy defaults are repeatable general revision one`() {
+        val notice = parsed()
+        assertEquals(AnnouncementType.GENERAL, notice.type)
+        assertEquals(1, notice.revision)
+        assertEquals(AnnouncementRepeatPolicy.EVERY_LAUNCH, notice.repeatPolicy)
+    }
+
+    @Test fun `new fields and all types parse without changing schema`() {
+        AnnouncementType.entries.forEach { type ->
+            val notice = HomeAnnouncementParser.parse(document(validAnnouncement()
+                .put("type", type.name.lowercase()).put("revision", 4).put("repeatPolicy", "once_per_revision"))).single()
+            assertEquals(type, notice.type)
+            assertEquals(4, notice.revision)
+            assertEquals(AnnouncementRepeatPolicy.ONCE_PER_REVISION, notice.repeatPolicy)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            HomeAnnouncementParser.parse(document(validAnnouncement().put("revision", 0)))
+        }
+    }
+
+    @Test fun `every launch dismissals survive polling but not a new launch`() {
+        val notice = parsed()
+        val session = AnnouncementSession(mutableMapOf(notice.id to 99)) // Legacy permanent dismissal is ignored.
+        assertEquals(notice, session.select(listOf(notice), now, 31))
+        session.dismiss(notice)
+        repeat(3) { assertNull(session.select(HomeAnnouncementParser.parse(document()), now, 31)) }
+        assertEquals(notice, AnnouncementSession().select(listOf(notice), now, 31))
+        assertEquals(2, session.select(listOf(notice.copy(revision = 2)), now, 31)?.revision)
+    }
+
+    @Test fun `once per revision persists maximum revision and permits a newer revision`() {
+        val notice = parsed().copy(repeatPolicy = AnnouncementRepeatPolicy.ONCE_PER_REVISION, revision = 3)
+        val persisted = mutableMapOf<String, Int>()
+        AnnouncementSession(persisted).dismiss(notice)
+        val nextLaunch = AnnouncementSession(persisted)
+        assertNull(nextLaunch.select(listOf(notice), now, 31))
+        assertNull(nextLaunch.select(listOf(notice.copy(revision = 2)), now, 31))
+        assertEquals(4, nextLaunch.select(listOf(notice.copy(revision = 4)), now, 31)?.revision)
+        nextLaunch.dismiss(notice.copy(revision = 1))
+        assertEquals(3, persisted[notice.id])
+    }
+
+    @Test fun `dismissal is per identity and selects next priority`() {
+        val first = parsed().copy(priority = 10)
+        val next = parsed().copy(id = "another", priority = 1)
+        val session = AnnouncementSession()
+        session.dismiss(first)
+        assertEquals(next, session.select(listOf(first, next), now, 31))
+    }
+
+    @Test fun `Home Ready even without locality and either Easy result permanently suppress this session`() {
+        listOf(Triple(true, false, false), Triple(false, true, false), Triple(false, false, true)).forEach { (homeReady, current, resolved) ->
+            val session = AnnouncementSession()
+            session.observeResults(homeReady, current, resolved)
+            assertNull(session.select(listOf(parsed()), now, 31))
+            session.observeResults(false, false, false) // Refreshing/clearing data cannot reset the latch.
+            assertNull(session.select(listOf(parsed().copy(id = "urgent", type = AnnouncementType.CRITICAL, revision = 100, priority = 1_000_000)), now, 31))
+        }
+        assertEquals(parsed(), AnnouncementSession().select(listOf(parsed()), now, 31))
+    }
+
+    @Test fun `cache survives malformed content or failed network request and excludes expired content`() = runBlocking {
+        var stored: String? = null
+        val cache = AnnouncementDocumentCache({ stored }, { stored = it })
+        assertNull(cache.load())
+        val valid = cache.accept(document())
+        assertThrows(Exception::class.java) { runBlocking { cache.refresh { "invalid JSON" } } }
+        assertEquals(valid, cache.load())
+        assertThrows(java.io.IOException::class.java) { runBlocking { cache.refresh { throw java.io.IOException("offline") } } }
+        assertEquals(valid, cache.load())
+        assertEquals(valid, cache.refresh { null }) // HTTP 304 uses only validated cache.
+        val expired = valid.single().copy(expiresAt = now)
+        assertNull(AnnouncementSession().select(listOf(expired), now, 31))
+        assertNull(AnnouncementSession().select(listOf(valid.single().copy(enabled = false)), now, 31))
+    }
+
+    @Test fun `only exact HTTPS Play listing links enable remote migration actions`() {
+        val valid = "https://play.google.com/store/apps/details?id=com.example.newapp"
+        val notice = HomeAnnouncementParser.parse(document(validAnnouncement().put("action", "open_play_store").put("actionUrl", valid))).single()
+        assertEquals(HomeAnnouncementAction.OPEN_PLAY_STORE, notice.action)
+        assertEquals(valid, notice.actionUrl)
+        listOf("javascript:alert(1)", "market://details?id=com.example.app", "http://play.google.com/store/apps/details?id=com.example.app",
+            "https://play.google.com.evil.com/store/apps/details?id=com.example.app", "https://play.google.com/store/apps/details?id=com.example.app&url=evil",
+            "https://user@play.google.com/store/apps/details?id=com.example.app", "https://play.google.com/store/apps/details?id=invalid").forEach { url ->
+            val rejected = HomeAnnouncementParser.parse(document(validAnnouncement().put("action", "open_play_store").put("actionUrl", url))).single()
+            assertEquals(HomeAnnouncementAction.NONE, rejected.action)
+            assertNull(rejected.actionUrl)
+        }
     }
 
     private fun parsed() = HomeAnnouncementParser.parse(document()).single()

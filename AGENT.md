@@ -112,7 +112,7 @@ Current important fields include:
 
 Do not hardcode replacements for these values in Kotlin when an existing config field should be used.
 
-Home and Easy share one root-scoped static announcement state. Its URL comes from `homeAnnouncementUrl`; requests must never contain location or user data, and failures must never block location behavior. Only explicit close actions persist dismissed announcement IDs. Successful place results suppress announcements for the current process only. Keep remote actions on the app-defined whitelist; never add arbitrary URLs, intents, HTML, analytics, or tracking.
+Home and Easy share one root-scoped announcement ViewModel. Its URL comes from `homeAnnouncementUrl`; requests must never contain location or user data, and failures must never block location behavior. Any Home Ready result (even without a locality), Easy current result, or Easy resolved result suppresses notices for the retained app session. No revision, priority, or critical type can override that latch. Every-launch dismissal is session-only; once-per-revision dismissal persists the highest closed revision per ID. Foreground refresh uses a validated cache, throttling and conditional HTTP; no background polling or announcement WorkManager jobs. Keep actions on the whitelist, including strictly validated HTTPS Google Play listings; never allow arbitrary URLs, intents, HTML, analytics, or tracking. See `documentation/home-announcements.md` for the contract.
 
 ## Main application structure
 

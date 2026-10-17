@@ -64,7 +64,7 @@ Manifests use explicit release tags rather than repository-wide latest-release U
 
 Canonical country, region, first-level subdivision, district and locality names remain untranslated. Localized labels surround those values. The generic schema-v3 resolver uses the same `state`/`state_code` columns for Sri Lankan provinces, with no country-specific lookup path or installed-pack migration.
 
-Home and Easy may show one static remote announcement from the configured `homeAnnouncementUrl`. The request contains no location or user data, and failures never block location features. Explicit dismissal is stored by announcement ID; a successful Home/Easy place result suppresses the card only for the current app process. Remote actions are limited to app-defined whitelist values. See [Home and Easy announcements](documentation/home-announcements.md) for the publishing schema and cache behavior.
+Home and Easy may show one remote announcement from `homeAnnouncementUrl` before results load. Any Home Ready result or Easy current/resolved result suppresses notices for the retained session, including critical notices and later revisions. Notices support types, every-launch or once-per-revision dismissal, and remote reannouncement by increasing revision. Foreground refresh uses a validated offline cache and conditional HTTP; static GitHub/CDN delivery is best effort rather than instant push. Requests contain no location or user data. Actions are whitelisted, including strictly validated Google Play listings. See [Home and Easy announcements](documentation/home-announcements.md) for the complete JSON example, publication steps and cache behavior.
 
 ### `android-version.json`
 

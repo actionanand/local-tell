@@ -61,6 +61,11 @@ import androidx.compose.material.icons.filled.Settings as SettingsIcon
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.NewReleases
+import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CardDefaults
@@ -89,7 +94,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
@@ -110,12 +114,15 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.repeatOnLifecycle
 import com.actionanand.localtell.app.data.InstalledPack
 import com.actionanand.localtell.app.data.IndiaRegion
 import com.actionanand.localtell.app.data.CountryPacks
 import com.actionanand.localtell.app.data.CountryLayout
 import com.actionanand.localtell.app.data.HomeAnnouncement
 import com.actionanand.localtell.app.data.HomeAnnouncementAction
+import com.actionanand.localtell.app.data.AnnouncementType
+import com.actionanand.localtell.app.data.AnnouncementPlayStoreLink
 import com.actionanand.localtell.app.data.LocalizedHomeAnnouncement
 import com.actionanand.localtell.app.data.PackCatalog
 import com.actionanand.localtell.app.data.RegionPacks
@@ -231,8 +238,22 @@ private fun LocalTellApp(defaultTab: RootTab, themeMode: ThemeMode, onThemeModeC
     var tab by remember { mutableStateOf(defaultTab) }
     var moreDestination by remember { mutableStateOf(MoreDestination.MENU) }
     val announcementViewModel: HomeAnnouncementViewModel = viewModel()
+    val homeViewModel: HomeViewModel = viewModel()
+    val easyViewModel: EasyViewModel = viewModel()
+    val homeStatus by homeViewModel.status.collectAsStateWithLifecycle()
+    val easyState by easyViewModel.state.collectAsStateWithLifecycle()
+    val resultsLoaded = homeStatus is HomeStatus.Ready || easyState.currentLocation != null || easyState.resolvedLocation != null
     val announcementState by announcementViewModel.state.collectAsStateWithLifecycle()
-    val announcement = announcementState.visibleAnnouncement
+    val announcement = announcementState.visibleAnnouncement.takeUnless { resultsLoaded }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    androidx.compose.runtime.LaunchedEffect(resultsLoaded) {
+        if (resultsLoaded) announcementViewModel.suppressForSession()
+    }
+    androidx.compose.runtime.LaunchedEffect(lifecycleOwner, announcementViewModel) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            announcementViewModel.whileForeground()
+        }
+    }
     val openOfflineData = {
         tab = RootTab.MORE
         moreDestination = MoreDestination.OFFLINE_DATA
@@ -251,13 +272,13 @@ private fun LocalTellApp(defaultTab: RootTab, themeMode: ThemeMode, onThemeModeC
                     announcement = announcement,
                     onDismissAnnouncement = announcementViewModel::dismissCurrent,
                     onOpenOfflineData = openOfflineData,
-                    onSuccessfulPlace = announcementViewModel::suppressForSession,
+                    vm = homeViewModel,
                 )
                 RootTab.EASY -> EasyScreen(
                     announcement = announcement,
                     onDismissAnnouncement = announcementViewModel::dismissCurrent,
                     onOpenOfflineData = openOfflineData,
-                    onSuccessfulPlace = announcementViewModel::suppressForSession,
+                    vm = easyViewModel,
                 )
                 RootTab.MORE -> when (moreDestination) {
                     MoreDestination.MENU -> MoreScreen { moreDestination = it }
@@ -463,7 +484,6 @@ private fun EasyScreen(
     announcement: HomeAnnouncement?,
     onDismissAnnouncement: () -> Unit,
     onOpenOfflineData: () -> Unit,
-    onSuccessfulPlace: () -> Unit,
     vm: EasyViewModel = viewModel(),
 ) {
     val context = LocalContext.current
@@ -475,9 +495,6 @@ private fun EasyScreen(
     var locationRequestObservedInFlight by remember { mutableStateOf(false) }
     var locationBeforeRequest by remember { mutableStateOf<EasyLocation?>(null) }
     var showLocationTurnOffReminder by remember { mutableStateOf(false) }
-    androidx.compose.runtime.LaunchedEffect(state.currentLocation != null, state.resolvedLocation != null) {
-        if (state.currentLocation != null || state.resolvedLocation != null) onSuccessfulPlace()
-    }
     val speaker = remember { TextToSpeech(context.applicationContext) { ttsReady = it == TextToSpeech.SUCCESS } }
     DisposableEffect(speaker) { onDispose { speaker.shutdown() } }
     fun beginLocationRequest() {
@@ -550,11 +567,6 @@ private fun EasyScreen(
         item {
             Text(stringResource(R.string.easy_title), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
         }
-        announcement?.let { current ->
-            item(key = "home-announcement-${current.id}") {
-                AnnouncementCard(current, onDismissAnnouncement, onOpenOfflineData)
-            }
-        }
         item {
             Text(stringResource(R.string.easy_share_title), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             Button(enabled = !state.locating, onClick = requestLocation) { Text(if (state.locating) stringResource(R.string.easy_getting_location) else stringResource(R.string.easy_get_location)) }
@@ -573,6 +585,11 @@ private fun EasyScreen(
             OutlinedTextField(value = findInput, onValueChange = { findInput = it }, modifier = Modifier.fillMaxWidth(), singleLine = true, placeholder = { Text(stringResource(R.string.easy_find_placeholder)) }, leadingIcon = { Icon(Icons.Default.Search, stringResource(R.string.easy_search_icon)) }, trailingIcon = if (findInput.isNotEmpty()) ({ IconButton(onClick = { findInput = "" }) { Icon(Icons.Default.Close, stringResource(R.string.easy_clear_input)) } }) else null)
             Spacer(Modifier.height(8.dp))
             Button(onClick = { vm.find(findInput) }) { Text(stringResource(R.string.easy_find)) }
+        }
+        if (state.currentLocation == null && state.resolvedLocation == null) announcement?.let { current ->
+            item(key = "home-announcement-${current.id}-${current.revision}") {
+                AnnouncementCard(current, onDismissAnnouncement, onOpenOfflineData)
+            }
         }
         state.resolvedLocation?.let { location -> item { EasyLocationCard(location, showAccuracy = false, onSpeak = null, onCopy = { copyText(context, MapLinkBuilder.googleMaps(location.encoded.latitude, location.encoded.longitude).toString()) }, onShare = { shareEasyLocation(context, location) }) } }
         state.resolvedLocation?.let { location -> item { RideActions(context, location) } }
@@ -723,7 +740,6 @@ private fun HomeScreen(
     announcement: HomeAnnouncement?,
     onDismissAnnouncement: () -> Unit,
     onOpenOfflineData: () -> Unit,
-    onSuccessfulPlace: () -> Unit,
     vm: HomeViewModel = viewModel(),
 ) {
     val context = LocalContext.current
@@ -738,9 +754,6 @@ private fun HomeScreen(
     var homeStatusBeforeRequest by remember { mutableStateOf<HomeStatus?>(null) }
     var showLocationTurnOffReminder by remember { mutableStateOf(false) }
     val lifecycleOwner = LocalLifecycleOwner.current
-    androidx.compose.runtime.LaunchedEffect((status as? HomeStatus.Ready)?.locality) {
-        if ((status as? HomeStatus.Ready)?.locality != null) onSuccessfulPlace()
-    }
     fun syncLocationEnabled(): Boolean {
         val enabledNow = activity?.isLocationEnabled() == true
         locationEnabled = enabledNow
@@ -829,11 +842,6 @@ private fun HomeScreen(
         item {
             BrandHeader()
         }
-        announcement?.let { current ->
-            item(key = "home-announcement-${current.id}") {
-                AnnouncementCard(current, onDismissAnnouncement, onOpenOfflineData)
-            }
-        }
         if (!permissionGranted) item {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 InfoCard(stringResource(R.string.home_location_permission_title), stringResource(R.string.home_location_permission_message))
@@ -868,6 +876,11 @@ private fun HomeScreen(
         if (status !is HomeStatus.Ready && status !is HomeStatus.Loading && status !is HomeStatus.AwaitingLocationChoice) item {
             RefreshLocalityButton(enabled = permissionGranted, onRefresh = refreshLocality)
         }
+        if (status !is HomeStatus.Ready) announcement?.let { current ->
+            item(key = "home-announcement-${current.id}-${current.revision}") {
+                AnnouncementCard(current, onDismissAnnouncement, onOpenOfflineData)
+            }
+        }
     }
 }
 
@@ -892,7 +905,7 @@ private fun AnnouncementCard(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                PulsingNewBadge()
+                AnnouncementBadge(announcement.type)
                 Spacer(Modifier.weight(1f))
                 IconButton(onClick = onDismiss) {
                     Icon(Icons.Default.Close, contentDescription = stringResource(R.string.announcement_dismiss))
@@ -906,26 +919,25 @@ private fun AnnouncementCard(
 }
 
 @Composable
-private fun PulsingNewBadge() {
-    val transition = rememberInfiniteTransition(label = "announcement_new_badge")
-    val badgeAlpha by transition.animateFloat(
-        initialValue = 0.55f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(animation = tween(1_000), repeatMode = RepeatMode.Reverse),
-        label = "announcement_new_badge_alpha",
-    )
+private fun AnnouncementBadge(type: AnnouncementType) {
+    val (icon, label) = when (type) {
+        AnnouncementType.GENERAL -> Icons.Default.Info to R.string.announcement_type_general
+        AnnouncementType.FEATURE -> Icons.Default.NewReleases to R.string.announcement_type_feature
+        AnnouncementType.MAINTENANCE -> Icons.Default.Build to R.string.announcement_type_maintenance
+        AnnouncementType.DOWNTIME -> Icons.Default.Warning to R.string.announcement_type_downtime
+        AnnouncementType.MIGRATION -> Icons.Default.SwapHoriz to R.string.announcement_type_migration
+        AnnouncementType.CRITICAL -> Icons.Default.Warning to R.string.announcement_type_critical
+    }
+    val urgent = type == AnnouncementType.CRITICAL || type == AnnouncementType.DOWNTIME
     Surface(
-        modifier = Modifier.alpha(badgeAlpha),
         shape = RoundedCornerShape(50),
-        color = MaterialTheme.colorScheme.tertiaryContainer,
-        contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+        color = if (urgent) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.secondaryContainer,
+        contentColor = if (urgent) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onSecondaryContainer,
     ) {
-        Text(
-            text = stringResource(R.string.announcement_new_badge),
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = FontWeight.Bold,
-        )
+        Row(Modifier.padding(horizontal = 10.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Icon(icon, null, modifier = Modifier.size(16.dp))
+            Text(stringResource(label), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+        }
     }
 }
 
@@ -934,10 +946,30 @@ private fun AnnouncementAction(
     announcement: LocalizedHomeAnnouncement,
     onOpenOfflineData: () -> Unit,
 ) {
+    val context = LocalContext.current
     when (announcement.action) {
         HomeAnnouncementAction.NONE -> Unit
         HomeAnnouncementAction.OFFLINE_DATA -> Button(onClick = onOpenOfflineData) {
             Text(stringResource(R.string.announcement_view_offline_data))
+        }
+        HomeAnnouncementAction.OPEN_PLAY_STORE -> announcement.actionUrl?.let { url ->
+            Button(onClick = { openAnnouncementPlayStore(context, url) }) {
+                Text(stringResource(R.string.announcement_open_play_store))
+            }
+        }
+    }
+}
+
+private fun openAnnouncementPlayStore(context: Context, value: String) {
+    val url = AnnouncementPlayStoreLink.validate(value) ?: return
+    val uri = android.net.Uri.parse(url)
+    try {
+        context.startActivity(Intent(Intent.ACTION_VIEW, uri).setPackage("com.android.vending"))
+    } catch (_: android.content.ActivityNotFoundException) {
+        try {
+            context.startActivity(Intent(Intent.ACTION_VIEW, uri))
+        } catch (_: android.content.ActivityNotFoundException) {
+            // No compatible store or browser; leave primary features usable.
         }
     }
 }

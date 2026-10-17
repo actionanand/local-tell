@@ -16,23 +16,48 @@ class HomeAnnouncementRepository(
     private val remoteLoader: HomeAnnouncementRemoteLoader = HomeAnnouncementRemoteLoader(BuildConfig.HOME_ANNOUNCEMENT_URL),
 ) {
     private val preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
+    private val cache = AnnouncementDocumentCache(
+        read = { preferences.getString(CACHED_JSON_KEY, null) },
+        write = { preferences.edit().putString(CACHED_JSON_KEY, it).apply() },
+    )
 
-    fun loadCached(): List<HomeAnnouncement>? = preferences.getString(CACHED_JSON_KEY, null)?.let { json ->
-        runCatching { HomeAnnouncementParser.parse(json) }.getOrNull()
+    fun loadCached(): List<HomeAnnouncement>? = cache.load()
+
+    suspend fun refresh(): List<HomeAnnouncement> = withContext(Dispatchers.IO) {
+        var response: HomeAnnouncementRemoteLoader.Response? = null
+        val announcements = cache.refresh {
+            remoteLoader.load(preferences.getString("etag", null), preferences.getString("last_modified", null))
+                .also { response = it }.json
+        }
+        response?.takeIf { it.json != null }?.let {
+            preferences.edit().putString("etag", it.etag).putString("last_modified", it.lastModified).apply()
+        }
+        announcements
     }
 
-    suspend fun refresh(): List<HomeAnnouncement> {
-        val json = remoteLoader.load()
-        val announcements = HomeAnnouncementParser.parse(json)
-        preferences.edit().putString(CACHED_JSON_KEY, json).apply()
-        return announcements
+    fun dismissedRevisions(): MutableMap<String, Int> {
+        // Old permanent ID dismissals migrate to revision 1 only for once-per-revision notices.
+        // Every-launch selection deliberately ignores this persistent map.
+        val revisions = preferences.all.mapNotNull { (key, value) ->
+            if (key.startsWith("revision:") && value is Int) key.removePrefix("revision:") to value else null
+        }.toMap().toMutableMap()
+        val legacy = preferences.getStringSet(DISMISSED_IDS_KEY, emptySet()).orEmpty()
+        if (legacy.isNotEmpty()) {
+            preferences.edit().apply {
+                legacy.forEach { id ->
+                    revisions[id] = maxOf(revisions[id] ?: 0, 1)
+                    putInt("revision:$id", revisions.getValue(id))
+                }
+                remove(DISMISSED_IDS_KEY)
+            }.apply()
+        }
+        return revisions
     }
 
-    fun dismissedIds(): Set<String> =
-        preferences.getStringSet(DISMISSED_IDS_KEY, emptySet()).orEmpty().toSet()
-
-    fun dismiss(id: String) {
-        preferences.edit().putStringSet(DISMISSED_IDS_KEY, dismissedIds() + id).apply()
+    fun dismiss(announcement: HomeAnnouncement) {
+        if (announcement.repeatPolicy != AnnouncementRepeatPolicy.ONCE_PER_REVISION) return
+        val key = "revision:${announcement.id}"
+        preferences.edit().putInt(key, maxOf(preferences.getInt(key, 0), announcement.revision)).apply()
     }
 
     private companion object {
@@ -43,7 +68,9 @@ class HomeAnnouncementRepository(
 }
 
 class HomeAnnouncementRemoteLoader(private val url: String) {
-    suspend fun load(): String = withContext(Dispatchers.IO) {
+    data class Response(val json: String?, val etag: String? = null, val lastModified: String? = null)
+
+    suspend fun load(etag: String? = null, lastModified: String? = null): Response = withContext(Dispatchers.IO) {
         require(URI(url).scheme.equals("https", ignoreCase = true)) { "Announcement URL must use HTTPS" }
         val connection = URL(url).openConnection() as? HttpsURLConnection
             ?: throw IllegalArgumentException("Announcement URL must use HTTPS")
@@ -52,8 +79,13 @@ class HomeAnnouncementRemoteLoader(private val url: String) {
             connection.connectTimeout = CONNECT_TIMEOUT_MILLIS
             connection.readTimeout = READ_TIMEOUT_MILLIS
             connection.instanceFollowRedirects = false
+            connection.useCaches = false
             connection.setRequestProperty("Accept", "application/json")
+            connection.setRequestProperty("Cache-Control", "no-cache")
+            etag?.let { connection.setRequestProperty("If-None-Match", it) }
+            lastModified?.let { connection.setRequestProperty("If-Modified-Since", it) }
             val responseCode = connection.responseCode
+            if (responseCode == 304) return@withContext Response(null)
             require(responseCode in 200..299) { "Announcement request failed with HTTP $responseCode" }
             connection.inputStream.use { input ->
                 val output = ByteArrayOutputStream()
@@ -65,7 +97,7 @@ class HomeAnnouncementRemoteLoader(private val url: String) {
                     require(output.size() + read <= MAX_RESPONSE_BYTES) { "Announcement response is too large" }
                     output.write(buffer, 0, read)
                 }
-                output.toString(Charsets.UTF_8.name())
+                Response(output.toString(Charsets.UTF_8.name()), connection.getHeaderField("ETag"), connection.getHeaderField("Last-Modified"))
             }
         } finally {
             connection.disconnect()
