@@ -21,16 +21,25 @@ internal suspend fun <T : Any> awaitRegisteredLocation(
     val result = CompletableDeferred<T>()
     val accepting = AtomicBoolean(true)
     var registrationAttempted = false
+    var registrationFailure: Throwable? = null
     var failure: Throwable? = null
     try {
         withTimeoutOrNull(timeoutMillis) {
             registrationAttempted = true
-            register { value -> if (accepting.get()) result.complete(value) }
+            try {
+                register { value -> if (accepting.get()) result.complete(value) }
+            } catch (error: Throwable) {
+                // Capture before withTimeoutOrNull can recover/copy the exception. Suppressed
+                // cleanup failures must belong to the original, not a disposable recovery copy.
+                registrationFailure = error
+                throw error
+            }
             result.await()
         }
     } catch (error: Throwable) {
-        failure = error
-        throw error
+        val primary = registrationFailure ?: error
+        failure = primary
+        throw primary
     } finally {
         accepting.set(false)
         result.cancel()

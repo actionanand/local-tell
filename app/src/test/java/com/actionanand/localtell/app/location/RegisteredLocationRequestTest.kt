@@ -118,12 +118,33 @@ class RegisteredLocationRequestTest {
     @Test fun `cleanup error is surfaced and does not replace registration error`() = runBlocking {
         val registrationError = IllegalStateException("registration")
         val removalError = IllegalArgumentException("removal")
+        val removals = AtomicInteger()
         try {
-            awaitRegisteredLocation<String>(1_000L, register = { throw registrationError }, unregister = { throw removalError })
+            awaitRegisteredLocation<String>(1_000L, register = { throw registrationError }, unregister = {
+                removals.incrementAndGet()
+                throw removalError
+            })
             fail("Expected error")
         } catch (error: IllegalStateException) {
-            assertSame(registrationError, error)
-            assertEquals(listOf(removalError), error.suppressed.toList())
+            // Coroutine stack-trace recovery may copy an exception and put its original in
+            // cause. Throwable identity and the outer copy's suppressed array are not stable.
+            assertEquals(registrationError.javaClass, error.javaClass)
+            assertEquals(registrationError.message, error.message)
+            val primaryChain = generateSequence<Throwable>(error) { it.cause }
+                .takeWhile { it.javaClass == registrationError.javaClass && it.message == registrationError.message }
+                .toList()
+            val cleanupErrors = primaryChain.flatMap { it.suppressed.toList() }
+            assertTrue("Cleanup failure must remain suppressed on the observable primary chain", cleanupErrors.isNotEmpty())
+            cleanupErrors.forEach { cleanup ->
+                assertEquals(removalError.javaClass, cleanup.javaClass)
+                assertEquals(removalError.message, cleanup.message)
+            }
+            assertEquals("Cleanup must be attempted exactly once", 1, removals.get())
+            // Also guards against attaching suppression only to an intermediate recovery copy
+            // that the next coroutine boundary can discard.
+            assertEquals(1, registrationError.suppressed.size)
+            assertEquals(removalError.javaClass, registrationError.suppressed.single().javaClass)
+            assertEquals(removalError.message, registrationError.suppressed.single().message)
         }
     }
 }
