@@ -6,7 +6,15 @@ import com.actionanand.localtell.app.easy.EasyUiState
 import com.actionanand.localtell.app.data.AnnouncementSession
 import com.actionanand.localtell.app.locationcode.EncodedLocation
 import com.actionanand.localtell.app.locationcode.LocationInputResult
+import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
@@ -14,6 +22,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AnnouncementReadinessTest {
@@ -97,5 +106,71 @@ class AnnouncementReadinessTest {
                 assertEquals(true, observed.receive())
             }
         } finally { collector.cancel() }
+    }
+
+    @Test fun `already loaded Home seeds readiness before any UI collection`() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val suppressed = CompletableDeferred<Unit>()
+        try {
+            val home = MutableStateFlow<HomeStatus>(HomeStatus.Ready(emptyList(), null, LocalityState.NO_LOCALITY_MATCH))
+            val readiness = announcementReadinessState(home, MutableStateFlow(EasyUiState()), scope) {
+                suppressed.complete(Unit)
+            }
+            assertTrue(readiness.value)
+            withTimeout(5_000L) { suppressed.await() }
+        } finally { scope.cancel() }
+    }
+
+    @Test fun `already loaded Easy current and lookup results seed readiness immediately`() = runBlocking {
+        listOf(EasyUiState(currentLocation = location), EasyUiState(resolvedLocation = location)).forEach { loaded ->
+            val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+            val suppressed = CompletableDeferred<Unit>()
+            try {
+                val readiness = announcementReadinessState(MutableStateFlow(HomeStatus.Idle), MutableStateFlow(loaded), scope) {
+                    suppressed.complete(Unit)
+                }
+                assertTrue(readiness.value)
+                withTimeout(5_000L) { suppressed.await() }
+            } finally { scope.cancel() }
+        }
+    }
+
+    @Test fun `readiness latches without UI subscribers and survives refresh and resubscription`() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val suppressed = CompletableDeferred<Unit>()
+        val suppressions = AtomicInteger()
+        val session = AnnouncementSession()
+        val home = MutableStateFlow<HomeStatus>(HomeStatus.Idle)
+        try {
+            val readiness = announcementReadinessState(home, MutableStateFlow(EasyUiState()), scope) {
+                session.observeResults(true, false, false)
+                suppressions.incrementAndGet()
+                suppressed.complete(Unit)
+            }
+            assertFalse(readiness.value)
+            home.value = HomeStatus.Ready(emptyList(), null, LocalityState.NO_LOCALITY_MATCH)
+            withTimeout(5_000L) {
+                suppressed.await() // Suppress even if the Activity currently has no UI collector.
+                assertTrue(readiness.first { it })
+                home.value = HomeStatus.Loading(LocalityState.ACQUIRING_GNSS)
+                assertTrue(readiness.first()) // New UI collector/configuration uses the retained value.
+                home.value = HomeStatus.Idle
+                assertTrue(readiness.first())
+            }
+            assertTrue(session.resultsLoaded)
+            assertEquals(1, suppressions.get())
+        } finally { scope.cancel() }
+    }
+
+    @Test fun `new app session with no results starts unsuppressed`() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val session = AnnouncementSession()
+        try {
+            val readiness = announcementReadinessState(MutableStateFlow(HomeStatus.Idle), MutableStateFlow(EasyUiState()), scope) {
+                session.observeResults(true, false, false)
+            }
+            assertFalse(readiness.value)
+            assertFalse(session.resultsLoaded)
+        } finally { scope.cancel() }
     }
 }

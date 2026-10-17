@@ -242,19 +242,11 @@ private fun LocalTellApp(defaultTab: RootTab, themeMode: ThemeMode, onThemeModeC
     val announcementViewModel: HomeAnnouncementViewModel = viewModel()
     val homeViewModel: HomeViewModel = viewModel()
     val easyViewModel: EasyViewModel = viewModel()
-    val readiness = remember(homeViewModel, easyViewModel) {
-        announcementResultsLoaded(homeViewModel.status, easyViewModel.state)
-    }
-    val resultsLoaded by readiness.collectAsStateWithLifecycle(
-        initialValue = homeViewModel.status.value is HomeStatus.Ready ||
-            easyViewModel.state.value.currentLocation != null || easyViewModel.state.value.resolvedLocation != null,
-    )
+    val readiness = announcementViewModel.resultReadiness(homeViewModel.status, easyViewModel.state)
+    val resultsLoaded by readiness.collectAsStateWithLifecycle()
     val announcementState by announcementViewModel.state.collectAsStateWithLifecycle()
     val announcement = announcementState.visibleAnnouncement.takeUnless { resultsLoaded }
     val lifecycleOwner = LocalLifecycleOwner.current
-    androidx.compose.runtime.LaunchedEffect(resultsLoaded) {
-        if (resultsLoaded) announcementViewModel.suppressForSession()
-    }
     androidx.compose.runtime.LaunchedEffect(lifecycleOwner, announcementViewModel) {
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
             announcementViewModel.whileForeground()

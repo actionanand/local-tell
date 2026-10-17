@@ -99,3 +99,19 @@ jobs:
             app/build/reports/tests/testDebugUnitTest/**
           if-no-files-found: warn
           retention-days: 14
+
+      - name: Upload Android lint reports on failure
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: localtell-lint-reports-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            app/build/reports/lint-results*.html
+            app/build/reports/lint-results*.xml
+            app/build/reports/lint-results*.sarif
+            app/build/reports/lint-results*.txt
+            app/build/reports/lint-results*-files/**
+            app/build/reports/lint-results*_files/**
+            app/build/intermediates/lint_intermediate_text_report/**/*.txt
+          if-no-files-found: warn
+          retention-days: 14

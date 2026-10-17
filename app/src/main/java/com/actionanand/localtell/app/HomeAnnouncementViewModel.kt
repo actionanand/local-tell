@@ -10,15 +10,21 @@ import com.actionanand.localtell.app.data.HomeAnnouncementRepository
 import com.actionanand.localtell.app.data.HomeAnnouncementUiState
 import java.time.Instant
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.onStart
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -29,6 +35,12 @@ class HomeAnnouncementViewModel(app: Application) : AndroidViewModel(app) {
     private var announcements: List<HomeAnnouncement> = emptyList()
     private var session: AnnouncementSession? = null
     private var lastRefreshNanos: Long? = null
+    private var readiness: StateFlow<Boolean>? = null
+
+    /** Bind once to this Activity's retained Home/Easy ViewModels; no work is started on rebinding. */
+    fun resultReadiness(home: StateFlow<HomeStatus>, easy: StateFlow<EasyUiState>): StateFlow<Boolean> =
+        readiness ?: announcementReadinessState(home, easy, viewModelScope, ::suppressForSession)
+            .also { readiness = it }
 
     /** Called inside repeatOnLifecycle: no network polling survives STOPPED. */
     suspend fun whileForeground() {
@@ -103,3 +115,23 @@ internal fun announcementResultsLoaded(home: Flow<HomeStatus>, easy: Flow<EasyUi
         home.map { it is HomeStatus.Ready }.distinctUntilChanged(),
         easy.map { it.currentLocation != null || it.resolvedLocation != null }.distinctUntilChanged(),
     ) { homeReady, easyReady -> homeReady || easyReady }.distinctUntilChanged()
+
+/** Model-side snapshot seeds Compose's StateFlow overload without a false first frame.
+ * Eager collection keeps the session latch current while UI collection is stopped. Only true
+ * passes through after initialization, so refreshes cannot reset it or cause recompositions.
+ */
+internal fun announcementReadinessState(
+    home: StateFlow<HomeStatus>,
+    easy: StateFlow<EasyUiState>,
+    scope: CoroutineScope,
+    onResultsLoaded: () -> Unit,
+): StateFlow<Boolean> {
+    val initial = home.value is HomeStatus.Ready ||
+        easy.value.currentLocation != null || easy.value.resolvedLocation != null
+    return announcementResultsLoaded(home, easy)
+        .onStart { emit(initial) }
+        .filter { it }
+        .distinctUntilChanged()
+        .onEach { onResultsLoaded() }
+        .stateIn(scope, SharingStarted.Eagerly, initial)
+}
