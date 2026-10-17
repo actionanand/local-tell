@@ -19,6 +19,8 @@ import com.actionanand.localtell.app.locationcode.LocationInputParser
 import com.actionanand.localtell.app.locationcode.LocationInputResult
 import com.actionanand.localtell.app.locationcode.LocalTellLocationCode
 import com.actionanand.localtell.app.model.LocalityMatch
+import com.actionanand.localtell.app.saved.SavedPlace
+import com.actionanand.localtell.app.saved.toEasyLocation
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -34,6 +36,9 @@ data class EasyLocation(
     val locationSource: LocationSource? = null,
     val locationQuality: LocationQuality? = null,
     val locationNotice: String? = null,
+    val originalLatitude: Double = encoded.latitude,
+    val originalLongitude: Double = encoded.longitude,
+    val savedPlace: SavedPlace? = null,
 )
 
 data class PendingLocationChoice(val approximateLocation: Location?)
@@ -44,6 +49,7 @@ data class EasyUiState(
     val resolvedLocation: EasyLocation? = null,
     val error: EasyError? = null,
     val pendingLocationChoice: PendingLocationChoice? = null,
+    val savedOpenSequence: Long = 0,
 )
 
 enum class EasyError {
@@ -62,6 +68,7 @@ class EasyViewModel(app: Application) : AndroidViewModel(app) {
     private val resolver = OfflineLocalityResolver(PackStore(app))
     private val _state = MutableStateFlow(EasyUiState())
     val state: StateFlow<EasyUiState> = _state.asStateFlow()
+    private var lookupRevision = 0L
 
     fun getMyLocation() {
         if (_state.value.locating) return
@@ -122,25 +129,43 @@ class EasyViewModel(app: Application) : AndroidViewModel(app) {
 
     fun find(input: String) {
         if (_state.value.locating) return
+        val revision = ++lookupRevision
         viewModelScope.launch {
             _state.value = _state.value.copy(error = null)
             when (val parsed = LocationInputParser.parse(input)) {
-                is LocationInputResult.Coordinate -> setResolved(parsed.latitude, parsed.longitude, parsed.source)
+                is LocationInputResult.Coordinate -> setResolved(parsed.latitude, parsed.longitude, parsed.source, revision)
                 is LocationInputResult.Error -> _state.value = _state.value.copy(error = EasyError.INVALID_INPUT)
             }
+        }
+    }
+
+    fun openSaved(place: SavedPlace) {
+        lookupRevision++ // An older, still-running offline lookup must not overwrite this selection.
+        // Merely presents an existing coordinate. Do not start acquisition or require a pack.
+        _state.value = _state.value.copy(
+            resolvedLocation = place.toEasyLocation(), error = null,
+            savedOpenSequence = _state.value.savedOpenSequence + 1,
+        )
+    }
+
+    fun savedLocationShown(sequence: Long) {
+        if (_state.value.savedOpenSequence == sequence) {
+            _state.value = _state.value.copy(savedOpenSequence = 0)
         }
     }
 
     private suspend fun setCurrent(location: Location, locationSource: LocationSource, locationQuality: LocationQuality, notice: String? = null) {
         val encoded = runCatching { LocalTellLocationCode.encode(location.latitude, location.longitude) }.getOrElse { return fail(EasyError.LOCATION_UNAVAILABLE) }
         val locality = withContext(Dispatchers.IO) { runCatching { resolver.resolve(encoded.latitude, encoded.longitude) }.getOrNull() }
-        _state.value = _state.value.copy(locating = false, currentLocation = EasyLocation(encoded, location.accuracy, locality, LocationInputResult.Source.COORDINATE, locationSource, locationQuality, notice), pendingLocationChoice = null)
+        _state.value = _state.value.copy(locating = false, currentLocation = EasyLocation(encoded, location.accuracy, locality, LocationInputResult.Source.COORDINATE, locationSource, locationQuality, notice, location.latitude, location.longitude), pendingLocationChoice = null)
     }
 
-    private suspend fun setResolved(latitude: Double, longitude: Double, source: LocationInputResult.Source) {
+    private suspend fun setResolved(latitude: Double, longitude: Double, source: LocationInputResult.Source, revision: Long) {
         val encoded = runCatching { LocalTellLocationCode.encode(latitude, longitude) }.getOrElse { return fail(EasyError.INVALID_INPUT) }
         val locality = withContext(Dispatchers.IO) { runCatching { resolver.resolve(encoded.latitude, encoded.longitude) }.getOrNull() }
-        _state.value = _state.value.copy(resolvedLocation = EasyLocation(encoded, null, locality, source))
+        if (revision == lookupRevision) _state.value = _state.value.copy(resolvedLocation = EasyLocation(
+            encoded, null, locality, source, originalLatitude = latitude, originalLongitude = longitude,
+        ))
     }
 
     private fun fail(error: EasyError) {

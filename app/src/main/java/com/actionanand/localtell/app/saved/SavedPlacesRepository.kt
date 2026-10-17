@@ -1,0 +1,122 @@
+package com.actionanand.localtell.app.saved
+
+import android.content.ContentValues
+import android.content.Context
+import android.database.sqlite.SQLiteDatabase
+import android.database.sqlite.SQLiteOpenHelper
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+
+/** All database operations are serialized and executed away from the UI thread. */
+class SavedPlacesRepository(context: Context) {
+    private val appContext = context.applicationContext
+    private val db by lazy { SavedPlacesDb(appContext) }
+    private val mutex = Mutex()
+    private val mutablePlaces = MutableStateFlow<List<SavedPlace>>(emptyList())
+    val places: StateFlow<List<SavedPlace>> = mutablePlaces.asStateFlow()
+
+    suspend fun refresh() = withContext(Dispatchers.IO) { mutex.withLock { publish() } }
+
+    suspend fun close() = withContext(Dispatchers.IO) { mutex.withLock { db.close() } }
+
+    suspend fun save(place: SavedPlace): SaveResult = withContext(Dispatchers.IO) {
+        require(SavedPlaceIdentity.valid(place))
+        mutex.withLock {
+            val database = db.writableDatabase
+            database.beginTransaction()
+            try {
+                val existing = readAll(database)
+                val result = classifySavedPlace(existing, place)
+                if (result == SaveResult.Saved) insert(database, place)
+                database.setTransactionSuccessful()
+                result
+            } finally {
+                database.endTransaction()
+                publish()
+            }
+        }
+    }
+
+    suspend fun delete(ids: Set<String>) = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            val database = db.writableDatabase
+            database.beginTransaction()
+            try {
+                ids.forEach { database.delete("saved_place", "id=?", arrayOf(it)) }
+                database.setTransactionSuccessful()
+            } finally {
+                database.endTransaction()
+                publish()
+            }
+        }
+    }
+
+    suspend fun preview(places: List<SavedPlace>): RestorePreview = withContext(Dispatchers.IO) {
+        mutex.withLock { planSavedPlacesMerge(readAll(db.readableDatabase), places) }
+    }
+
+    /** Rechecks capacity and duplicates inside the same transaction that performs the merge. */
+    suspend fun merge(places: List<SavedPlace>): RestorePreview = withContext(Dispatchers.IO) {
+        require(places.size <= MAX_SAVED_PLACES && places.all(SavedPlaceIdentity::valid))
+        require(places.map { it.id }.distinct().size == places.size && !SavedPlaceIdentity.hasDuplicates(places))
+        mutex.withLock {
+            val database = db.writableDatabase
+            database.beginTransaction()
+            try {
+                val current = readAll(database)
+                val preview = planSavedPlacesMerge(current, places)
+                require(preview.fits) { "Saved places capacity exceeded" }
+                places.filter { candidate -> current.none { SavedPlaceIdentity.matches(it, candidate) } }.forEach { insert(database, it) }
+                database.setTransactionSuccessful()
+                preview
+            } finally {
+                database.endTransaction()
+                publish()
+            }
+        }
+    }
+
+    private fun publish() { mutablePlaces.value = readAll(db.readableDatabase) }
+
+    private fun insert(database: SQLiteDatabase, place: SavedPlace) {
+        database.insertOrThrow("saved_place", null, ContentValues().apply {
+            put("id", place.id); put("identity", place.identity); put("name", place.displayName)
+            put("locality", place.localityName); put("sub_district", place.subDistrict); put("district", place.district)
+            put("state", place.state); put("country_code", place.countryCode); put("latitude", place.latitude)
+            put("longitude", place.longitude); put("saved_at", place.savedAt); put("source", place.source.name)
+            put("accuracy", place.accuracyMetres)
+        })
+    }
+
+    private fun readAll(database: SQLiteDatabase): List<SavedPlace> = database.rawQuery(
+        "SELECT id,name,locality,sub_district,district,state,country_code,latitude,longitude,saved_at,source,accuracy FROM saved_place ORDER BY saved_at DESC,id DESC", null,
+    ).use { cursor ->
+        buildList {
+            while (cursor.moveToNext()) add(SavedPlace(
+                id = cursor.getString(0), displayName = cursor.getString(1), localityName = cursor.getString(2),
+                subDistrict = cursor.getString(3), district = cursor.getString(4), state = cursor.getString(5),
+                countryCode = cursor.getString(6), latitude = cursor.getDouble(7), longitude = cursor.getDouble(8),
+                savedAt = cursor.getLong(9), source = SavedPlaceSource.valueOf(cursor.getString(10)),
+                accuracyMetres = if (cursor.isNull(11)) null else cursor.getFloat(11),
+            ))
+        }
+    }
+}
+
+private class SavedPlacesDb(context: Context) : SQLiteOpenHelper(context, "saved_places.db", null, 1) {
+    override fun onCreate(db: SQLiteDatabase) {
+        db.execSQL("""CREATE TABLE saved_place (
+            id TEXT PRIMARY KEY NOT NULL, identity TEXT UNIQUE NOT NULL, name TEXT NOT NULL,
+            locality TEXT, sub_district TEXT, district TEXT, state TEXT, country_code TEXT,
+            latitude REAL NOT NULL, longitude REAL NOT NULL, saved_at INTEGER NOT NULL,
+            source TEXT NOT NULL, accuracy REAL
+        )""".trimIndent())
+    }
+
+    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+}

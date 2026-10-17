@@ -15,6 +15,8 @@ data class CachedLocality(
     val fingerprint: CellularFingerprint,
     val locationSource: LocationSource = LocationSource.GPS,
     val locationQuality: LocationQuality = LocationQuality.PRECISE,
+    val latitude: Double? = null,
+    val longitude: Double? = null,
 )
 
 /** Central policy for the small, local battery-saving cache; it is not a cell-location database. */
@@ -51,6 +53,8 @@ class LocalityCache(context: Context) {
             match, json.getLong("resolvedAt"), accuracy,
             CellularFingerprint(json.optInt("subscription", Int.MIN_VALUE).takeUnless { it == Int.MIN_VALUE }, json.getString("mcc"), json.getString("mnc"), json.getString("radio"), json.optLong("area", Long.MIN_VALUE).takeUnless { it == Long.MIN_VALUE }, json.getLong("cell")),
             source, quality,
+            json.optDouble("latitude").takeIf { it.isFinite() && it in -90.0..90.0 },
+            json.optDouble("longitude").takeIf { it.isFinite() && it in -180.0..180.0 },
         )
     }.getOrNull()
 
@@ -60,6 +64,8 @@ class LocalityCache(context: Context) {
         fingerprint: CellularFingerprint,
         locationSource: LocationSource,
         locationQuality: LocationQuality,
+        latitude: Double? = null,
+        longitude: Double? = null,
     ) {
         val json = JSONObject().apply {
             put("name", match.localityName); put("type", match.localityType); put("subDistrict", match.subDistrict)
@@ -69,6 +75,7 @@ class LocalityCache(context: Context) {
             put("subscription", fingerprint.subscriptionId ?: Int.MIN_VALUE); put("mcc", fingerprint.mcc); put("mnc", fingerprint.mnc)
             put("radio", fingerprint.radio); put("area", fingerprint.areaCode ?: Long.MIN_VALUE); put("cell", fingerprint.cellId)
             put("source", locationSource.name); put("qualityClass", locationQuality.name)
+            put("latitude", latitude); put("longitude", longitude)
         }
         preferences.edit().putString("recent", json.toString()).apply()
     }

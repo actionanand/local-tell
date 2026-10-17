@@ -65,6 +65,8 @@ import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.NewReleases
 import androidx.compose.material.icons.filled.SwapHoriz
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CardDefaults
@@ -147,14 +149,24 @@ import com.actionanand.localtell.app.ui.theme.LocalTellTheme
 import com.actionanand.localtell.app.ui.theme.ThemeMode
 import com.actionanand.localtell.app.ui.SignalQuality
 import com.actionanand.localtell.app.ui.signalVisual
+import com.actionanand.localtell.app.saved.BookmarkButton
+import com.actionanand.localtell.app.saved.SavedPlaceSource
+import com.actionanand.localtell.app.saved.SavedPlacesFeedback
+import com.actionanand.localtell.app.saved.SavedPlacesScreen
+import com.actionanand.localtell.app.saved.bookmark
+import com.actionanand.localtell.app.saved.savedPlaceFor
+import com.actionanand.localtell.app.saved.SavedPlacesViewModel
+import com.actionanand.localtell.app.saved.backupUriFromIntent
 import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.first
 
 class MainActivity : ComponentActivity() {
     private lateinit var locationEnablement: LocationEnablement
+    private var incomingBackup by mutableStateOf<android.net.Uri?>(null)
     var locationWasEnabledByLocalTell by mutableStateOf(false)
         private set
 
@@ -166,17 +178,30 @@ class MainActivity : ComponentActivity() {
         installSplashScreen()
         super.onCreate(savedInstanceState)
         locationEnablement = LocationEnablement(this)
+        incomingBackup = if (savedInstanceState == null) backupUriFromIntent(intent)
+            else savedInstanceState.getString("pending_backup_uri")?.let(android.net.Uri::parse)
         setContent {
             val preferences = remember { getSharedPreferences("localtell_preferences", Context.MODE_PRIVATE) }
             var themeMode by remember { mutableStateOf(ThemeMode.fromPreference(preferences.getString("theme_mode", null))) }
             LocalTellTheme(themeMode) {
                 val defaultTab = if (preferences.getString("default_root_tab", "EASY") == "EASY") RootTab.EASY else RootTab.HOME
-                LocalTellApp(defaultTab, themeMode) { mode ->
+                LocalTellApp(defaultTab, themeMode, incomingBackup, { incomingBackup = null }) { mode ->
                     themeMode = mode
                     preferences.edit().putString("theme_mode", mode.name).apply()
                 }
             }
         }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        incomingBackup?.let { outState.putString("pending_backup_uri", it.toString()) }
+        super.onSaveInstanceState(outState)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        incomingBackup = backupUriFromIntent(intent)
     }
 
     override fun onResume() {
@@ -233,15 +258,24 @@ class MainActivity : ComponentActivity() {
 }
 
 private enum class RootTab { HOME, EASY, MORE }
-private enum class MoreDestination { MENU, SETTINGS, OFFLINE_DATA, JOURNEY, TOWER_SURVEY, LOCATION_GUIDE }
+private enum class MoreDestination { MENU, SETTINGS, OFFLINE_DATA, JOURNEY, TOWER_SURVEY, LOCATION_GUIDE, SAVED_PLACES }
 
 @Composable
-private fun LocalTellApp(defaultTab: RootTab, themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit) {
-    var tab by remember { mutableStateOf(defaultTab) }
-    var moreDestination by remember { mutableStateOf(MoreDestination.MENU) }
+private fun LocalTellApp(defaultTab: RootTab, themeMode: ThemeMode, incomingBackup: android.net.Uri?, onBackupConsumed: () -> Unit, onThemeModeChange: (ThemeMode) -> Unit) {
+    var tab by rememberSaveable { mutableStateOf(defaultTab) }
+    var moreDestination by rememberSaveable { mutableStateOf(MoreDestination.MENU) }
     val announcementViewModel: HomeAnnouncementViewModel = viewModel()
     val homeViewModel: HomeViewModel = viewModel()
     val easyViewModel: EasyViewModel = viewModel()
+    val savedPlacesViewModel: SavedPlacesViewModel = viewModel()
+    androidx.compose.runtime.LaunchedEffect(incomingBackup) {
+        if (incomingBackup != null) {
+            tab = RootTab.MORE
+            moreDestination = MoreDestination.SAVED_PLACES
+            savedPlacesViewModel.inspectBackup(incomingBackup)
+            onBackupConsumed()
+        }
+    }
     val readiness = announcementViewModel.resultReadiness(homeViewModel.status, easyViewModel.state)
     val resultsLoaded by readiness.collectAsStateWithLifecycle()
     val announcementState by announcementViewModel.state.collectAsStateWithLifecycle()
@@ -256,16 +290,19 @@ private fun LocalTellApp(defaultTab: RootTab, themeMode: ThemeMode, onThemeModeC
         tab = RootTab.MORE
         moreDestination = MoreDestination.OFFLINE_DATA
     }
-    BackHandler(enabled = tab == RootTab.MORE && moreDestination != MoreDestination.MENU) { moreDestination = MoreDestination.MENU }
+    // A cold-start file open must not briefly compose Home and start a location refresh.
+    val visibleTab = if (incomingBackup != null) RootTab.MORE else tab
+    val visibleMoreDestination = if (incomingBackup != null) MoreDestination.SAVED_PLACES else moreDestination
+    BackHandler(enabled = visibleTab == RootTab.MORE && visibleMoreDestination != MoreDestination.MENU) { moreDestination = MoreDestination.MENU }
     Scaffold(bottomBar = {
         NavigationBar {
-            NavigationBarItem(tab == RootTab.HOME, { tab = RootTab.HOME }, { Icon(Icons.Default.Home, null) }, label = { Text(stringResource(R.string.nav_home)) })
-            NavigationBarItem(tab == RootTab.EASY, { tab = RootTab.EASY }, { Icon(Icons.Default.LocationOn, null) }, label = { Text(stringResource(R.string.nav_easy)) })
-            NavigationBarItem(tab == RootTab.MORE, { tab = RootTab.MORE; moreDestination = MoreDestination.MENU }, { Icon(Icons.Default.MoreHoriz, null) }, label = { Text(stringResource(R.string.nav_more)) })
+            NavigationBarItem(visibleTab == RootTab.HOME, { tab = RootTab.HOME }, { Icon(Icons.Default.Home, null) }, label = { Text(stringResource(R.string.nav_home)) })
+            NavigationBarItem(visibleTab == RootTab.EASY, { tab = RootTab.EASY }, { Icon(Icons.Default.LocationOn, null) }, label = { Text(stringResource(R.string.nav_easy)) })
+            NavigationBarItem(visibleTab == RootTab.MORE, { tab = RootTab.MORE; moreDestination = MoreDestination.MENU }, { Icon(Icons.Default.MoreHoriz, null) }, label = { Text(stringResource(R.string.nav_more)) })
         }
     }) { padding ->
         Box(Modifier.padding(padding)) {
-            when (tab) {
+            when (visibleTab) {
                 RootTab.HOME -> HomeScreen(
                     announcement = announcement,
                     onDismissAnnouncement = announcementViewModel::dismissCurrent,
@@ -278,15 +315,21 @@ private fun LocalTellApp(defaultTab: RootTab, themeMode: ThemeMode, onThemeModeC
                     onOpenOfflineData = openOfflineData,
                     vm = easyViewModel,
                 )
-                RootTab.MORE -> when (moreDestination) {
+                RootTab.MORE -> when (visibleMoreDestination) {
                     MoreDestination.MENU -> MoreScreen { moreDestination = it }
                     MoreDestination.LOCATION_GUIDE -> MoreChild(onBack = { moreDestination = MoreDestination.MENU }) { LocationGuideScreen() }
                     MoreDestination.SETTINGS -> MoreChild(onBack = { moreDestination = MoreDestination.MENU }) { SettingsScreen(themeMode, onThemeModeChange) }
                     MoreDestination.OFFLINE_DATA -> MoreChild(onBack = { moreDestination = MoreDestination.MENU }) { PacksScreen() }
                     MoreDestination.JOURNEY -> MoreChild(onBack = { moreDestination = MoreDestination.MENU }) { JourneyScreen() }
+                    MoreDestination.SAVED_PLACES -> MoreChild(onBack = { moreDestination = MoreDestination.MENU }) {
+                        SavedPlacesScreen(onOpen = { place -> easyViewModel.openSaved(place); tab = RootTab.EASY })
+                    }
                     MoreDestination.TOWER_SURVEY -> if (BuildConfig.ENABLE_TOWER_SURVEY) MoreChild(onBack = { moreDestination = MoreDestination.MENU }) { TowerSurveyScreen() } else MoreScreen { moreDestination = it }
                 }
             }
+            Box(Modifier.align(Alignment.BottomCenter)) { SavedPlacesFeedback(onManageSavedPlaces = {
+                tab = RootTab.MORE; moreDestination = MoreDestination.SAVED_PLACES
+            }, vm = savedPlacesViewModel) }
         }
     }
 }
@@ -311,6 +354,7 @@ private fun MoreScreen(onOpen: (MoreDestination) -> Unit) {
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item { Text(stringResource(R.string.more_title), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold) }
+        item { MoreRow(Icons.Default.Bookmark, stringResource(R.string.saved_title), stringResource(R.string.saved_description)) { onOpen(MoreDestination.SAVED_PLACES) } }
         item { MoreRow(Icons.Default.Route, stringResource(R.string.more_journey), stringResource(R.string.more_journey_description)) { onOpen(MoreDestination.JOURNEY) } }
         item { MoreRow(Icons.Default.Download, stringResource(R.string.more_offline), stringResource(R.string.more_offline_description)) { onOpen(MoreDestination.OFFLINE_DATA) } }
         if (BuildConfig.ENABLE_TOWER_SURVEY) item { MoreRow(Icons.Default.LocationOn, stringResource(R.string.more_survey), stringResource(R.string.more_survey_description)) { onOpen(MoreDestination.TOWER_SURVEY) } }
@@ -487,6 +531,17 @@ private fun EasyScreen(
     val context = LocalContext.current
     val activity = context as? MainActivity
     val state by vm.state.collectAsStateWithLifecycle()
+    val easyListState = rememberLazyListState()
+    androidx.compose.runtime.LaunchedEffect(state.savedOpenSequence, state.currentLocation != null) {
+        if (state.savedOpenSequence > 0 && state.resolvedLocation != null) {
+            val request = state.savedOpenSequence
+            // Title, current-location controls, optional current result, then Find Location.
+            val resultIndex = 3 + if (state.currentLocation != null) 1 else 0
+            androidx.compose.runtime.snapshotFlow { easyListState.layoutInfo.totalItemsCount }.first { it > resultIndex }
+            easyListState.animateScrollToItem(resultIndex)
+            vm.savedLocationShown(request)
+        }
+    }
     var findInput by rememberSaveable { mutableStateOf("") }
     var locationRequestAwaitingResult by remember { mutableStateOf(false) }
     var locationRequestObservedInFlight by remember { mutableStateOf(false) }
@@ -558,6 +613,7 @@ private fun EasyScreen(
         )
     }
     LazyColumn(
+        state = easyListState,
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 20.dp, top = 20.dp, end = 20.dp, bottom = 32.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
@@ -581,7 +637,7 @@ private fun EasyScreen(
                     Toast.makeText(context, R.string.easy_tts_unavailable, Toast.LENGTH_SHORT).show()
                 }
             }
-        }, onCopy = { copyText(context, location.encoded.numericCode) }, onShare = { shareEasyLocation(context, location) }) } }
+        }, onShare = { shareEasyLocation(context, location) }) } }
         item {
             Text(stringResource(R.string.easy_find_title), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             OutlinedTextField(value = findInput, onValueChange = { findInput = it }, modifier = Modifier.fillMaxWidth(), singleLine = true, placeholder = { Text(stringResource(R.string.easy_find_placeholder)) }, leadingIcon = { Icon(Icons.Default.Search, stringResource(R.string.easy_search_icon)) }, trailingIcon = if (findInput.isNotEmpty()) ({ IconButton(onClick = { findInput = "" }) { Icon(Icons.Default.Close, stringResource(R.string.easy_clear_input)) } }) else null)
@@ -593,21 +649,31 @@ private fun EasyScreen(
                 AnnouncementCard(current, onDismissAnnouncement, onOpenOfflineData)
             }
         }
-        state.resolvedLocation?.let { location -> item { EasyLocationCard(location, showAccuracy = false, onSpeak = null, onCopy = { copyText(context, MapLinkBuilder.googleMaps(location.encoded.latitude, location.encoded.longitude).toString()) }, onShare = { shareEasyLocation(context, location) }) } }
+        state.resolvedLocation?.let { location -> item { EasyLocationCard(location, showAccuracy = false, onSpeak = null, onShare = { shareEasyLocation(context, location) }) } }
         state.resolvedLocation?.let { location -> item { RideActions(context, location) } }
         state.error?.let { error -> item { InfoCard(stringResource(R.string.easy_title), easyErrorText(error)) } }
     }
 }
 
 @Composable
-private fun EasyLocationCard(location: EasyLocation, showAccuracy: Boolean, onSpeak: (() -> Unit)?, onCopy: () -> Unit, onShare: () -> Unit) {
+private fun EasyLocationCard(location: EasyLocation, showAccuracy: Boolean, onSpeak: (() -> Unit)?, onShare: () -> Unit) {
     val context = LocalContext.current
     ElevatedCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(if (showAccuracy) stringResource(R.string.easy_current_location) else stringResource(R.string.easy_resolved_location), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(if (showAccuracy) stringResource(R.string.easy_current_location) else stringResource(R.string.easy_resolved_location), modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                BookmarkButton(location.bookmark(if (showAccuracy) SavedPlaceSource.EASY else SavedPlaceSource.LOOKUP))
+            }
+            location.savedPlace?.let { place ->
+                Text(place.displayName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                listOfNotNull(place.subDistrict, place.district, place.state, place.countryCode)
+                    .filterNot { it == place.displayName }.distinct().takeIf { it.isNotEmpty() }?.let {
+                        Text(it.joinToString(", "), style = MaterialTheme.typography.bodyMedium)
+                    }
+            }
             Text(stringResource(R.string.easy_latitude, coordinateDisplay(location.encoded.latitude)))
             Text(stringResource(R.string.easy_longitude, coordinateDisplay(location.encoded.longitude)))
-            if (showAccuracy) location.accuracyMetres?.let { Text(stringResource(R.string.easy_accuracy, it.toInt())) }
+            location.accuracyMetres?.let { Text(stringResource(R.string.saved_accuracy, it)) }
             if (showAccuracy && location.locationQuality == com.actionanand.localtell.app.location.LocationQuality.APPROXIMATE) {
                 Text(stringResource(R.string.location_approximate_locality), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
@@ -622,10 +688,8 @@ private fun EasyLocationCard(location: EasyLocation, showAccuracy: Boolean, onSp
                 )
             }
             location.locationNotice?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-            Text(stringResource(R.string.easy_number), style = MaterialTheme.typography.labelLarge)
-            Text(location.encoded.numericCode, style = MaterialTheme.typography.titleLarge, fontFamily = FontFamily.Monospace)
-            Text(stringResource(R.string.easy_short_code), style = MaterialTheme.typography.labelLarge)
-            Text(location.encoded.shortCode, style = MaterialTheme.typography.titleLarge, fontFamily = FontFamily.Monospace)
+            EasyCode(location.encoded.numericCode, stringResource(R.string.easy_number), stringResource(R.string.saved_copy_numeric), stringResource(R.string.saved_share_numeric))
+            EasyCode(location.encoded.shortCode, stringResource(R.string.easy_short_code), stringResource(R.string.saved_copy_short), stringResource(R.string.saved_share_short))
             location.locality?.let { match ->
                 val localityName = match.localityName.takeIf(String::isNotBlank)
                 val hierarchy = listOfNotNull(match.subDistrict, match.district, match.state)
@@ -642,10 +706,12 @@ private fun EasyLocationCard(location: EasyLocation, showAccuracy: Boolean, onSp
                 if (hierarchy.isNotEmpty()) {
                     Text(hierarchy.joinToString(", "), style = MaterialTheme.typography.bodyMedium)
                 }
-            } ?: Text(stringResource(R.string.easy_offline_unavailable), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (location.locality == null && location.savedPlace == null) {
+                Text(stringResource(R.string.easy_offline_unavailable), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
             if (onSpeak != null) OutlinedButton(onClick = onSpeak) { Text(stringResource(R.string.easy_read_aloud)) }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = onCopy) { Text(stringResource(R.string.easy_copy)) }
                 Button(onClick = onShare) { Icon(Icons.Default.Share, null); Spacer(Modifier.padding(2.dp)); Text(stringResource(R.string.easy_share)) }
             }
             if (!showAccuracy) {
@@ -657,9 +723,20 @@ private fun EasyLocationCard(location: EasyLocation, showAccuracy: Boolean, onSp
 }
 
 @Composable
+private fun EasyCode(code: String, label: String, copyDescription: String, shareDescription: String) {
+    val context = LocalContext.current
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(label, modifier = Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
+        IconButton(onClick = { copyText(context, code) }) { Icon(Icons.Default.ContentCopy, copyDescription) }
+        IconButton(onClick = { shareCode(context, code) }) { Icon(Icons.Default.Share, shareDescription) }
+    }
+    Text(code, style = MaterialTheme.typography.titleLarge, fontFamily = FontFamily.Monospace)
+}
+
+@Composable
 private fun RideActions(context: Context, location: EasyLocation) {
     val locationLabel = stringResource(R.string.easy_location_label)
-    val destination = RideDestination(location.encoded.latitude, location.encoded.longitude, locationLabel, location.locality?.localityName ?: MapLinkBuilder.coordinateText(location.encoded.latitude, location.encoded.longitude))
+    val destination = RideDestination(location.encoded.latitude, location.encoded.longitude, locationLabel, location.savedPlace?.displayName ?: location.locality?.localityName ?: MapLinkBuilder.coordinateText(location.encoded.latitude, location.encoded.longitude))
     var showUberChoice by remember { mutableStateOf(false) }
     ElevatedCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -706,6 +783,14 @@ private fun easyErrorText(error: EasyError): String = when (error) {
 private fun copyText(context: Context, text: String) {
     context.getSystemService(android.content.ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("LocalTell", text))
     Toast.makeText(context, R.string.easy_copied, Toast.LENGTH_SHORT).show()
+}
+
+private fun shareCode(context: Context, code: String) {
+    runCatching {
+        context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"; putExtra(Intent.EXTRA_TEXT, code)
+        }, context.getString(R.string.share_location_title)))
+    }.onFailure { Toast.makeText(context, R.string.saved_error, Toast.LENGTH_SHORT).show() }
 }
 
 private fun shareEasyLocation(context: Context, location: EasyLocation) {
@@ -997,6 +1082,8 @@ private fun HomeResults(
                         modifier = Modifier.size(22.dp),
                     )
                     Text(stringResource(R.string.home_current_locality), style = MaterialTheme.typography.labelLarge)
+                    Spacer(Modifier.weight(1f))
+                    BookmarkButton(savedPlaceFor(status.latitude, status.longitude, status.accuracyMetres, status.locality, SavedPlaceSource.HOME))
                 }
                 Text(status.locality?.localityName ?: localityEmptyTitle(status.localityState, displayedCells.any(RadioCell::registered)), style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
                 if (status.locationQuality == com.actionanand.localtell.app.location.LocationQuality.APPROXIMATE) {
@@ -1778,7 +1865,11 @@ private fun JourneyScreen(vm: JourneyViewModel = viewModel()) {
         items(points, key = JourneyPoint::id) { point ->
             ElevatedCard(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(point.areaName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(point.areaName, modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        BookmarkButton(savedPlaceFor(point.latitude, point.longitude, point.accuracyMetres, null, SavedPlaceSource.JOURNEY,
+                            name = point.areaName, district = point.district, state = point.state)?.copy(subDistrict = point.subDistrict))
+                    }
                     listOfNotNull(point.district, point.state).distinct().takeIf { it.isNotEmpty() }?.let { Text(it.joinToString(", "), style = MaterialTheme.typography.bodyMedium) }
                     Text(formatJourneyTimestamp(point.timestamp), style = MaterialTheme.typography.bodySmall)
                     Text("${point.radio} · ${point.plmn}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

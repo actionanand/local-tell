@@ -56,6 +56,8 @@ sealed interface HomeStatus {
         val locationSource: LocationSource? = null,
         val locationQuality: LocationQuality? = null,
         val locationNotice: String? = null,
+        val latitude: Double? = null,
+        val longitude: Double? = null,
     ) : HomeStatus {
         val cells: List<RadioCell> get() = subscriptions.flatMap(SubscriptionCells::cells)
     }
@@ -106,6 +108,8 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
                         accuracyMetres = cachedLocality.accuracyMetres,
                         locationSource = cachedLocality.locationSource,
                         locationQuality = cachedLocality.locationQuality,
+                        latitude = cachedLocality.latitude,
+                        longitude = cachedLocality.longitude,
                     )
                 }
 
@@ -190,7 +194,7 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
         _status.value = HomeStatus.Loading(LocalityState.RESOLVING_OFFLINE_LOCALITY, subscriptions)
         val locality = withContext(Dispatchers.IO) { localityResolver.resolve(location.latitude, location.longitude) }
         currentCoroutineContext().ensureActive()
-        if (locality != null && fingerprint != null) localityCache.save(locality, location.accuracy, fingerprint, source, quality)
+        if (locality != null && fingerprint != null) localityCache.save(locality, location.accuracy, fingerprint, source, quality, location.latitude, location.longitude)
         return HomeStatus.Ready(
             subscriptions = subscriptions,
             locality = locality,
@@ -199,6 +203,8 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
             locationSource = source,
             locationQuality = quality,
             locationNotice = notice,
+            latitude = location.latitude,
+            longitude = location.longitude,
         )
     }
 }

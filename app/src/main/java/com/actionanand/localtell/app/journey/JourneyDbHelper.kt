@@ -17,9 +17,13 @@ data class JourneyPoint(
     val plmn: String,
     val cellId: Long,
     val confidence: Int,
+    val latitude: Double? = null,
+    val longitude: Double? = null,
+    val accuracyMetres: Float? = null,
+    val subDistrict: String? = null,
 )
 
-class JourneyDbHelper(context: Context) : SQLiteOpenHelper(context, "journeys.db", null, 1) {
+class JourneyDbHelper(context: Context) : SQLiteOpenHelper(context, "journeys.db", null, 2) {
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
             """CREATE TABLE journey_point (
@@ -31,13 +35,24 @@ class JourneyDbHelper(context: Context) : SQLiteOpenHelper(context, "journeys.db
                 radio TEXT NOT NULL,
                 plmn TEXT NOT NULL,
                 cell_id INTEGER NOT NULL,
-                confidence INTEGER NOT NULL
+                confidence INTEGER NOT NULL,
+                latitude REAL,
+                longitude REAL,
+                accuracy REAL,
+                sub_district TEXT
             )""".trimIndent()
         )
         db.execSQL("CREATE INDEX idx_journey_point_timestamp ON journey_point(timestamp DESC)")
     }
 
-    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        if (oldVersion < 2) {
+            db.execSQL("ALTER TABLE journey_point ADD COLUMN latitude REAL")
+            db.execSQL("ALTER TABLE journey_point ADD COLUMN longitude REAL")
+            db.execSQL("ALTER TABLE journey_point ADD COLUMN accuracy REAL")
+            db.execSQL("ALTER TABLE journey_point ADD COLUMN sub_district TEXT")
+        }
+    }
 
     override fun onOpen(db: SQLiteDatabase) {
         super.onOpen(db)
@@ -54,6 +69,10 @@ class JourneyDbHelper(context: Context) : SQLiteOpenHelper(context, "journeys.db
             put("plmn", point.plmn)
             put("cell_id", point.cellId)
             put("confidence", point.confidence)
+            put("latitude", point.latitude)
+            put("longitude", point.longitude)
+            put("accuracy", point.accuracyMetres)
+            put("sub_district", point.subDistrict)
         }
         val db = writableDatabase
         db.beginTransaction()
@@ -77,7 +96,7 @@ class JourneyDbHelper(context: Context) : SQLiteOpenHelper(context, "journeys.db
     }
 
     fun latest(limit: Int = MAX_JOURNEY_POINTS): List<JourneyPoint> = readableDatabase.rawQuery(
-        """SELECT id,timestamp,area_name,district,state,radio,plmn,cell_id,confidence
+        """SELECT id,timestamp,area_name,district,state,radio,plmn,cell_id,confidence,latitude,longitude,accuracy,sub_district
            FROM journey_point ORDER BY timestamp DESC, id DESC LIMIT ?""".trimIndent(),
         arrayOf(limit.coerceIn(1, MAX_JOURNEY_POINTS).toString())
     ).use { c ->
@@ -94,6 +113,10 @@ class JourneyDbHelper(context: Context) : SQLiteOpenHelper(context, "journeys.db
                         plmn = c.getString(6),
                         cellId = c.getLong(7),
                         confidence = c.getInt(8),
+                        latitude = if (c.isNull(9)) null else c.getDouble(9),
+                        longitude = if (c.isNull(10)) null else c.getDouble(10),
+                        accuracyMetres = if (c.isNull(11)) null else c.getFloat(11),
+                        subDistrict = c.getString(12),
                     )
                 )
             }

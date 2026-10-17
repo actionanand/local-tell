@@ -95,6 +95,32 @@ class JourneyRetentionTest(unittest.TestCase):
                 raise RuntimeError("rollback")
         self.assertEqual(before, self.ids())
 
+    def test_upgrade_preserves_legacy_rows_without_inventing_coordinates(self):
+        old_schema = """CREATE TABLE journey_point (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp INTEGER NOT NULL,
+            area_name TEXT NOT NULL, district TEXT, state TEXT, radio TEXT NOT NULL,
+            plmn TEXT NOT NULL, cell_id INTEGER NOT NULL, confidence INTEGER NOT NULL)"""
+        with sqlite3.connect(":memory:") as legacy:
+            legacy.execute(old_schema)
+            legacy.execute(INSERT_SQL, (123,))
+            alterations = re.findall(r'db.execSQL\("(ALTER TABLE journey_point[^"\n]+)"\)', SOURCE)
+            self.assertEqual(4, len(alterations))
+            for sql in alterations:
+                legacy.execute(sql)
+            row = legacy.execute("SELECT timestamp,area_name,latitude,longitude,accuracy,sub_district FROM journey_point").fetchone()
+            self.assertEqual((123, "Area", None, None, None, None), row)
+
+    def test_new_coordinates_and_accuracy_survive_database_roundtrip(self):
+        self.db.execute(
+            "INSERT INTO journey_point(timestamp,area_name,radio,plmn,cell_id,confidence,latitude,longitude,accuracy,sub_district) "
+            "VALUES (1,'Place','NR','405-869',1,100,?,?,?,?)",
+            (-33.868820123, 151.209296789, 12.75, "Subdivision"),
+        )
+        self.assertEqual(
+            (-33.868820123, 151.209296789, 12.75, "Subdivision"),
+            self.db.execute("SELECT latitude,longitude,accuracy,sub_district FROM journey_point").fetchone(),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

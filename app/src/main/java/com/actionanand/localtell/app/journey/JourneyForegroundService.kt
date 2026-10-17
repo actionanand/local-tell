@@ -156,6 +156,10 @@ class JourneyForegroundService : Service() {
                                 plmn = serving?.plmn ?: "Unknown",
                                 cellId = serving?.cellId ?: 0L,
                                 confidence = if (match.sourceQuality == "polygon") 100 else 70,
+                                latitude = fix.location.latitude,
+                                longitude = fix.location.longitude,
+                                accuracyMetres = fix.location.accuracy,
+                                subDistrict = match.subDistrict,
                             ),
                         )
                         JourneyHistoryChanges.changed()
@@ -187,6 +191,10 @@ class JourneyForegroundService : Service() {
                                 plmn = serving?.plmn ?: "Unknown",
                                 cellId = serving?.cellId ?: 0L,
                                 confidence = if (match.sourceQuality == "polygon") 70 else 50,
+                                latitude = fix.location.latitude,
+                                longitude = fix.location.longitude,
+                                accuracyMetres = fix.location.accuracy,
+                                subDistrict = match.subDistrict,
                             ),
                         )
                         JourneyHistoryChanges.changed()
