@@ -38,9 +38,20 @@ class BackupContractTest(unittest.TestCase):
         self.assertIn("uri?.let(vm::inspectBackup)", screen)
         self.assertIn("OpenableColumns.DISPLAY_NAME", documents)
         self.assertIn("BackupFileFormat.requireFilename(name)", documents)
-        self.assertIn("BackupFileFormat.decode(filename, output.toByteArray())", vm)
+        self.assertIn("BackupDocumentIO.read(", vm)
+        self.assertIn("BackupDocumentIO.write(", vm)
+        io = (SAVED / "BackupDocumentIO.kt").read_text(encoding="utf-8")
+        self.assertIn("BackupFileFormat.decode(filename, bytes)", io)
         self.assertNotIn("lastPathSegment", documents)
         self.assertNotIn("SavedPlacesBackupCodec.decode", screen)
+        self.assertIn("Intent.ACTION_VIEW", documents)
+        self.assertIn("Intent.ACTION_SEND", documents)
+        self.assertIn("Intent.EXTRA_STREAM", documents)
+        self.assertIn("it.itemCount == 1", documents)
+        self.assertIn("Intent.FLAG_GRANT_READ_URI_PERMISSION", documents)
+        self.assertIn("ClipData.newRawUri(backup.filename, uri)", documents)
+        self.assertIn("Activity.RESULT_OK", documents)
+        self.assertIn("if (uri == null) vm.cancelBackup() else vm.export(uri)", screen)
 
     def test_no_backup_creation_uses_json_filename_or_json_mime(self):
         screen = (SAVED / "SavedPlacesScreen.kt").read_text(encoding="utf-8")
@@ -52,6 +63,28 @@ class BackupContractTest(unittest.TestCase):
         self.assertNotIn("application/json", screen + documents + format_source)
         self.assertNotRegex(screen + documents + format_source, r'\.json["`]')
         self.assertIn('.bklt"', format_source)
+
+    def test_external_filters_do_not_advertise_unrelated_text_images_or_archives(self):
+        app = ET.parse(MAIN / "AndroidManifest.xml").getroot().find("application")
+        activity = next(a for a in app.findall("activity") if a.get(ANDROID + "name") == ".MainActivity")
+        filters = {f.find("action").get(ANDROID + "name"): f for f in activity.findall("intent-filter")}
+        for action in ("android.intent.action.VIEW", "android.intent.action.SEND"):
+            data = filters[action].findall("data")
+            self.assertEqual({"application/octet-stream", "application/vnd.localtell.backup"},
+                             {d.get(ANDROID + "mimeType") for d in data})
+        self.assertEqual("content", filters["android.intent.action.VIEW"].find("data").get(ANDROID + "scheme"))
+
+    def test_manual_flow_explains_provider_limits_and_all_restore_counts(self):
+        english = {n.get("name"): "".join(n.itertext()) for n in
+                   ET.parse(MAIN / "res/values/strings.xml").getroot()}
+        self.assertEqual("Backup ready", english["saved_backup_ready"])
+        self.assertEqual("Choose cloud destination", english["saved_backup_options"])
+        for key in ("saved_backup_local_help", "saved_backup_cloud_help"):
+            self.assertIn("AR Apps / LocalTell / Backups", english[key])
+        self.assertIn("both local and cloud", english["saved_backup_cloud_help"])
+        self.assertIn("download it first", english["saved_restore_help"])
+        for key in ("saved_restore_preview", "saved_restore_overflow"):
+            self.assertEqual(["%1$d", "%2$d", "%3$d", "%4$d", "%5$d"], re.findall(r"%\d\$d", english[key]))
 
     def test_all_three_languages_have_unique_keys_and_matching_placeholders(self):
         maps = {}

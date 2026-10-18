@@ -5,6 +5,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -96,7 +98,7 @@ fun SavedPlacesScreen(onOpen: (SavedPlace) -> Unit, vm: SavedPlacesViewModel = v
         val prepared = state.preparedBackup ?: return
         vm.destinationPickerStarted()
         runCatching { export.launch(BackupDestination(prepared.filename, localOnly)) }
-            .onFailure { vm.documentUnavailable(); vm.backupShareFallback() }
+            .onFailure { vm.backupDestinationUnavailable(); vm.backupShareFallback() }
     }
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -126,13 +128,14 @@ fun SavedPlacesScreen(onOpen: (SavedPlace) -> Unit, vm: SavedPlacesViewModel = v
                     }) { Text(stringResource(R.string.saved_export)) }
                     OutlinedButton(enabled = state.loaded && !state.busy, onClick = {
                         // Extensions are not reliable MIME types. Validate DISPLAY_NAME and content afterward.
-                        runCatching { restore.launch(arrayOf("*/*")) }.onFailure { vm.documentUnavailable() }
+                        runCatching { restore.launch(arrayOf("*/*")) }.onFailure { vm.restorePickerUnavailable() }
                     }) { Text(stringResource(R.string.saved_restore)) }
                     TextButton(enabled = !state.busy && places.isNotEmpty(), onClick = {
                         selection = selection.requestRemoval(places.map { it.id }, all = true)
                     }) { Text(stringResource(R.string.saved_remove_all)) }
                 }
                 Text(stringResource(R.string.saved_backup_privacy), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(stringResource(R.string.saved_restore_help), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
         if (state.loaded && places.isEmpty()) item {
@@ -186,11 +189,16 @@ fun SavedPlacesScreen(onOpen: (SavedPlace) -> Unit, vm: SavedPlacesViewModel = v
     state.preparedBackup?.takeIf { state.chooseBackupDestination || state.cloudBackupOptions }?.let { prepared ->
         AlertDialog(
             onDismissRequest = vm::cancelBackup,
-            title = { Text(stringResource(if (state.cloudBackupOptions) R.string.saved_backup_options else R.string.saved_export)) },
+            title = { Text(stringResource(if (state.cloudBackupOptions) R.string.saved_backup_options else R.string.saved_backup_ready)) },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(prepared.filename, style = MaterialTheme.typography.bodyMedium)
                     Text(stringResource(R.string.saved_backup_choose))
+                    Text(
+                        stringResource(if (state.cloudBackupOptions) R.string.saved_backup_cloud_help else R.string.saved_backup_local_help),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                     if (state.chooseBackupDestination) {
                         OutlinedButton(enabled = !state.busy, onClick = { saveBackup(true) }) { Text(stringResource(R.string.saved_backup_local)) }
                         OutlinedButton(enabled = !state.busy, onClick = vm::backupShareFallback) { Text(stringResource(R.string.saved_backup_cloud)) }
@@ -198,7 +206,7 @@ fun SavedPlacesScreen(onOpen: (SavedPlace) -> Unit, vm: SavedPlacesViewModel = v
                         OutlinedButton(enabled = !state.busy, onClick = { saveBackup(false) }) { Text(stringResource(R.string.saved_backup_provider)) }
                         TextButton(enabled = !state.busy, onClick = {
                             runCatching { sharePreparedBackup(context, prepared, shareTitle) }
-                                .onSuccess { vm.backupSharingOpened() }.onFailure { vm.documentUnavailable() }
+                                .onSuccess { vm.backupSharingOpened() }.onFailure { vm.backupDestinationUnavailable() }
                         }) { Text(stringResource(R.string.saved_backup_share)) }
                     }
                 }
@@ -214,7 +222,15 @@ fun SavedPlacesScreen(onOpen: (SavedPlace) -> Unit, vm: SavedPlacesViewModel = v
         AlertDialog(
             onDismissRequest = vm::dismissRestore,
             title = { Text(stringResource(R.string.saved_restore)) },
-            text = { Text(stringResource(if (preview.fits) R.string.saved_restore_preview else R.string.saved_restore_overflow, preview.added, preview.duplicates, preview.total)) },
+            text = {
+                Text(
+                    stringResource(
+                        if (preview.fits) R.string.saved_restore_preview else R.string.saved_restore_overflow,
+                        state.restore?.size ?: 0, preview.total - preview.added, preview.added, preview.total, preview.duplicates,
+                    ),
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                )
+            },
             confirmButton = { if (preview.fits) TextButton(enabled = !state.busy, onClick = vm::restore) { Text(stringResource(R.string.saved_restore)) } },
             dismissButton = { TextButton(onClick = vm::dismissRestore) { Text(stringResource(R.string.cancel)) } },
         )

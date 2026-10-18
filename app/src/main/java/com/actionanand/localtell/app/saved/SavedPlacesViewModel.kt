@@ -12,8 +12,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.ensureActive
 
 data class SavedPlacesUiState(
     val loaded: Boolean = false,
@@ -99,19 +97,15 @@ class SavedPlacesViewModel(app: Application) : AndroidViewModel(app) {
 
     fun export(uri: Uri): kotlinx.coroutines.Job? {
         val prepared = mutableState.value.preparedBackup ?: run { documentUnavailable(); return null }
-        return operation {
+        return operation(errorResource = R.string.saved_backup_write_error) {
             try {
                 withContext(Dispatchers.IO) {
                     val resolver = getApplication<Application>().contentResolver
-                    resolver.backupDisplayName(uri) // Reject non-.bklt names before writing.
-                    prepared.file.inputStream().use { input ->
-                        requireNotNull(resolver.openOutputStream(uri, "wt")).use { output ->
-                            input.copyTo(output)
-                            output.flush()
-                        }
-                    }
-                    // Some providers change the name on close. Do not report success then.
-                    resolver.backupDisplayName(uri)
+                    BackupDocumentIO.write(
+                        displayName = { resolver.backupDisplayName(uri) },
+                        openInput = { prepared.file.inputStream() },
+                        openOutput = { requireNotNull(resolver.openOutputStream(uri, "wt")) },
+                    )
                 }
                 cancelBackup()
                 feedback(R.string.saved_exported)
@@ -128,20 +122,10 @@ class SavedPlacesViewModel(app: Application) : AndroidViewModel(app) {
             operation(errorResource = R.string.saved_backup_invalid) {
                 val places = withContext(Dispatchers.IO) {
                     val resolver = getApplication<Application>().contentResolver
-                    val filename = resolver.backupDisplayName(uri)
-                    requireNotNull(resolver.openInputStream(uri)).use { input ->
-                        // Bounded read also protects unknown-length remote documents.
-                        val output = java.io.ByteArrayOutputStream()
-                        val buffer = ByteArray(8_192)
-                        while (true) {
-                            currentCoroutineContext().ensureActive()
-                            val count = input.read(buffer)
-                            if (count < 0) break
-                            require(output.size() + count <= SavedPlacesBackupCodec.MAX_BYTES)
-                            output.write(buffer, 0, count)
-                        }
-                        BackupFileFormat.decode(filename, output.toByteArray())
-                    }
+                    BackupDocumentIO.read(
+                        displayName = { resolver.backupDisplayName(uri) },
+                        openInput = { requireNotNull(resolver.openInputStream(uri)) },
+                    )
                 }
                 repository.refresh()
                 val preview = repository.preview(places)
@@ -151,6 +135,8 @@ class SavedPlacesViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun documentUnavailable() { feedback(R.string.saved_error) }
+    fun backupDestinationUnavailable() { feedback(R.string.saved_backup_destination_unavailable) }
+    fun restorePickerUnavailable() { feedback(R.string.saved_restore_picker_unavailable) }
 
     fun restore() {
         val incoming = mutableState.value.restore ?: return
