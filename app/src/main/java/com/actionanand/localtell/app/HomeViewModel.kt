@@ -9,6 +9,9 @@ import com.actionanand.localtell.app.data.LocalityCachePolicy
 import com.actionanand.localtell.app.data.OfflineAreaResolver
 import com.actionanand.localtell.app.data.OfflineLocalityResolver
 import com.actionanand.localtell.app.data.PackStore
+import com.actionanand.localtell.app.geography.BuiltInGeography
+import com.actionanand.localtell.app.geography.OfflineDataGuidance
+import com.actionanand.localtell.app.geography.OfflineGuidanceResolver
 import com.actionanand.localtell.app.location.GnssFixResult
 import com.actionanand.localtell.app.location.AssistedLocationLocator
 import com.actionanand.localtell.app.location.AssistedLocationResult
@@ -58,6 +61,7 @@ sealed interface HomeStatus {
         val locationNotice: String? = null,
         val latitude: Double? = null,
         val longitude: Double? = null,
+        val offlineGuidance: OfflineDataGuidance? = null,
     ) : HomeStatus {
         val cells: List<RadioCell> get() = subscriptions.flatMap(SubscriptionCells::cells)
     }
@@ -73,6 +77,7 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
     private val packs = PackStore(app)
     private val legacyResolver = OfflineAreaResolver(packs)
     private val localityResolver = OfflineLocalityResolver(packs)
+    private val guidanceResolver = OfflineGuidanceResolver(app, packs)
     private val localityCache = LocalityCache(app)
     private val gnssLocator = OneShotGnssLocator(app)
     private val assistedLocator = AssistedLocationLocator(app)
@@ -91,7 +96,9 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
             }
             _status.value = HomeStatus.Loading(LocalityState.READING_CELLULAR)
             runCatching {
-                val subscriptions = reader.requestSubscriptionCells()
+                val subscriptions = try { reader.requestSubscriptionCells() }
+                catch (cancelled: CancellationException) { throw cancelled }
+                catch (_: Exception) { listOf(SubscriptionCells(null, emptyList())) }
                 val cells = subscriptions.flatMap(SubscriptionCells::cells)
                 val fingerprint = CellularFingerprint.from(cells)
                 val cached = localityCache.read()
@@ -111,11 +118,6 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
                         latitude = cachedLocality.latitude,
                         longitude = cachedLocality.longitude,
                     )
-                }
-
-                if (!withContext(Dispatchers.IO) { localityResolver.hasGeographicPack() }) {
-                    val legacy = withContext(Dispatchers.IO) { legacyResolver.resolveFirst(cells) }
-                    return@runCatching HomeStatus.Ready(subscriptions, null, LocalityState.NO_GEOGRAPHIC_PACK, legacy)
                 }
 
                 _status.value = HomeStatus.Loading(LocalityState.ACQUIRING_GNSS, subscriptions)
@@ -192,19 +194,42 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
         notice: String? = null,
     ): HomeStatus.Ready {
         _status.value = HomeStatus.Loading(LocalityState.RESOLVING_OFFLINE_LOCALITY, subscriptions)
-        val locality = withContext(Dispatchers.IO) { localityResolver.resolve(location.latitude, location.longitude) }
+        val locality = withContext(Dispatchers.IO) {
+            try { localityResolver.resolve(location.latitude, location.longitude) }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { null } // The coverage inspection distinguishes unreadable packs.
+        }
+        val guidanceAndCoverage: Pair<OfflineDataGuidance?, Boolean> = if (locality == null) withContext(Dispatchers.IO) {
+            val region = try {
+                BuiltInGeography.identify(getApplication(), location.latitude, location.longitude,
+                    location.accuracy.takeIf { location.hasAccuracy() })
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { null }
+            val coroutine = currentCoroutineContext()
+            val coverage = localityResolver.coverage(location.latitude, location.longitude) { coroutine.ensureActive() }
+            guidanceResolver.resolve(region, coverage) to coverage.geographicIds.isNotEmpty()
+        } else (null to true)
+        val guidance = guidanceAndCoverage.first
+        val hasGeographicPack = guidanceAndCoverage.second
+        val legacy = if (!hasGeographicPack) withContext(Dispatchers.IO) {
+            try { legacyResolver.resolveFirst(subscriptions.flatMap(SubscriptionCells::cells)) }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { null }
+        } else null
         currentCoroutineContext().ensureActive()
         if (locality != null && fingerprint != null) localityCache.save(locality, location.accuracy, fingerprint, source, quality, location.latitude, location.longitude)
         return HomeStatus.Ready(
             subscriptions = subscriptions,
             locality = locality,
-            localityState = if (locality != null) LocalityState.LOCALITY_FOUND else LocalityState.NO_LOCALITY_MATCH,
+            localityState = when { locality != null -> LocalityState.LOCALITY_FOUND; !hasGeographicPack -> LocalityState.NO_GEOGRAPHIC_PACK; else -> LocalityState.NO_LOCALITY_MATCH },
+            legacyMatch = legacy,
             accuracyMetres = location.accuracy,
             locationSource = source,
             locationQuality = quality,
             locationNotice = notice,
             latitude = location.latitude,
             longitude = location.longitude,
+            offlineGuidance = guidance,
         )
     }
 }

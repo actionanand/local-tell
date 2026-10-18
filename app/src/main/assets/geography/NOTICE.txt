@@ -1,0 +1,21 @@
+LocalTell built-in regional guidance index (not a legal or survey boundary map).
+
+Country polygons and disputed/indeterminate masks: Made with Natural Earth,
+Tom Patterson, Nathaniel Vaughn Kelso and contributors. Public domain.
+https://www.naturalearthdata.com/about/terms-of-use/
+Pinned vector repository release v5.1.2; exact source URLs and hashes in provenance.json.
+
+India ADM1: geoBoundaries gbOpen, IND-ADM1-1811400, release commit 9469f09.
+DataMeet India community / Election Commission of India, distributed by geoBoundaries.
+Licensed under Creative Commons Attribution 2.5 India (CC BY 2.5 IN):
+https://creativecommons.org/licenses/by/2.5/in/
+Source: https://github.com/datameet/maps
+Redistribution/adaptation is under that license; no warranty of accuracy or fitness.
+Source metadata: https://www.geoboundaries.org/api/current/gbOpen/IND/ADM1/
+
+LocalTell modifications: ISO aliases/current English display names, longitude
+unwrapping, 1e-6 degree quantization, lossless compression and spatial candidate
+indexing. Preserve original polygon parts and holes; no shape simplification.
+All territorial disputes represented by the mask are intentionally unclassified.
+Coastal/small-island/border results can be unknown. No endorsement is implied.
+The source dates and map uncertainty are not guarantees of real-world accuracy.

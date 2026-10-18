@@ -19,6 +19,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.border
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.animateScrollBy
@@ -43,6 +44,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.BrightnessAuto
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.SettingsBackupRestore
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
@@ -107,6 +109,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.selected
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.core.content.ContextCompat
@@ -140,6 +144,7 @@ import com.actionanand.localtell.app.external.RideDestination
 import com.actionanand.localtell.app.external.RideLinkBuilder
 import com.actionanand.localtell.app.journey.JourneyForegroundService
 import com.actionanand.localtell.app.journey.JourneyPoint
+import com.actionanand.localtell.app.geography.*
 import com.actionanand.localtell.app.backup.AppBackupViewModel
 import com.actionanand.localtell.app.backup.BackupRestoreScreen
 import com.actionanand.localtell.app.journey.JourneyTrackingMode
@@ -266,6 +271,11 @@ private enum class MoreDestination { MENU, SETTINGS, OFFLINE_DATA, JOURNEY, TOWE
 private fun LocalTellApp(defaultTab: RootTab, themeMode: ThemeMode, incomingBackup: android.net.Uri?, onBackupConsumed: () -> Unit, onThemeModeChange: (ThemeMode) -> Unit) {
     var tab by rememberSaveable { mutableStateOf(defaultTab) }
     var moreDestination by rememberSaveable { mutableStateOf(MoreDestination.MENU) }
+    var targetCountry by rememberSaveable { mutableStateOf<String?>(null) }
+    var targetPack by rememberSaveable { mutableStateOf<String?>(null) }
+    var targetAdmin by rememberSaveable { mutableStateOf<String?>(null) }
+    var targetLabel by rememberSaveable { mutableStateOf("") }
+    val offlineTarget = targetCountry?.let { OfflineDataTarget(it, targetPack, targetAdmin, targetLabel) }
     val announcementViewModel: HomeAnnouncementViewModel = viewModel()
     val homeViewModel: HomeViewModel = viewModel()
     val easyViewModel: EasyViewModel = viewModel()
@@ -290,8 +300,14 @@ private fun LocalTellApp(defaultTab: RootTab, themeMode: ThemeMode, incomingBack
         }
     }
     val openOfflineData = {
+        targetCountry = null; targetPack = null; targetAdmin = null; targetLabel = ""
         tab = RootTab.MORE
         moreDestination = MoreDestination.OFFLINE_DATA
+    }
+    val openRegionData: (OfflineDataTarget?) -> Unit = { target ->
+        targetCountry = target?.countryCode; targetPack = target?.packId
+        targetAdmin = target?.adminCode; targetLabel = target?.label.orEmpty()
+        tab = RootTab.MORE; moreDestination = MoreDestination.OFFLINE_DATA
     }
     // A cold-start file open must not briefly compose Home and start a location refresh.
     val visibleTab = if (incomingBackup != null) RootTab.MORE else tab
@@ -312,6 +328,7 @@ private fun LocalTellApp(defaultTab: RootTab, themeMode: ThemeMode, incomingBack
                     announcement = announcement,
                     onDismissAnnouncement = announcementViewModel::dismissCurrent,
                     onOpenOfflineData = openOfflineData,
+                    onOpenRegionData = openRegionData,
                     vm = homeViewModel,
                 )
                 RootTab.EASY -> EasyScreen(
@@ -321,18 +338,18 @@ private fun LocalTellApp(defaultTab: RootTab, themeMode: ThemeMode, incomingBack
                     vm = easyViewModel,
                 )
                 RootTab.MORE -> when (visibleMoreDestination) {
-                    MoreDestination.MENU -> MoreScreen { moreDestination = it }
+                    MoreDestination.MENU -> MoreScreen { if (it == MoreDestination.OFFLINE_DATA) openOfflineData() else moreDestination = it }
                     MoreDestination.LOCATION_GUIDE -> MoreChild(onBack = { moreDestination = MoreDestination.MENU }) { LocationGuideScreen() }
                     MoreDestination.SETTINGS -> MoreChild(onBack = { moreDestination = MoreDestination.MENU }) {
                         SettingsScreen(themeMode, onThemeModeChange) { moreDestination = MoreDestination.BACKUP_RESTORE }
                     }
                     MoreDestination.BACKUP_RESTORE -> MoreChild(onBack = { moreDestination = MoreDestination.SETTINGS }, backLabel = R.string.backup_back_settings) { BackupRestoreScreen() }
-                    MoreDestination.OFFLINE_DATA -> MoreChild(onBack = { moreDestination = MoreDestination.MENU }) { PacksScreen() }
+                    MoreDestination.OFFLINE_DATA -> MoreChild(onBack = { moreDestination = MoreDestination.MENU }) { PacksScreen(target = offlineTarget, onClearTarget = { targetCountry = null }) }
                     MoreDestination.JOURNEY -> MoreChild(onBack = { moreDestination = MoreDestination.MENU }) { JourneyScreen() }
                     MoreDestination.SAVED_PLACES -> MoreChild(onBack = { moreDestination = MoreDestination.MENU }) {
                         SavedPlacesScreen(onOpen = { place -> easyViewModel.openSaved(place); tab = RootTab.EASY })
                     }
-                    MoreDestination.TOWER_SURVEY -> if (BuildConfig.ENABLE_TOWER_SURVEY) MoreChild(onBack = { moreDestination = MoreDestination.MENU }) { TowerSurveyScreen() } else MoreScreen { moreDestination = it }
+                    MoreDestination.TOWER_SURVEY -> if (BuildConfig.ENABLE_TOWER_SURVEY) MoreChild(onBack = { moreDestination = MoreDestination.MENU }) { TowerSurveyScreen() } else MoreScreen { if (it == MoreDestination.OFFLINE_DATA) openOfflineData() else moreDestination = it }
                 }
             }
             Box(Modifier.align(Alignment.BottomCenter)) { SavedPlacesFeedback(onManageSavedPlaces = {
@@ -390,7 +407,7 @@ private fun SettingsScreen(
     ) {
         item { Text(stringResource(R.string.more_settings), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold) }
         item { Text(stringResource(R.string.more_settings_description), color = MaterialTheme.colorScheme.onSurfaceVariant) }
-        item { MoreRow(Icons.Default.Download, stringResource(R.string.backup_title), stringResource(R.string.backup_included), onOpenBackup) }
+        item { MoreRow(Icons.Default.SettingsBackupRestore, stringResource(R.string.backup_title), stringResource(R.string.backup_included), onOpenBackup) }
         item { SettingsSectionHeader(Icons.Default.SettingsIcon, stringResource(R.string.settings_general)) }
         item {
             ElevatedCard(Modifier.fillMaxWidth()) {
@@ -837,6 +854,7 @@ private fun HomeScreen(
     announcement: HomeAnnouncement?,
     onDismissAnnouncement: () -> Unit,
     onOpenOfflineData: () -> Unit,
+    onOpenRegionData: (OfflineDataTarget?) -> Unit,
     vm: HomeViewModel = viewModel(),
 ) {
     val context = LocalContext.current
@@ -959,14 +977,18 @@ private fun HomeScreen(
         item {
             when (val current = status) {
                 HomeStatus.Idle -> Unit
-                is HomeStatus.Loading -> LocationLoadingState(current.state)
-                is HomeStatus.AwaitingLocationChoice -> Unit
+                is HomeStatus.Loading -> Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    LocationLoadingState(current.state)
+                    HomeCellularDiagnostics(current.subscriptions, selectedSubscriptionId) { selectedSubscriptionId = it }
+                }
+                is HomeStatus.AwaitingLocationChoice -> HomeCellularDiagnostics(current.subscriptions, selectedSubscriptionId) { selectedSubscriptionId = it }
                 is HomeStatus.Error -> InfoCard(stringResource(R.string.home_unable_to_resolve), current.message)
                 is HomeStatus.Ready -> HomeResults(
                     status = current,
                     selectedSubscriptionId = selectedSubscriptionId,
                     onSelect = { selectedSubscriptionId = it },
                     onRefresh = refreshLocality,
+                    onOpenRegionData = onOpenRegionData,
                 )
             }
         }
@@ -1077,6 +1099,7 @@ private fun HomeResults(
     selectedSubscriptionId: Int?,
     onSelect: (Int?) -> Unit,
     onRefresh: () -> Unit,
+    onOpenRegionData: (OfflineDataTarget?) -> Unit,
 ) {
     val context = LocalContext.current
     val selected = status.subscriptions.filter { selectedSubscriptionId == null || it.subscription?.subscriptionId == selectedSubscriptionId }
@@ -1095,7 +1118,7 @@ private fun HomeResults(
                     Spacer(Modifier.weight(1f))
                     BookmarkButton(savedPlaceFor(status.latitude, status.longitude, status.accuracyMetres, status.locality, SavedPlaceSource.HOME))
                 }
-                Text(status.locality?.localityName ?: localityEmptyTitle(status.localityState, displayedCells.any(RadioCell::registered)), style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
+                Text(status.locality?.localityName ?: status.offlineGuidance?.let { offlineGuidanceTitle(it) } ?: localityEmptyTitle(status.localityState, displayedCells.any(RadioCell::registered)), style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
                 if (status.locationQuality == com.actionanand.localtell.app.location.LocationQuality.APPROXIMATE) {
                     Text(stringResource(R.string.location_approximate_locality), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
@@ -1126,7 +1149,10 @@ private fun HomeResults(
                 if (status.localityState == LocalityState.NO_GEOGRAPHIC_PACK) {
                     status.legacyMatch?.let { Text(stringResource(R.string.home_legacy_cell_estimate, it.areaName), style = MaterialTheme.typography.bodySmall) }
                 }
-                (status.locationNotice ?: localityStateMessage(status.localityState))?.let {
+                if (status.locality == null && status.offlineGuidance != null) {
+                    OfflineGuidanceContent(status.offlineGuidance, onOpenRegionData)
+                    status.locationNotice?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                } else (status.locationNotice ?: localityStateMessage(status.localityState))?.let {
                     Text(it, style = MaterialTheme.typography.bodySmall)
                 }
                 status.locality?.let { match ->
@@ -1143,11 +1169,19 @@ private fun HomeResults(
             }
         }
         RefreshLocalityButton(enabled = true, onRefresh = onRefresh)
-        if (status.subscriptions.any { it.subscription != null }) {
+        HomeCellularDiagnostics(status.subscriptions, selectedSubscriptionId, onSelect)
+    }
+}
+
+@Composable
+private fun HomeCellularDiagnostics(subscriptions: List<SubscriptionCells>, selectedSubscriptionId: Int?, onSelect: (Int?) -> Unit) {
+    val selected = subscriptions.filter { selectedSubscriptionId == null || it.subscription?.subscriptionId == selectedSubscriptionId }
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        if (subscriptions.any { it.subscription != null }) {
             Text(stringResource(R.string.home_cellular_diagnostics), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(selectedSubscriptionId == null, { onSelect(null) }, { Text(stringResource(R.string.home_all_sims)) })
-                status.subscriptions.mapNotNull(SubscriptionCells::subscription).forEach { subscription ->
+                subscriptions.mapNotNull(SubscriptionCells::subscription).forEach { subscription ->
                     FilterChip(selectedSubscriptionId == subscription.subscriptionId, { onSelect(subscription.subscriptionId) }, { Text(stringResource(R.string.home_sim_label, subscription.simSlotIndex + 1)) })
                 }
             }
@@ -1370,7 +1404,7 @@ private fun SignalStrengthIndicator(cell: RadioCell) {
 }
 
 @Composable
-private fun PacksScreen(vm: PacksViewModel = viewModel()) {
+private fun PacksScreen(target: OfflineDataTarget? = null, onClearTarget: () -> Unit = {}, vm: PacksViewModel = viewModel()) {
     val state by vm.state.collectAsStateWithLifecycle()
     var pendingRemoval by remember { mutableStateOf<PackRemoval?>(null) }
     var pendingRegionRemoval by remember { mutableStateOf<RegionRemoval?>(null) }
@@ -1383,9 +1417,18 @@ private fun PacksScreen(vm: PacksViewModel = viewModel()) {
     val remoteIds = state.remote.mapTo(mutableSetOf()) { it.id }
     val installedOnly = state.installed.values.filter { it.id !in remoteIds }.sortedBy { it.name }
     val countries = PackCatalog.countries(state.remote)
-    val searchEnabled = !state.loading && state.remote.isNotEmpty()
-    val searchActive = searchQuery.isNotBlank()
-    val displayedCountries = if (state.loading) emptyList() else PackCatalog.filterCountries(countries, searchQuery)
+    val searchEnabled = state.remote.isNotEmpty()
+    val searchActive = target == null && searchQuery.isNotBlank()
+    val targetedCountries = if (target == null) countries else countries.filter { it.countryCode == target.countryCode }
+        .mapNotNull { country -> country.packs.filter { OfflineDataGuidancePolicy.matches(it, target) }
+            .takeIf { it.isNotEmpty() }?.let { country.copy(packs = it) } }
+    val displayedCountries = if (state.loading && state.remote.isEmpty()) emptyList() else PackCatalog.filterCountries(targetedCountries, if (target == null) searchQuery else "")
+    androidx.compose.runtime.LaunchedEffect(target?.countryCode, target?.packId, target?.adminCode) {
+        if (target != null) {
+            searchQuery = ""
+            packListState.animateScrollToItem(0)
+        }
+    }
     androidx.compose.runtime.LaunchedEffect(Unit) { vm.refresh() }
     androidx.compose.runtime.LaunchedEffect(expandedRegionToReveal) {
         expandedRegionToReveal?.let { region ->
@@ -1418,11 +1461,11 @@ private fun PacksScreen(vm: PacksViewModel = viewModel()) {
             Spacer(Modifier.height(10.dp))
             OutlinedTextField(
                 value = searchQuery,
-                onValueChange = { searchQuery = it },
+                onValueChange = { onClearTarget(); searchQuery = it },
                 enabled = searchEnabled,
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
-                placeholder = { Text(if (state.loading) stringResource(R.string.offline_loading) else stringResource(R.string.offline_search)) },
+                placeholder = { Text(if (state.loading && state.remote.isEmpty()) stringResource(R.string.offline_loading) else stringResource(R.string.offline_search)) },
                 leadingIcon = { Icon(Icons.Default.Search, contentDescription = stringResource(R.string.offline_search_description)) },
                 trailingIcon = if (searchQuery.isNotEmpty()) {
                     { IconButton(onClick = { searchQuery = "" }) { Icon(Icons.Default.Close, stringResource(R.string.offline_clear_search)) } }
@@ -1431,16 +1474,40 @@ private fun PacksScreen(vm: PacksViewModel = viewModel()) {
                 },
             )
         }
+        target?.let { selection -> item(key = "offline-target") {
+            Text(stringResource(R.string.geo_showing_data, selection.label), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+            TextButton(onClick = onClearTarget) { Text(stringResource(R.string.geo_show_all)) }
+            if (!state.loading && displayedCountries.isEmpty()) Text(stringResource(R.string.geo_target_unavailable))
+        } }
         if (state.loading) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
         displayedCountries.forEach { country ->
+            if (target?.packId != null || target?.adminCode != null) {
+                item(key = "target-country-${country.countryCode}") {
+                    Text(country.countryName, style = MaterialTheme.typography.titleMedium)
+                }
+                items(country.packs, key = RemotePack::id) { pack ->
+                    StatePackRow(
+                        modifier = Modifier.border(1.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(12.dp)).semantics { selected = true },
+                        pack = pack,
+                        installedVersion = state.installed[pack.id]?.version,
+                        progress = state.progress[pack.id],
+                        busy = state.activeDownloads.contains(pack.id),
+                        batchActive = state.batch != null,
+                        onDownload = { vm.download(pack) },
+                        onCancel = { vm.cancelDownload(pack.id) },
+                        onRemoveRequested = { pendingRemoval = PackRemoval(pack.id, pack.name) },
+                    )
+                }
+                return@forEach
+            }
             val fullCountry = countries.first { it.countryCode == country.countryCode }
-            val countryExpanded = searchActive || country.countryCode in expandedCountryCodes
+            val countryExpanded = searchActive || target != null || country.countryCode in expandedCountryCodes
             item(key = "country-${country.countryCode}") {
                 CountryDownloadCard(
                     country = fullCountry,
                     state = state,
                     expanded = countryExpanded,
-                    expandable = !searchActive,
+                    expandable = !searchActive && target == null,
                     onToggle = {
                         expandedCountryCodes = if (country.countryCode in expandedCountryCodes) {
                             expandedCountryCodes - country.countryCode
@@ -1456,7 +1523,7 @@ private fun PacksScreen(vm: PacksViewModel = viewModel()) {
                 val displayedRegions = PackCatalog.regions(country.packs)
                 displayedRegions.forEach { displayedRegion ->
                     val fullRegion = regions.first { it.region == displayedRegion.region }
-                    val expanded = searchActive || displayedRegion.region in expandedRegions
+                    val expanded = searchActive || target?.adminCode != null || displayedRegion.region in expandedRegions
                     val installedRegionPacks = PackCatalog.installedPacks(fullRegion.packs, state.installed)
                     val regionBusy = state.batch != null || fullRegion.packs.any { state.activeDownloads.contains(it.id) }
                     item(key = "region-${country.countryCode}-${displayedRegion.region.manifestKey}") {
@@ -1464,7 +1531,7 @@ private fun PacksScreen(vm: PacksViewModel = viewModel()) {
                             regionPacks = fullRegion,
                             state = state,
                             expanded = expanded,
-                            expandable = !searchActive,
+                            expandable = !searchActive && target == null,
                             onToggle = {
                                 val wasExpanded = displayedRegion.region in expandedRegions
                                 expandedRegions = if (wasExpanded) expandedRegions - displayedRegion.region else expandedRegions + displayedRegion.region
@@ -1525,7 +1592,7 @@ private fun PacksScreen(vm: PacksViewModel = viewModel()) {
         if (!state.loading && state.remote.isNotEmpty() && !searchActive) {
             item { InfoCard(stringResource(R.string.offline_coverage_title), stringResource(R.string.offline_coverage_message)) }
         }
-        if (!state.loading && !searchActive) {
+        if (!state.loading && !searchActive && target == null) {
             items(installedOnly, key = { it.id }) { pack ->
                 InstalledOnlyPackRow(pack, state.batch != null) { pendingRemoval = PackRemoval(pack.id, pack.name) }
             }

@@ -18,6 +18,27 @@ import kotlin.math.sqrt
  * `latitude,longitude;latitude,longitude;...`.
  */
 class OfflineLocalityResolver(private val store: PackStore) {
+    /** Read-only pack coverage inspection for Home guidance. Caller uses an IO dispatcher. */
+    fun coverage(latitude: Double, longitude: Double, cancelled: () -> Unit = {}): PackCoverage {
+        val covering = mutableSetOf<String>()
+        val unreadable = mutableSetOf<String>()
+        val geographic = mutableSetOf<String>()
+        store.all().forEach { pack ->
+            cancelled()
+            try {
+                SQLiteDatabase.openDatabase(pack.filePath, null, SQLiteDatabase.OPEN_READONLY).use { db ->
+                    if (schemaVersion(db) == 3) {
+                        check(hasTables(db, "place", "place_geometry") && hasColumn(db, "place", "admin_level"))
+                        geographic += pack.id
+                        if (isInsidePackState(db, latitude, longitude)) covering += pack.id
+                    }
+                }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+            catch (_: Exception) { unreadable += pack.id }
+        }
+        return PackCoverage(covering, unreadable, geographic)
+    }
+
     fun hasGeographicPack(): Boolean = store.all().any { pack ->
         runCatching {
             SQLiteDatabase.openDatabase(pack.filePath, null, SQLiteDatabase.OPEN_READONLY).use { db ->
@@ -226,6 +247,8 @@ class OfflineLocalityResolver(private val store: PackStore) {
         return 6_371_000.0 * 2 * atan2(sqrt(a), sqrt(1 - a))
     }
 }
+
+data class PackCoverage(val coveringIds: Set<String>, val unreadableIds: Set<String>, val geographicIds: Set<String>)
 
 /** Place-type rules shared by geographic lookup SQL and its unit tests. */
 internal object LocalityLookupRules {

@@ -1,0 +1,31 @@
+{
+  "sources": [
+    {
+      "filename": "countries.geojson", "kind": 0, "uncertaintyMetres": 2000,
+      "source": "Natural Earth, vector release tag v5.1.2, 1:10m Admin-0 Countries",
+      "url": "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/v5.1.2/geojson/ne_10m_admin_0_countries.geojson",
+      "sha256": "239eec57ac17f100a11e2536cffc56752c318b50ae765b0918ff7aab4ce8f255",
+      "license": "Public domain", "licenseUrl": "https://www.naturalearthdata.com/about/terms-of-use/"
+    },
+    {
+      "filename": "india.geojson", "kind": 1, "uncertaintyMetres": 100,
+      "source": "geoBoundaries gbOpen IND ADM1 IND-ADM1-1811400, release commit 9469f09; DataMeet India community / Election Commission of India",
+      "url": "https://media.githubusercontent.com/media/wmgeolab/geoBoundaries/9469f09/releaseData/gbOpen/IND/ADM1/geoBoundaries-IND-ADM1.geojson",
+      "sha256": "47aa0acb6f69868daee49143276f3ce323f18905ba7d38d0a86816b405028736",
+      "license": "Creative Commons Attribution 2.5 India (CC BY 2.5 IN)",
+      "licenseUrl": "https://creativecommons.org/licenses/by/2.5/in/",
+      "metadataUrl": "https://www.geoboundaries.org/api/current/gbOpen/IND/ADM1/",
+      "note": "Metadata says 2011 represented, 2023 build; actual features include Telangana, Ladakh and merged Dadra and Nagar Haveli and Daman and Diu. Current 36-unit inventory checked against Government of India directory on 2026-10-18. Not survey-grade or a statement of territorial claims."
+    },
+    {
+      "filename": "disputed.geojson", "kind": 2, "uncertaintyMetres": 2000,
+      "source": "Natural Earth, vector release tag v5.1.2, 1:10m Admin-0 Breakaway / Disputed Areas",
+      "url": "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/v5.1.2/geojson/ne_10m_admin_0_disputed_areas.geojson",
+      "sha256": "9cafef8b7dfb6b164dc58f218f981f4ace9f716f6c03795d4c62d1ac9f3d50f5",
+      "license": "Public domain", "licenseUrl": "https://www.naturalearthdata.com/about/terms-of-use/"
+    }
+  ],
+  "administrativeReference": "https://www.india.gov.in/directory/web-directory/state-uts",
+  "administrativeInventoryReference": "https://sansad.in/getFile/annex/256/AU2797.pdf?source=pqars (pages 2-3, 28 states and 8 UTs)",
+  "modifications": "ISO alias reconciliation, English administrative display-name normalization, antimeridian unwrapping, sub-metre quantization, lossless delta/gzip packing and candidate grid. No geometry simplification."
+}

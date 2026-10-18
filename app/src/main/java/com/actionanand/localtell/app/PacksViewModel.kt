@@ -5,6 +5,9 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.actionanand.localtell.app.data.InstalledPack
 import com.actionanand.localtell.app.data.ManifestRepository
+import com.actionanand.localtell.app.data.ManifestCatalogCache
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import com.actionanand.localtell.app.data.PackCatalog
 import com.actionanand.localtell.app.data.PackDownloader
 import com.actionanand.localtell.app.data.PackStore
@@ -32,9 +35,10 @@ data class PackUiState(
 
 class PacksViewModel(app: Application) : AndroidViewModel(app) {
     private val store = PackStore(app)
-    private val manifestRepository = ManifestRepository()
+    private val catalogCache = ManifestCatalogCache(app)
+    private val manifestRepository = ManifestRepository(catalogCache)
     private val downloader = PackDownloader(store)
-    private val _state = MutableStateFlow(PackUiState(installed = store.all().associateBy { it.id }))
+    private val _state = MutableStateFlow(PackUiState())
     val state: StateFlow<PackUiState> = _state.asStateFlow()
     private val individualDownloads = mutableMapOf<String, Job>()
     private var batchDownload: Job? = null
@@ -42,13 +46,22 @@ class PacksViewModel(app: Application) : AndroidViewModel(app) {
     fun refresh() {
         if (_state.value.batch != null) return
         viewModelScope.launch {
-            _state.value = _state.value.copy(loading = true, error = null, refreshWarning = null, installed = installed())
+            _state.value = _state.value.copy(loading = true, error = null, refreshWarning = null)
+            val (cached, installedAtStart) = withContext(Dispatchers.IO) {
+                val cached = runCatching { manifestRepository.configuredSources().flatMap { source ->
+                    runCatching { catalogCache.read(source)?.let { manifestRepository.parse(it, source).packs } }.getOrNull().orEmpty()
+                } }.getOrDefault(emptyList())
+                cached to installed()
+            }
+            _state.value = _state.value.copy(installed = installedAtStart,
+                remote = _state.value.remote.ifEmpty { cached.distinctBy { it.id } })
             runCatching { manifestRepository.fetch() }
                 .onSuccess { result ->
+                    val installedNow = withContext(Dispatchers.IO) { installed() }
                     _state.value = _state.value.copy(
                         loading = false,
-                        remote = result.packs,
-                        installed = installed(),
+                        remote = (result.packs + _state.value.remote.filter { pack -> result.failedSources.any { it.countryCode == pack.countryCode } }).distinctBy { it.id },
+                        installed = installedNow,
                         refreshWarning = if (result.failedSources.isNotEmpty()) AppLanguageManager.getString(getApplication(), R.string.offline_partial_refresh) else null,
                     )
                 }

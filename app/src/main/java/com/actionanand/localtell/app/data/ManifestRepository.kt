@@ -10,7 +10,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.util.Locale
 
-class ManifestRepository {
+class ManifestRepository(private val cache: ManifestCatalogCache? = null) {
     suspend fun fetch(): ManifestFetchResult = withContext(Dispatchers.IO) {
         fetchSources(configuredSources(), ::fetch)
     }
@@ -55,7 +55,15 @@ class ManifestRepository {
         }
         try {
             check(connection.responseCode in 200..299) { "Manifest request failed: HTTP ${connection.responseCode}" }
-            return parse(connection.inputStream.bufferedReader().use { it.readText() }, source)
+            val text = connection.inputStream.bufferedReader().use { it.readText() }
+            val manifest = parse(text, source)
+            cache?.save(source, text)
+            return manifest
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            cache?.failed(source)
+            throw failure
         } finally {
             connection.disconnect()
         }
