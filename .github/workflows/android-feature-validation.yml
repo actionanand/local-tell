@@ -77,15 +77,30 @@ jobs:
       - name: Validate release compilation and R8
         run: gradle assembleRelease bundleRelease
 
-      - name: Verify debug APK exists
-        run: test -s app/build/outputs/apk/debug/app-debug.apk
+      - name: Prepare versioned debug APK
+        id: debug_apk
+        shell: bash
+        run: |
+          set -euo pipefail
+          version_name="$(python3 -c 'import json; print(json.load(open("android-version.json", encoding="utf-8"))["versionName"])')"
+          [[ "$version_name" =~ ^[A-Za-z0-9][A-Za-z0-9._+-]*$ ]]
+          formatted_version="${version_name//./-}"
+          apk_name="local-tell-${formatted_version}-debug.apk"
+          source_apk="app/build/outputs/apk/debug/app-debug.apk"
+          artifact_dir="app/build/outputs/feature-debug-artifact"
+          test -s "$source_apk"
+          mkdir -p "$artifact_dir"
+          cp "$source_apk" "$artifact_dir/$apk_name"
+          test -s "$artifact_dir/$apk_name"
+          echo "name=$apk_name" >> "$GITHUB_OUTPUT"
+          echo "version=$formatted_version" >> "$GITHUB_OUTPUT"
 
       - name: Upload debug APK
         if: ${{ success() }}
         uses: actions/upload-artifact@v4
         with:
-          name: localtell-feature-debug-${{ github.run_id }}-${{ github.run_attempt }}
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: local-tell-${{ steps.debug_apk.outputs.version }}-debug-${{ github.run_id }}-${{ github.run_attempt }}
+          path: app/build/outputs/feature-debug-artifact/${{ steps.debug_apk.outputs.name }}
           if-no-files-found: error
           retention-days: 14
 
