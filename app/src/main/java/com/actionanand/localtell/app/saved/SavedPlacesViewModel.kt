@@ -23,12 +23,15 @@ data class SavedPlacesUiState(
     val limitReached: Boolean = false,
     val preparedBackup: PreparedBackup? = null,
     val chooseBackupDestination: Boolean = false,
-    val cloudBackupOptions: Boolean = false,
 )
 
 /** One Activity-scoped owner shared by every bookmark entry point. IO never runs in composition. */
 class SavedPlacesViewModel(app: Application) : AndroidViewModel(app) {
     private val repository = SavedPlacesRepository(app)
+    private val snapshots by lazy {
+        BackupSnapshots(java.io.File(getApplication<Application>().filesDir, "saved-place-backups"))
+    }
+    private val snapshotCleanup = CoroutineScope(Dispatchers.IO)
     val places = repository.places
     private val mutableState = MutableStateFlow(SavedPlacesUiState())
     val state = mutableState.asStateFlow()
@@ -70,36 +73,62 @@ class SavedPlacesViewModel(app: Application) : AndroidViewModel(app) {
 
     fun prepareBackup() {
         operation {
-            val prepared = withContext(Dispatchers.IO) {
-                val app = getApplication<Application>()
-                val directory = java.io.File(app.cacheDir, "saved-place-backups")
-                check(directory.isDirectory || directory.mkdirs())
-                // Only disposable backups in this dedicated cache directory; never user documents.
-                directory.listFiles()?.filter { it.isFile && it.name.endsWith(".bklt") &&
-                    System.currentTimeMillis() - it.lastModified() > 86_400_000L }?.forEach { it.delete() }
-                val file = java.io.File(directory, BackupFileFormat.filename())
-                try {
-                    file.writeText(SavedPlacesBackupCodec.encode(repository.places.value), Charsets.UTF_8)
-                    PreparedBackup(file, androidx.core.content.FileProvider.getUriForFile(app, "${app.packageName}.backup-files", file))
-                } catch (failure: Exception) { file.delete(); throw failure }
-            }
-            mutableState.value = mutableState.value.copy(preparedBackup = prepared, chooseBackupDestination = true, cloudBackupOptions = false)
+            // Initialize private storage on IO too; the helper owns the snapshot until publication.
+            val snapshotStore = withContext(Dispatchers.IO) { snapshots }
+            snapshotStore.prepareForPublication(
+                content = { SavedPlacesBackupCodec.encode(repository.places.value) },
+                build = { snapshot ->
+                    val app = getApplication<Application>()
+                    PreparedBackup(snapshot, androidx.core.content.FileProvider.getUriForFile(app, "${app.packageName}.backup-files", snapshot.file))
+                },
+                publish = { prepared ->
+                    mutableState.value = mutableState.value.copy(preparedBackup = prepared, chooseBackupDestination = true)
+                },
+            )
         }
     }
 
-    fun destinationPickerStarted() { mutableState.value = mutableState.value.copy(chooseBackupDestination = false, cloudBackupOptions = false) }
-    fun cancelBackup() { mutableState.value = mutableState.value.copy(preparedBackup = null, chooseBackupDestination = false, cloudBackupOptions = false) }
-    fun backupShareFallback() { mutableState.value = mutableState.value.copy(chooseBackupDestination = false, cloudBackupOptions = true) }
-    fun backupSharingOpened() {
-        cancelBackup()
-        feedback(R.string.saved_backup_handoff) // Chooser launch is NOT proof of delivery or a save/upload.
+    fun destinationPickerStarted() { mutableState.value = mutableState.value.copy(chooseBackupDestination = false) }
+    fun cancelBackup() {
+        val prepared = mutableState.value.preparedBackup
+        mutableState.value = mutableState.value.copy(preparedBackup = null, chooseBackupDestination = false)
+        prepared?.snapshot?.let { snapshot ->
+            snapshot.release()
+            // An independent, finite IO task also completes if the Activity/ViewModel is cleared.
+            snapshotCleanup.launch { snapshots.discardUnused(snapshot) }
+        }
+    }
+
+    private fun finishSnapshotUse(snapshot: BackupSnapshot) {
+        snapshot.endUse()
+        // Retry a Cancel that arrived while preparation/IO still held its lease.
+        snapshotCleanup.launch { snapshots.discardUnused(snapshot) }
+    }
+
+    fun shareBackup(share: (PreparedBackup) -> Unit) {
+        val prepared = mutableState.value.preparedBackup ?: return
+        if (mutableState.value.busy || !prepared.snapshot.beginUse()) return
+        val job = operation(errorResource = R.string.saved_backup_destination_unavailable) {
+            // Persist the retention timestamp before a recipient can receive its URI.
+            withContext(Dispatchers.IO) { snapshots.retain(prepared.snapshot) }
+            if (mutableState.value.preparedBackup !== prepared) return@operation
+            prepared.snapshot.markUsed()
+            share(prepared)
+            cancelBackup()
+            feedback(R.string.saved_backup_handoff) // Chooser launch is not upload confirmation.
+        }
+        if (job == null) finishSnapshotUse(prepared.snapshot)
+        else job.invokeOnCompletion { finishSnapshotUse(prepared.snapshot) }
     }
 
     fun export(uri: Uri): kotlinx.coroutines.Job? {
         val prepared = mutableState.value.preparedBackup ?: run { documentUnavailable(); return null }
-        return operation(errorResource = R.string.saved_backup_write_error) {
+        if (mutableState.value.busy || !prepared.snapshot.beginUse()) return null
+        val job = operation(errorResource = R.string.saved_backup_write_error) {
             try {
                 withContext(Dispatchers.IO) {
+                    snapshots.retain(prepared.snapshot)
+                    prepared.snapshot.markUsed()
                     val resolver = getApplication<Application>().contentResolver
                     BackupDocumentIO.write(
                         displayName = { resolver.backupDisplayName(uri) },
@@ -110,8 +139,14 @@ class SavedPlacesViewModel(app: Application) : AndroidViewModel(app) {
                 cancelBackup()
                 feedback(R.string.saved_exported)
             } catch (cancelled: CancellationException) { throw cancelled }
-            catch (failure: Exception) { backupShareFallback(); throw failure }
+            catch (failure: Exception) {
+                mutableState.value = mutableState.value.copy(chooseBackupDestination = mutableState.value.preparedBackup != null)
+                throw failure
+            }
         }
+        if (job == null) finishSnapshotUse(prepared.snapshot)
+        else job.invokeOnCompletion { finishSnapshotUse(prepared.snapshot) }
+        return job
     }
 
     fun inspectBackup(uri: Uri) {
@@ -135,7 +170,10 @@ class SavedPlacesViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun documentUnavailable() { feedback(R.string.saved_error) }
-    fun backupDestinationUnavailable() { feedback(R.string.saved_backup_destination_unavailable) }
+    fun backupDestinationUnavailable() {
+        mutableState.value = mutableState.value.copy(chooseBackupDestination = mutableState.value.preparedBackup != null)
+        feedback(R.string.saved_backup_destination_unavailable)
+    }
     fun restorePickerUnavailable() { feedback(R.string.saved_restore_picker_unavailable) }
 
     fun restore() {
@@ -150,6 +188,10 @@ class SavedPlacesViewModel(app: Application) : AndroidViewModel(app) {
 
     override fun onCleared() {
         super.onCleared()
+        mutableState.value.preparedBackup?.snapshot?.let { snapshot ->
+            snapshot.release()
+            snapshotCleanup.launch { snapshots.discardUnused(snapshot) }
+        }
         // The mutex waits for any cancelled IO operation's transaction/finally block to finish.
         CoroutineScope(Dispatchers.IO).launch { repository.close() }
     }

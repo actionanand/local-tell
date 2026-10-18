@@ -91,14 +91,18 @@ fun SavedPlacesScreen(onOpen: (SavedPlace) -> Unit, vm: SavedPlacesViewModel = v
     val export = rememberLauncherForActivityResult(CreateBackupDocument()) { uri ->
         if (uri == null) vm.cancelBackup() else vm.export(uri)
     }
-    val restore = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+    // One-time import: read while the transient grant is valid, retain decoded data for preview.
+    val restore = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         uri?.let(vm::inspectBackup)
     }
-    fun saveBackup(localOnly: Boolean) {
+    val restoreDeviceFile = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let(vm::inspectBackup)
+    }
+    fun saveBackup() {
         val prepared = state.preparedBackup ?: return
         vm.destinationPickerStarted()
-        runCatching { export.launch(BackupDestination(prepared.filename, localOnly)) }
-            .onFailure { vm.backupDestinationUnavailable(); vm.backupShareFallback() }
+        runCatching { export.launch(prepared.filename) }
+            .onFailure { vm.backupDestinationUnavailable() }
     }
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -128,8 +132,11 @@ fun SavedPlacesScreen(onOpen: (SavedPlace) -> Unit, vm: SavedPlacesViewModel = v
                     }) { Text(stringResource(R.string.saved_export)) }
                     OutlinedButton(enabled = state.loaded && !state.busy, onClick = {
                         // Extensions are not reliable MIME types. Validate DISPLAY_NAME and content afterward.
-                        runCatching { restore.launch(arrayOf("*/*")) }.onFailure { vm.restorePickerUnavailable() }
+                        runCatching { restore.launch("*/*") }.onFailure { vm.restorePickerUnavailable() }
                     }) { Text(stringResource(R.string.saved_restore)) }
+                    TextButton(enabled = state.loaded && !state.busy, onClick = {
+                        runCatching { restoreDeviceFile.launch(arrayOf("*/*")) }.onFailure { vm.restorePickerUnavailable() }
+                    }) { Text(stringResource(R.string.saved_restore_device_file)) }
                     TextButton(enabled = !state.busy && places.isNotEmpty(), onClick = {
                         selection = selection.requestRemoval(places.map { it.id }, all = true)
                     }) { Text(stringResource(R.string.saved_remove_all)) }
@@ -186,29 +193,23 @@ fun SavedPlacesScreen(onOpen: (SavedPlace) -> Unit, vm: SavedPlacesViewModel = v
             }
         }
     }
-    state.preparedBackup?.takeIf { state.chooseBackupDestination || state.cloudBackupOptions }?.let { prepared ->
+    state.preparedBackup?.takeIf { state.chooseBackupDestination }?.let { prepared ->
         AlertDialog(
             onDismissRequest = vm::cancelBackup,
-            title = { Text(stringResource(if (state.cloudBackupOptions) R.string.saved_backup_options else R.string.saved_backup_ready)) },
+            title = { Text(stringResource(R.string.saved_backup_ready)) },
             text = {
                 Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(prepared.filename, style = MaterialTheme.typography.bodyMedium)
                     Text(stringResource(R.string.saved_backup_choose))
                     Text(
-                        stringResource(if (state.cloudBackupOptions) R.string.saved_backup_cloud_help else R.string.saved_backup_local_help),
+                        stringResource(R.string.saved_backup_folder_help),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    if (state.chooseBackupDestination) {
-                        OutlinedButton(enabled = !state.busy, onClick = { saveBackup(true) }) { Text(stringResource(R.string.saved_backup_local)) }
-                        OutlinedButton(enabled = !state.busy, onClick = vm::backupShareFallback) { Text(stringResource(R.string.saved_backup_cloud)) }
-                    } else {
-                        OutlinedButton(enabled = !state.busy, onClick = { saveBackup(false) }) { Text(stringResource(R.string.saved_backup_provider)) }
-                        TextButton(enabled = !state.busy, onClick = {
-                            runCatching { sharePreparedBackup(context, prepared, shareTitle) }
-                                .onSuccess { vm.backupSharingOpened() }.onFailure { vm.backupDestinationUnavailable() }
-                        }) { Text(stringResource(R.string.saved_backup_share)) }
-                    }
+                    OutlinedButton(enabled = !state.busy, onClick = { saveBackup() }) { Text(stringResource(R.string.saved_backup_local)) }
+                    OutlinedButton(enabled = !state.busy, onClick = {
+                        vm.shareBackup { backup -> sharePreparedBackup(context, backup, shareTitle) }
+                    }) { Text(stringResource(R.string.saved_backup_share)) }
                 }
             },
             confirmButton = { TextButton(onClick = vm::cancelBackup) { Text(stringResource(R.string.cancel)) } },

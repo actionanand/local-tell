@@ -290,12 +290,9 @@
     <string name="saved_limit_count">%2$d स्थानेषु %1$d स्थानानि सञ्चितानि</string>
     <string name="saved_limit_message">अधिकतमानि ३० स्थानानि सञ्चितानि। नूतनस्थानं सञ्चेतुं पूर्वसञ्चितं स्थानम् एकम् अपनयतु।</string>
     <string name="saved_manage">सञ्चितस्थानानि प्रबन्धय</string>
-    <string name="saved_backup_choose">अस्यां .bklt प्रतिलिपिसञ्चिकायां सञ्चितस्थानानां निर्देशाङ्काः सन्ति; इयं गूढीकृता नास्ति। सञ्चयस्थानं वृणु।</string>
+    <string name="saved_backup_choose">अस्यां प्रतिलिपौ निर्देशाङ्काः सन्ति; इयं गूढीकृता नास्ति।</string>
     <string name="saved_backup_local">उपकरणे सञ्चिनु</string>
-    <string name="saved_backup_cloud">मेघसञ्चये आरोपय</string>
     <string name="saved_backup_share">प्रतिलिपिं संविभज</string>
-    <string name="saved_backup_options">मेघसञ्चयस्थानं वृणु</string>
-    <string name="saved_backup_provider">सञ्चयचयनपटलम् उद्घाटय</string>
     <string name="saved_backup_handoff">संविभागपटलम् उद्घाटितम्। अन्यः अनुप्रयोगः प्रतिलिपिं सञ्चिनोति वा आरोपयति वा इति LocalTell निश्चेतुं न शक्नोति।</string>
     <string name="saved_backup_busy">सञ्चितस्थानसम्बद्धम् अन्यत् कार्यं प्रचलति। तत्समाप्तेः अनन्तरं प्रतिलिपिं पुनरुद्घाटय।</string>
     <string name="saved_backup_invalid">वैधां LocalTell .bklt प्रतिलिपिं पठितुं न शक्यते। सञ्चिकानाम विषयान् चयनितसञ्चयसेवायाः अभिगमं च परीक्षस्व। सञ्चितस्थानानि न परिवर्तितानि।</string>
@@ -335,10 +332,10 @@
     <string name="saved_share_numeric">अङ्कसङ्केतं संविभज</string>
     <string name="saved_share_short">लघुसङ्केतं संविभज</string>
     <string name="saved_backup_ready">प्रतिलिपिः सज्जा</string>
-    <string name="saved_backup_local_help">अग्रिमचयनपटले उपकरणसञ्चयं वृणु। अनुशंसितसञ्चयक्रमः: AR Apps / LocalTell / Backups। सुविधा अस्ति चेत् चयनपटले एव एतेषां सञ्चयकोशानां निर्माणं कुरु; LocalTell स्वयमेव तान् न निर्माति।</string>
-    <string name="saved_backup_cloud_help">अग्रिमचयनपटले उपकरणसञ्चयः मेघसञ्चयश्च दृश्येताम्। स्वमेघसेवां वृणु; सुविधा अस्ति चेत् AR Apps / LocalTell / Backups इति सञ्चयकोशान् निर्माहि अथवा उद्घाटय। सेवा न दृश्यते चेत् तस्याः अनुप्रयोगं संस्थापय अथवा प्रविश; अथवा प्रतिलिपिं संविभज। उपयुक्ताः अनुप्रयोगाः एव दृश्यन्ते। प्राप्तिकर्ता अनुप्रयोगः आरोपणं समापयति; संविभागपटलस्य उद्घाटनम् आरोपणस्य पुष्टिः नास्ति।</string>
-    <string name="saved_restore_help">उपकरणसञ्चयात् मेघसञ्चयात् वा .bklt सञ्चिकां वृणु। मेघसञ्चिका चयनपटले न लभ्यते चेत् प्रथमं ताम् अवतारय, ततः उपकरणस्थां सञ्चिकां पुनः स्थापय। पुष्टेः पूर्वं मेलनविवरणं द्रष्टुं शक्यते।</string>
+    <string name="saved_restore_help">उपलब्धेन अनुप्रयोगेण .bklt सञ्चिकां वृणु अथवा उपकरणसञ्चिकाचयनं कुरु। मेघसञ्चिकाम् उद्घाटयितुं न शक्यते चेत् प्रथमं ताम् अवतारय। पुष्टेः पूर्वं मेलनविवरणं पश्य।</string>
     <string name="saved_backup_write_error">प्रतिलिपेः सञ्चयः अथवा तस्याः .bklt नाम्नः सत्यापनं न शक्यम्। रिक्तस्थानम् अभिगमं सम्पर्कं च परीक्ष्य पुनः प्रयतस्व। चयनितस्थाने अपूर्णसञ्चिका भवेत्।</string>
     <string name="saved_backup_destination_unavailable">उपयुक्तः सञ्चयस्य संविभागस्य वा अनुप्रयोगः उद्घाटयितुं न शक्यते। उपयुक्तम् अनुप्रयोगं संस्थापय अथवा सक्रियं कुरु; अथवा अन्यं सञ्चयविकल्पं वृणु।</string>
-    <string name="saved_restore_picker_unavailable">सञ्चिकाचयनपटलम् उद्घाटयितुं न शक्यते। सञ्चिकासेवां सञ्चिकाप्रबन्धकं वा सक्रियं कृत्वा प्रतिलिपेः पुनःस्थापनं पुनः प्रयतस्व।</string>
+    <string name="saved_restore_picker_unavailable">सञ्चिकाचयनपटलम् उद्घाटयितुं न शक्यते। अन्यं सञ्चिकानुप्रयोगं प्रयुङ्क्ष्व अथवा .bklt सञ्चिकाम् अवतार्य उपकरणात् पुनः स्थापय।</string>
+    <string name="saved_backup_folder_help">अनुशंसितः क्रमः: AR Apps / LocalTell / Backups। सुविधा अस्ति चेत् प्राप्तिकर्तरि अनुप्रयोगे विद्यमानं सञ्चयकोशं वृणु। संविभागेन सञ्चयकोशस्य निर्धारणम् आरोपणस्य पुष्टिश्च न शक्यते।</string>
+    <string name="saved_restore_device_file">उपकरणसञ्चिकां वृणु</string>
 </resources>

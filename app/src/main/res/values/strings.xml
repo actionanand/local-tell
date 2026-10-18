@@ -240,12 +240,9 @@
     <string name="saved_limit_count">%1$d of %2$d places saved</string>
     <string name="saved_limit_message">You\'ve reached the maximum of 30 saved places. Remove an existing place to save a new one.</string>
     <string name="saved_manage">Manage Saved Places</string>
-    <string name="saved_backup_choose">This .bklt backup contains saved location coordinates and is not encrypted. Choose where to save it.</string>
+    <string name="saved_backup_choose">This backup contains coordinates and is not encrypted.</string>
     <string name="saved_backup_local">Save locally</string>
-    <string name="saved_backup_cloud">Upload to cloud</string>
     <string name="saved_backup_share">Share Backup</string>
-    <string name="saved_backup_options">Choose cloud destination</string>
-    <string name="saved_backup_provider">Open storage picker</string>
     <string name="saved_backup_handoff">Sharing opened. LocalTell cannot confirm whether another app saves or uploads the backup.</string>
     <string name="saved_backup_busy">Another Saved Places operation is running. Please open the backup again when it finishes.</string>
     <string name="saved_backup_invalid">Could not read a valid LocalTell .bklt backup. Check the filename, contents and access to the selected storage provider. Saved places have not been changed.</string>
@@ -285,10 +282,10 @@
     <string name="saved_share_numeric">Share numeric code</string>
     <string name="saved_share_short">Share short code</string>
     <string name="saved_backup_ready">Backup ready</string>
-    <string name="saved_backup_local_help">In the next picker, choose device storage. Preferred folder: AR Apps / LocalTell / Backups. Create these folders in the picker if supported; LocalTell does not create them automatically.</string>
-    <string name="saved_backup_cloud_help">The next picker can show both local and cloud storage. Choose your cloud provider and, if supported, create or open AR Apps / LocalTell / Backups. If the provider is missing, install or sign in to its app, or use Share Backup. Only compatible apps appear. The receiving app completes the upload; opening Share does not confirm it.</string>
-    <string name="saved_restore_help">Choose a .bklt file from device or cloud storage. If a cloud file is not available in the picker, download it first and restore the local file. You will review the merge before confirming.</string>
+    <string name="saved_restore_help">Choose a .bklt file using an available app, or use Choose device file. If a cloud file cannot be opened, download it first. Review the merge before confirming.</string>
     <string name="saved_backup_write_error">The backup could not be saved or its .bklt filename could not be verified. Check storage space, access and connection, then try again. The destination may contain an incomplete file.</string>
     <string name="saved_backup_destination_unavailable">No compatible storage or sharing app could be opened. Install or enable a compatible app, or choose another save option.</string>
-    <string name="saved_restore_picker_unavailable">The file picker could not be opened. Enable a document provider or file manager, then try Restore Backup again.</string>
+    <string name="saved_restore_picker_unavailable">The file picker could not be opened. Try another file app, or download the .bklt and restore it locally.</string>
+    <string name="saved_backup_folder_help">Recommended: AR Apps / LocalTell / Backups. Choose an existing folder in the receiving app if supported. Sharing cannot set the folder or confirm upload.</string>
+    <string name="saved_restore_device_file">Choose device file</string>
 </resources>

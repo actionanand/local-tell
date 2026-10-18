@@ -11,17 +11,18 @@ import androidx.activity.result.contract.ActivityResultContract
 import androidx.core.content.IntentCompat
 import java.io.File
 
-data class PreparedBackup(val file: File, val shareUri: Uri) { val filename: String get() = file.name }
-data class BackupDestination(val filename: String, val localOnly: Boolean)
-
-class CreateBackupDocument : ActivityResultContract<BackupDestination, Uri?>() {
-    override fun createIntent(context: Context, input: BackupDestination): Intent {
-        BackupFileFormat.requireFilename(input.filename)
+class PreparedBackup internal constructor(internal val snapshot: BackupSnapshot, val shareUri: Uri) {
+    val file: File get() = snapshot.file
+    val filename: String get() = file.name
+}
+class CreateBackupDocument : ActivityResultContract<String, Uri?>() {
+    override fun createIntent(context: Context, input: String): Intent {
+        BackupFileFormat.requireFilename(input)
         return Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
             type = BackupFileFormat.MIME_TYPE
-            putExtra(Intent.EXTRA_TITLE, input.filename)
-            putExtra(Intent.EXTRA_LOCAL_ONLY, input.localOnly)
+            putExtra(Intent.EXTRA_TITLE, input)
+            putExtra(Intent.EXTRA_LOCAL_ONLY, true)
         }
     }
 
@@ -31,7 +32,7 @@ class CreateBackupDocument : ActivityResultContract<BackupDestination, Uri?>() {
 
 /** Must run on IO: providers may be remote. No URI path or MIME-based filename fallback. */
 internal fun ContentResolver.backupDisplayName(uri: Uri): String {
-    require(uri.scheme == ContentResolver.SCHEME_CONTENT)
+    BackupDocumentIO.requireContentUri(uri.scheme, uri.authority)
     val name = query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
         if (cursor.moveToFirst()) cursor.getString(cursor.getColumnIndexOrThrow(OpenableColumns.DISPLAY_NAME)) else null
     }

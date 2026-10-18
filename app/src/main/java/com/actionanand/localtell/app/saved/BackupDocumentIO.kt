@@ -10,6 +10,11 @@ import kotlinx.coroutines.ensureActive
  * Provider calls may block; cancellation is checked between calls and all opened streams close.
  */
 internal object BackupDocumentIO {
+    /** GET_CONTENT may return arbitrary URI types. Never turn a supplied path into a File. */
+    fun requireContentUri(scheme: String?, authority: String?) {
+        require(scheme == "content" && !authority.isNullOrBlank()) { "Expected a content provider URI" }
+    }
+
     suspend fun write(
         displayName: () -> String?,
         openInput: () -> InputStream,

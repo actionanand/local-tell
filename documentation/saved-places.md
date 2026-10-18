@@ -69,25 +69,18 @@ for emergency response or safety-critical navigation.
 
 ## Export and restore
 
-Manual Backup first prepares a private snapshot on IO, then asks **Save locally**
-or **Upload to cloud** in **Backup ready**, with the actual filename and Cancel.
-Local saving uses Android's document picker with local-only
-providers requested. Cloud options offer compatible document providers or a
-read-only FileProvider sharing fallback for apps without document-provider support.
-No cloud account or provider SDK is added to LocalTell.
+Manual Backup prepares a private snapshot on IO, then shows a compact **Backup
+ready** dialog with its filename, unencrypted-coordinate warning, **Save locally**,
+**Share Backup** and Cancel. Save locally uses ACTION_CREATE_DOCUMENT with local
+storage requested. Share Backup immediately opens Android's Sharesheet using a
+read-only FileProvider URI. There is no intermediate cloud destination dialog.
+Only compatible receiving apps offered by Android can be chosen; LocalTell does
+not assume Google Drive, Dropbox or any other provider is installed or available.
 
-The preferred folder convention is **AR Apps / LocalTell / Backups** for local
-or cloud storage. Users navigate to or create these folders using the provider's
-picker controls where supported. LocalTell never creates cloud folders itself or
-claims that a provider has created them. The cloud action opens **Choose cloud
-destination**, explaining that Android's storage picker can show both local and
-cloud destinations; there is no reliable cloud-only filter. **Open storage picker**
-uses ACTION_CREATE_DOCUMENT with local-only disabled. Only the providers exposed
-by Android appear; an installed cloud app does not necessarily implement a document
-provider. **Share Backup** is the alternative when the app can receive files but
-does not expose a document provider. If neither mechanism is available, enable a
-compatible storage/sharing app or use another destination. No provider inventory,
-OAuth, account registration, provider SDK, background upload or sync is added.
+The recommended folder is **AR Apps / LocalTell / Backups**. In a receiving cloud
+app, choose an existing destination folder when its UI supports this. Generic
+sharing cannot enforce that path, create folders, or confirm an upload. LocalTell
+adds no cloud account, provider SDK, OAuth, backend, background upload or sync.
 
 Every prepared, exported and shared file has a `.bklt` extension, for example
 `LocalTell-18-Oct-2026-08-30PM-<UUID>.bklt`. English month names and the timestamp
@@ -95,8 +88,7 @@ are human-readable; a UUID prevents collisions. No `.json` backup is generated.
 The user/provider's actual display name must still end in `.bklt` before any bytes
 are written, and is checked again after close. Only successful output-stream write,
 flush and close plus that final name check produce the document-written message.
-A document
-provider may synchronize later; this does not promise server-side durability.
+A document provider may synchronize later; this does not promise server-side durability.
 Sharing reports only that its chooser opened, never delivery or a successful
 save/upload by a receiving app (the user can also cancel the chooser).
 Cancelling a picker does not report success or an error. A write, flush, close or
@@ -105,8 +97,34 @@ and offers storage/share alternatives. An interrupted provider write can leave a
 incomplete destination document, which the user may remove through the provider.
 Cancellation is checked between stream operations, and opened streams are closed.
 A blocking provider call cannot be interrupted immediately; it runs on IO and does
-not block navigation. Private snapshot cache files may be
-reclaimed by Android; files older than 24 hours are pruned on the next preparation.
+not block navigation. New snapshots stay in a dedicated private files directory,
+not the disposable cache. Preparing another backup opportunistically deletes only
+LocalTell-generated `.bklt` snapshots directly inside that directory when they are
+**strictly older than 30 days**. Before sharing or exporting, the retention timestamp
+is renewed on IO, before the URI/stream is handed off. Closing the chooser,
+navigating away or preparing another backup does not delete a recent shared file.
+This permits delayed reads while the recipient's temporary URI grant remains valid;
+LocalTell does not extend that grant or know when a recipient finishes.
+
+Explicitly cancelling a never-used prepared snapshot (including cancelling its save
+picker) removes that private file on IO; clearing its Activity owner also releases
+an unused snapshot. Once a share handoff or export write is attempted, its snapshot
+is retained conservatively, even if the attempt fails or the receiving chooser is
+cancelled. In-memory leases protect active operations and a currently prepared
+snapshot, including an open destination picker, from age cleanup across Activity
+owners in the same process. Lease release also
+runs when an operation is cancelled before its coroutine starts. Cancel during the
+pre-share IO step prevents launching Share and deletes the unused file after the
+lease ends. Unknown/future
+timestamps are retained. No scheduler or automatic cloud cleanup is added; if the
+app does not prepare another backup, old snapshots remain until that opportunity
+or clearing/uninstalling app data. Thirty days bounds age at cleanup, not the number
+of backups a user can create during that period.
+
+Cleanup never recurses, follows symlinks, touches other filenames, or deletes
+user-exported local/cloud documents. The old cache FileProvider root remains
+readable for earlier handoffs; it is not scanned by the new private-files cleanup,
+and new backups are not written there.
 
 Internal content remains versioned UTF-8 JSON. New schemaVersion 2 backups have
 a SHA-256 checksum of the exact payload bytes for accidental corruption detection
@@ -119,16 +137,25 @@ saved timestamp, source and accuracy, but no cellular or Journey data.
 Local files work without internet. A cloud document provider selected by the user
 may itself require network access; LocalTell does not upload backups independently.
 
-**Restore Backup** uses the document picker, including compatible cloud providers.
-If an app cannot expose the file there, download its `.bklt` first and choose the
-local copy. Android Open/Share into LocalTell also supports content URIs advertised
+**Restore Backup** uses AndroidX's GetContent contract (ACTION_GET_CONTENT with
+CATEGORY_OPENABLE) to import once from an available file/content app. **Choose
+device file** uses OpenDocument (ACTION_OPEN_DOCUMENT) as an explicit fallback.
+Both immediately read and validate the transient content URI on IO, then keep
+decoded records in memory for the confirmation preview. No persistent URI access
+is requested. Provider availability differs between devices/apps; GET_CONTENT is
+not a guarantee that any cloud provider appears. If a cloud app cannot return a
+readable document, download the `.bklt` first and select that local copy.
+This follows Android's [one-time import guidance](https://developer.android.com/guide/components/intents-common#GetFile).
+Android Open/Share into LocalTell also supports content URIs advertised
 as `application/octet-stream` or `application/vnd.localtell.backup`. The previous
 `*/*` external filters are removed so LocalTell is no longer advertised for every
 text/image/archive type. Binary files other than backups can still appear because
 Android cannot filter opaque content URIs by their DISPLAY_NAME suffix. Some
 providers advertise `.bklt` as a different MIME type; use Restore Backup for those
 instead of relying on an external Open/Share entry. All sources
-call the same validator. It queries the provider's actual `DISPLAY_NAME` on IO;
+call the same validator. Only `content://` URIs with a nonempty provider authority
+are accepted; `file://`, network URLs, malformed/unsupported URI types and missing
+grants cannot be interpreted as local filesystem paths. It queries the provider's actual `DISPLAY_NAME` on IO;
 missing names, `.json`, `.txt`, `.zip`, path-like names and other extensions are
 rejected regardless of MIME type. Renaming arbitrary data to `.bklt` does not bypass
 strict UTF-8, JSON syntax, duplicate-key, bounded-nesting or content checks.
@@ -180,6 +207,10 @@ renaming after close, open/read/write/flush/close failures, cancellation cleanup
 malformed UTF-8 and size limits. It runs in the JVM suite, not in the host scripts.
 Host contract checks cover the manifest, private URI grants, picker wiring and
 translation parity; they do not simulate Android's document UI or a cloud server.
+`BackupSnapshotsTest` covers the 30-day boundary, renewed handoff timestamp and
+availability after store recreation, cancellation, active/picker protection,
+coroutine pre-start cancellation, collision safety, and cleanup's directory/name/
+symlink boundaries. Run these new JVM tests in Android CI.
 
 Device release gate (not claimed as passed by source review):
 
@@ -210,19 +241,23 @@ Sanskrit, light/dark mode and large font/TalkBack. CI does not verify cloud apps
    `AR Apps / LocalTell / Backups`, and save. Reopen the actual document and verify
    the filename and valid contents. Cancel at every picker/dialog; no success/error
    should be reported for cancellation and no bookmark should change.
-2. Google Drive: install/sign in, open Upload to cloud, and look for Drive in the
-   system picker. If available, select the preferred folder and save. Verify the
-   remote file in Drive after synchronization, not only the LocalTell message.
-   Select it for restore, inspect all five preview counts and Cancel, then confirm
-   a merge. Existing IDs, coordinates and timestamps must remain unchanged.
-3. Dropbox: test whether this device/app version exposes a document provider.
-   If it does, follow the same picker test. Otherwise choose Share Backup, select
-   Dropbox if offered, and finish its own upload UI. LocalTell reports only that
-   sharing opened. Cancel the chooser and receiving-app flow; never claim upload
-   success. Retrieve/download the `.bklt` and restore it with the file picker.
+2. Google Drive: install/sign in, choose Share Backup and select Drive if offered.
+   Pick an existing preferred folder in Drive if supported, then finish its upload
+   UI. Verify the remote file in Drive. LocalTell reports only that sharing opened.
+   Cancel both the chooser and Drive UI; never report completed upload. Delay the
+   receiving-app read, rotate/navigate away and prepare another backup; the original
+   shared snapshot must still exist. Test both Restore Backup and Choose device
+   file. If Drive cannot supply a readable URI, download locally and restore.
+   On a debug/test installation, also verify an unused cancelled snapshot is
+   removed, recent shared snapshots survive, and snapshots older than 30 days are
+   removed only when another backup is prepared. Never age or delete user documents.
+3. Repeat sharing and both restore routes with Dropbox if actually supported on
+   the device. Inspect all five preview counts and Cancel, then confirm a merge.
+   Existing IDs, coordinates and timestamps must remain unchanged. GET_CONTENT
+   and OPEN_DOCUMENT may expose different choices; record what actually appears.
 4. Repeat with OneDrive, Koofr, MEGA, Nextcloud/ownCloud or another provider
-   actually installed. Record app/Android version and which of document creation,
-   file selection, Open/Share receipt and upload is supported; do not assume all
+   actually installed. Record app/Android version and which of file selection,
+   Open/Share receipt and upload is supported; do not assume all
    mechanisms exist for every provider. No-provider and no-share-target devices
    must have clear guidance; opening a chooser is never a delivery confirmation.
 5. Test offline cloud files, signed-out/revoked access, full storage, read-only
@@ -233,6 +268,8 @@ Sanskrit, light/dark mode and large font/TalkBack. CI does not verify cloud apps
    invalid UTF-8, truncation, checksum corruption, unsupported schemas, duplicate
    IDs and over-capacity merges. No partial import. Check binary Open/Share URI
    grants in foreground and cold start, as well as `.bklt` files whose provider
-   uses a different MIME type via Restore Backup. Cancel and retry after rotation,
+   uses a different MIME type via both restore entry points. Return a file URI,
+   missing authority, inaccessible content URI or missing DISPLAY_NAME and check
+   safe rejection without a filesystem read. Cancel and retry after rotation,
    backgrounding or process death; if a prepared snapshot has been lost, prepare
    again rather than reporting success.

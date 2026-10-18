@@ -16,6 +16,38 @@ class BackupDocumentIOTest {
         SavedPlacesBackupCodec.decode(legacyBackupFixture().toString()),
     ).toByteArray(Charsets.UTF_8)
 
+    @Test fun `content provider URIs work with opaque document IDs rather than path filenames`() {
+        for (text in listOf("content://cloud.provider/document/123", "content://files.provider/item/a%2Fb")) {
+            val uri = java.net.URI(text)
+            BackupDocumentIO.requireContentUri(uri.scheme, uri.authority)
+        }
+    }
+
+    @Test fun `unsupported and malformed URI components fail before querying names or opening streams`() {
+        val invalid = listOf(null to null, "" to "", "file" to null, "https" to "example.com",
+            "content" to null, "content" to "", "content" to " ")
+        for ((scheme, authority) in invalid) {
+            var providerAccessed = false
+            assertThrows(IllegalArgumentException::class.java) {
+                runBlocking {
+                    BackupDocumentIO.requireContentUri(scheme, authority)
+                    BackupDocumentIO.read({ providerAccessed = true; "backup.bklt" }, { providerAccessed = true; Input(backupBytes()) })
+                }
+            }
+            assertFalse(providerAccessed)
+        }
+    }
+
+    @Test fun `inaccessible provider filename fails without opening a document`() {
+        var streamOpened = false
+        assertThrows(SecurityException::class.java) {
+            runBlocking {
+                BackupDocumentIO.read({ throw SecurityException("Grant unavailable") }, { streamOpened = true; Input(backupBytes()) })
+            }
+        }
+        assertFalse(streamOpened)
+    }
+
     @Test fun `local and remote document streams roundtrip the identical backup without changing metadata`() = runBlocking {
         val bytes = backupBytes()
         for (name in listOf("LocalTell-local.bklt", "தமிழ்-स्थानम्-cloud.bklt")) {
