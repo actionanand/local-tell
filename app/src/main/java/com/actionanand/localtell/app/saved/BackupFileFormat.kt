@@ -6,6 +6,8 @@ import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import java.util.UUID
+import com.actionanand.localtell.app.backup.AppBackupCodec
+import com.actionanand.localtell.app.backup.AppBackupData
 
 /** The same boundary is used for local documents, cloud documents and external intents. */
 object BackupFileFormat {
@@ -24,11 +26,11 @@ object BackupFileFormat {
         require(name.none { it == '/' || it == '\\' || it.isISOControl() })
     }
 
-    fun decode(name: String?, bytes: ByteArray): List<SavedPlace> {
+    fun decode(name: String?, bytes: ByteArray): AppBackupData {
         requireFilename(name)
-        require(bytes.size <= SavedPlacesBackupCodec.MAX_BYTES)
+        require(bytes.size <= AppBackupCodec.MAX_BYTES)
         val utf8 = Charsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT)
             .onUnmappableCharacter(CodingErrorAction.REPORT)
-        return SavedPlacesBackupCodec.decode(utf8.decode(ByteBuffer.wrap(bytes)).toString())
+        return AppBackupCodec.decode(utf8.decode(ByteBuffer.wrap(bytes)).toString())
     }
 }

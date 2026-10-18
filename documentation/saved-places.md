@@ -14,7 +14,7 @@ It fills after the save succeeds and a brief confirmation appears. Tapping a fil
 bookmark asks before removal. Cancel, Back and outside dismissal leave it saved.
 Bookmark status is shared across these screens by one retained Activity ViewModel.
 
-More → Saved Places lists the newest saves first and shows the count out of 30.
+More → Saved Places lists the newest saves first and shows the count out of the configured Saved Places maximum (default 30).
 Tap a row to open it under Easy → Find Location; the result scrolls into view.
 Stored metadata is shown even if the original geographic pack was removed.
 Opening does not acquire GPS, access a pack, or contact a network service.
@@ -29,8 +29,9 @@ fabricated from a cellular identity. No cellular identifiers are stored in bookm
 
 ## Limit and duplicate policy
 
-The limit is 30; reaching it never evicts an older place. Attempting to add a new
-place at capacity opens a localized limit dialog with the 30/30 count, Cancel and
+The build-time `app-config.json` property `maxSavedPlaces` sets the limit (default 30);
+reaching it never evicts an older place. Attempting to add a new
+place at capacity opens a localized limit dialog with the current/configured count, Cancel and
 Manage Saved Places. An existing filled bookmark still offers confirmed removal,
 not a limit dialog. Existing bookmarks win
 on restore. Named results with the same normalized name and hierarchy within
@@ -69,103 +70,16 @@ for emergency response or safety-critical navigation.
 
 ## Export and restore
 
-Manual Backup prepares a private snapshot on IO, then shows a compact **Backup
-ready** dialog with its filename, unencrypted-coordinate warning, **Save locally**,
-**Share Backup** and Cancel. Save locally uses ACTION_CREATE_DOCUMENT with local
-storage requested. Share Backup immediately opens Android's Sharesheet using a
-read-only FileProvider URI. There is no intermediate cloud destination dialog.
-Only compatible receiving apps offered by Android can be chosen; LocalTell does
-not assume Google Drive, Dropbox or any other provider is installed or available.
+All manual backup/restore controls now live under **More → Settings → Backup &
+Restore**, not in Saved Places. A single version-1 `.bklt` file contains Saved
+Places and retained Journey records. The former Saved Places-only backup formats
+are intentionally unsupported; this does not alter either installed database.
 
-The recommended folder is **AR Apps / LocalTell / Backups**. In a receiving cloud
-app, choose an existing destination folder when its UI supports this. Generic
-sharing cannot enforce that path, create folders, or confirm an upload. LocalTell
-adds no cloud account, provider SDK, OAuth, backend, background upload or sync.
-
-Every prepared, exported and shared file has a `.bklt` extension, for example
-`LocalTell-18-Oct-2026-08-30PM-<UUID>.bklt`. English month names and the timestamp
-are human-readable; a UUID prevents collisions. No `.json` backup is generated.
-The user/provider's actual display name must still end in `.bklt` before any bytes
-are written, and is checked again after close. Only successful output-stream write,
-flush and close plus that final name check produce the document-written message.
-A document provider may synchronize later; this does not promise server-side durability.
-Sharing reports only that its chooser opened, never delivery or a successful
-save/upload by a receiving app (the user can also cancel the chooser).
-Cancelling a picker does not report success or an error. A write, flush, close or
-filename-query failure does not report success; it retains the prepared snapshot
-and offers storage/share alternatives. An interrupted provider write can leave an
-incomplete destination document, which the user may remove through the provider.
-Cancellation is checked between stream operations, and opened streams are closed.
-A blocking provider call cannot be interrupted immediately; it runs on IO and does
-not block navigation. New snapshots stay in a dedicated private files directory,
-not the disposable cache. Preparing another backup opportunistically deletes only
-LocalTell-generated `.bklt` snapshots directly inside that directory when they are
-**strictly older than 30 days**. Before sharing or exporting, the retention timestamp
-is renewed on IO, before the URI/stream is handed off. Closing the chooser,
-navigating away or preparing another backup does not delete a recent shared file.
-This permits delayed reads while the recipient's temporary URI grant remains valid;
-LocalTell does not extend that grant or know when a recipient finishes.
-
-Explicitly cancelling a never-used prepared snapshot (including cancelling its save
-picker) removes that private file on IO; clearing its Activity owner also releases
-an unused snapshot. Once a share handoff or export write is attempted, its snapshot
-is retained conservatively, even if the attempt fails or the receiving chooser is
-cancelled. In-memory leases protect active operations and a currently prepared
-snapshot, including an open destination picker, from age cleanup across Activity
-owners in the same process. Lease release also
-runs when an operation is cancelled before its coroutine starts. Cancel during the
-pre-share IO step prevents launching Share and deletes the unused file after the
-lease ends. Unknown/future
-timestamps are retained. No scheduler or automatic cloud cleanup is added; if the
-app does not prepare another backup, old snapshots remain until that opportunity
-or clearing/uninstalling app data. Thirty days bounds age at cleanup, not the number
-of backups a user can create during that period.
-
-Cleanup never recurses, follows symlinks, touches other filenames, or deletes
-user-exported local/cloud documents. The old cache FileProvider root remains
-readable for earlier handoffs; it is not scanned by the new private-files cleanup,
-and new backups are not written there.
-
-Internal content remains versioned UTF-8 JSON. New schemaVersion 2 backups have
-a SHA-256 checksum of the exact payload bytes for accidental corruption detection
-(not authentication or encryption). Valid legacy schemaVersion 1 content remains
-readable through `.bklt`, but legacy content has no integrity checksum. All other
-schema versions are rejected. Content contains original coordinates, optional hierarchy/country,
-saved timestamp, source and accuracy, but no cellular or Journey data.
-
-**The backup is not encrypted.** Only save or share it with trusted destinations.
-Local files work without internet. A cloud document provider selected by the user
-may itself require network access; LocalTell does not upload backups independently.
-
-**Restore Backup** uses AndroidX's GetContent contract (ACTION_GET_CONTENT with
-CATEGORY_OPENABLE) to import once from an available file/content app. **Choose
-device file** uses OpenDocument (ACTION_OPEN_DOCUMENT) as an explicit fallback.
-Both immediately read and validate the transient content URI on IO, then keep
-decoded records in memory for the confirmation preview. No persistent URI access
-is requested. Provider availability differs between devices/apps; GET_CONTENT is
-not a guarantee that any cloud provider appears. If a cloud app cannot return a
-readable document, download the `.bklt` first and select that local copy.
-This follows Android's [one-time import guidance](https://developer.android.com/guide/components/intents-common#GetFile).
-Android Open/Share into LocalTell also supports content URIs advertised
-as `application/octet-stream` or `application/vnd.localtell.backup`. The previous
-`*/*` external filters are removed so LocalTell is no longer advertised for every
-text/image/archive type. Binary files other than backups can still appear because
-Android cannot filter opaque content URIs by their DISPLAY_NAME suffix. Some
-providers advertise `.bklt` as a different MIME type; use Restore Backup for those
-instead of relying on an external Open/Share entry. All sources
-call the same validator. Only `content://` URIs with a nonempty provider authority
-are accepted; `file://`, network URLs, malformed/unsupported URI types and missing
-grants cannot be interpreted as local filesystem paths. It queries the provider's actual `DISPLAY_NAME` on IO;
-missing names, `.json`, `.txt`, `.zip`, path-like names and other extensions are
-rejected regardless of MIME type. Renaming arbitrary data to `.bklt` does not bypass
-strict UTF-8, JSON syntax, duplicate-key, bounded-nesting or content checks.
-Restore reads at most 256 KiB, validates format/version/checksum where present,
-types, finite coordinate ranges, text lengths, timestamps, source values, IDs and
-duplicate content. Unsupported or malformed files leave the database untouched.
-Before any write it shows places in the backup, already-saved total, new count,
-duplicates skipped and final total. Default and
-only behavior is merge, never replacement. Cancel changes nothing. A total above
-30 blocks restoration without partial imports. No storage permission is needed.
+See [App data backup](app-backup.md) for format, limits, coordinated merge, privacy,
+snapshot ownership/30-day cleanup, local/shared/cloud document behavior and
+validation requirements. Existing bookmarks remain available if a configured
+maximum is lowered below the current count. Further additions are blocked until
+the count is below the limit; no bookmark is automatically deleted.
 
 ## Existing Home and Journey records
 
@@ -175,8 +89,8 @@ Journey database version 2 adds nullable latitude, longitude, accuracy and
 sub-district columns via `ALTER TABLE`; existing history is retained, not rewritten
 or cleared. Old entries without coordinates remain readable without a bookmark.
 New entries persist the fix already acquired by Journey. Recording criteria,
-100-entry history retention, foreground lifecycle and 20-second interval are
-unchanged. No extra acquisition is introduced.
+newest-first retention uses `maxJourneyPoints` (default 100); foreground lifecycle
+and the 20-second interval are unchanged. No extra acquisition is introduced.
 
 ## Validation
 
@@ -199,6 +113,7 @@ Additional host-side SQL tests (not substitutes for Android tests):
 python scripts/test_journey_retention.py
 python scripts/test_saved_places_storage.py
 python scripts/test_saved_places_backup_contract.py
+python scripts/test_app_backup_storage.py
 ```
 
 `BackupDocumentIOTest` exercises the same stream helper used by local and cloud
@@ -252,7 +167,7 @@ Sanskrit, light/dark mode and large font/TalkBack. CI does not verify cloud apps
    removed, recent shared snapshots survive, and snapshots older than 30 days are
    removed only when another backup is prepared. Never age or delete user documents.
 3. Repeat sharing and both restore routes with Dropbox if actually supported on
-   the device. Inspect all five preview counts and Cancel, then confirm a merge.
+   the device. Inspect both datasets' preview counts and Cancel, then confirm a merge.
    Existing IDs, coordinates and timestamps must remain unchanged. GET_CONTENT
    and OPEN_DOCUMENT may expose different choices; record what actually appears.
 4. Repeat with OneDrive, Koofr, MEGA, Nextcloud/ownCloud or another provider

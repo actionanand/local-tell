@@ -21,6 +21,17 @@ val configuredAppName = appConfig["appName"] as String
 val configuredHomeAnnouncementUrl = appConfig["homeAnnouncementUrl"] as String
 val configuredManifestSources = appConfig["dataManifestSources"] as List<*>
 val configuredTowerSurvey = appConfig["enableTowerSurvey"] as? Boolean ?: false
+fun configuredLimit(key: String, maximum: Int): Int {
+    val value = appConfig[key]
+    require(value is Byte || value is Short || value is Int || value is Long) {
+        "app-config.json: $key must be an integer between 1 and $maximum (not a decimal or string)."
+    }
+    val number = (value as Number).toLong()
+    require(number in 1L..maximum.toLong()) { "app-config.json: $key must be between 1 and $maximum; found $number." }
+    return number.toInt()
+}
+val configuredMaxSavedPlaces = configuredLimit("maxSavedPlaces", 200)
+val configuredMaxJourneyPoints = configuredLimit("maxJourneyPoints", 1000)
 
 android {
     namespace = "com.actionanand.localtell.app" // source/R namespace; applicationId remains configurable
@@ -37,6 +48,8 @@ android {
         buildConfigField("String", "HOME_ANNOUNCEMENT_URL", quoted(configuredHomeAnnouncementUrl))
         buildConfigField("String", "DATA_MANIFEST_SOURCES_JSON", quoted(JsonOutput.toJson(configuredManifestSources)))
         buildConfigField("Boolean", "ENABLE_TOWER_SURVEY", configuredTowerSurvey.toString())
+        buildConfigField("int", "MAX_SAVED_PLACES", configuredMaxSavedPlaces.toString())
+        buildConfigField("int", "MAX_JOURNEY_POINTS", configuredMaxJourneyPoints.toString())
         resValue("string", "app_name", configuredAppName)
     }
 

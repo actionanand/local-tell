@@ -4,6 +4,7 @@ package com.actionanand.localtell.app.saved
  * Input is bounded by the codec; nesting is bounded here. Values are decoded by org.json afterward. */
 internal class StrictBackupJson(private val text: String) {
     private var index = 0
+    private var values = 0
 
     fun validate() {
         value(0)
@@ -21,6 +22,9 @@ internal class StrictBackupJson(private val text: String) {
 
     private fun value(depth: Int) {
         require(depth <= 16)
+        // Full backups have fewer than 20,000 values at the absolute record ceilings.
+        // Bound tiny-array/object floods before org.json allocates their object graph.
+        require(++values <= 40_000)
         whitespace()
         require(index < text.length)
         when (text[index]) {

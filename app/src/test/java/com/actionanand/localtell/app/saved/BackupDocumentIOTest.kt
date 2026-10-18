@@ -1,5 +1,7 @@
 package com.actionanand.localtell.app.saved
 
+import com.actionanand.localtell.app.backup.AppBackupCodec
+
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.IOException
@@ -12,8 +14,8 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class BackupDocumentIOTest {
-    private fun backupBytes(): ByteArray = SavedPlacesBackupCodec.encode(
-        SavedPlacesBackupCodec.decode(legacyBackupFixture().toString()),
+    private fun backupBytes(): ByteArray = AppBackupCodec.encode(
+        backupFixture(),
     ).toByteArray(Charsets.UTF_8)
 
     @Test fun `content provider URIs work with opaque document IDs rather than path filenames`() {
@@ -64,7 +66,7 @@ class BackupDocumentIOTest {
             assertEquals(2, nameChecks)
             assertArrayEquals(bytes, output.toByteArray())
             val restored = BackupDocumentIO.read({ name }, { Input(output.toByteArray()) })
-            assertEquals(SavedPlacesBackupCodec.decode(legacyBackupFixture().toString()), restored)
+            assertEquals(backupFixture(), restored)
         }
     }
 
@@ -167,7 +169,7 @@ class BackupDocumentIOTest {
 
     @Test fun `corruption truncation invalid UTF8 and oversized remote reads fail after closing the document`() {
         for (bytes in listOf("{".toByteArray(), "not a backup".toByteArray(), byteArrayOf(0xc3.toByte(), 0x28),
-            ByteArray(SavedPlacesBackupCodec.MAX_BYTES + 1))) {
+            ByteArray(AppBackupCodec.MAX_BYTES + 1))) {
             val input = Input(bytes)
             assertThrows(Exception::class.java) {
                 runBlocking { BackupDocumentIO.read({ "renamed.bklt" }, { input }) }

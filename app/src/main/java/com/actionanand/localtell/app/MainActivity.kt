@@ -140,6 +140,8 @@ import com.actionanand.localtell.app.external.RideDestination
 import com.actionanand.localtell.app.external.RideLinkBuilder
 import com.actionanand.localtell.app.journey.JourneyForegroundService
 import com.actionanand.localtell.app.journey.JourneyPoint
+import com.actionanand.localtell.app.backup.AppBackupViewModel
+import com.actionanand.localtell.app.backup.BackupRestoreScreen
 import com.actionanand.localtell.app.journey.JourneyTrackingMode
 import com.actionanand.localtell.app.model.RadioCell
 import com.actionanand.localtell.app.model.SubscriptionCells
@@ -258,7 +260,7 @@ class MainActivity : ComponentActivity() {
 }
 
 private enum class RootTab { HOME, EASY, MORE }
-private enum class MoreDestination { MENU, SETTINGS, OFFLINE_DATA, JOURNEY, TOWER_SURVEY, LOCATION_GUIDE, SAVED_PLACES }
+private enum class MoreDestination { MENU, SETTINGS, OFFLINE_DATA, JOURNEY, TOWER_SURVEY, LOCATION_GUIDE, SAVED_PLACES, BACKUP_RESTORE }
 
 @Composable
 private fun LocalTellApp(defaultTab: RootTab, themeMode: ThemeMode, incomingBackup: android.net.Uri?, onBackupConsumed: () -> Unit, onThemeModeChange: (ThemeMode) -> Unit) {
@@ -268,11 +270,12 @@ private fun LocalTellApp(defaultTab: RootTab, themeMode: ThemeMode, incomingBack
     val homeViewModel: HomeViewModel = viewModel()
     val easyViewModel: EasyViewModel = viewModel()
     val savedPlacesViewModel: SavedPlacesViewModel = viewModel()
+    val backupViewModel: AppBackupViewModel? = if (incomingBackup != null) viewModel<AppBackupViewModel>() else null
     androidx.compose.runtime.LaunchedEffect(incomingBackup) {
         if (incomingBackup != null) {
             tab = RootTab.MORE
-            moreDestination = MoreDestination.SAVED_PLACES
-            savedPlacesViewModel.inspectBackup(incomingBackup)
+            moreDestination = MoreDestination.BACKUP_RESTORE
+            backupViewModel?.inspectBackup(incomingBackup)
             onBackupConsumed()
         }
     }
@@ -292,8 +295,10 @@ private fun LocalTellApp(defaultTab: RootTab, themeMode: ThemeMode, incomingBack
     }
     // A cold-start file open must not briefly compose Home and start a location refresh.
     val visibleTab = if (incomingBackup != null) RootTab.MORE else tab
-    val visibleMoreDestination = if (incomingBackup != null) MoreDestination.SAVED_PLACES else moreDestination
-    BackHandler(enabled = visibleTab == RootTab.MORE && visibleMoreDestination != MoreDestination.MENU) { moreDestination = MoreDestination.MENU }
+    val visibleMoreDestination = if (incomingBackup != null) MoreDestination.BACKUP_RESTORE else moreDestination
+    BackHandler(enabled = visibleTab == RootTab.MORE && visibleMoreDestination != MoreDestination.MENU) {
+        moreDestination = if (visibleMoreDestination == MoreDestination.BACKUP_RESTORE) MoreDestination.SETTINGS else MoreDestination.MENU
+    }
     Scaffold(bottomBar = {
         NavigationBar {
             NavigationBarItem(visibleTab == RootTab.HOME, { tab = RootTab.HOME }, { Icon(Icons.Default.Home, null) }, label = { Text(stringResource(R.string.nav_home)) })
@@ -318,7 +323,10 @@ private fun LocalTellApp(defaultTab: RootTab, themeMode: ThemeMode, incomingBack
                 RootTab.MORE -> when (visibleMoreDestination) {
                     MoreDestination.MENU -> MoreScreen { moreDestination = it }
                     MoreDestination.LOCATION_GUIDE -> MoreChild(onBack = { moreDestination = MoreDestination.MENU }) { LocationGuideScreen() }
-                    MoreDestination.SETTINGS -> MoreChild(onBack = { moreDestination = MoreDestination.MENU }) { SettingsScreen(themeMode, onThemeModeChange) }
+                    MoreDestination.SETTINGS -> MoreChild(onBack = { moreDestination = MoreDestination.MENU }) {
+                        SettingsScreen(themeMode, onThemeModeChange) { moreDestination = MoreDestination.BACKUP_RESTORE }
+                    }
+                    MoreDestination.BACKUP_RESTORE -> MoreChild(onBack = { moreDestination = MoreDestination.SETTINGS }, backLabel = R.string.backup_back_settings) { BackupRestoreScreen() }
                     MoreDestination.OFFLINE_DATA -> MoreChild(onBack = { moreDestination = MoreDestination.MENU }) { PacksScreen() }
                     MoreDestination.JOURNEY -> MoreChild(onBack = { moreDestination = MoreDestination.MENU }) { JourneyScreen() }
                     MoreDestination.SAVED_PLACES -> MoreChild(onBack = { moreDestination = MoreDestination.MENU }) {
@@ -335,12 +343,12 @@ private fun LocalTellApp(defaultTab: RootTab, themeMode: ThemeMode, incomingBack
 }
 
 @Composable
-private fun MoreChild(onBack: () -> Unit, content: @Composable () -> Unit) {
+private fun MoreChild(onBack: () -> Unit, backLabel: Int = R.string.more_back, content: @Composable () -> Unit) {
     Column(Modifier.fillMaxSize()) {
         TextButton(onClick = onBack) {
             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
             Spacer(Modifier.padding(3.dp))
-            Text(stringResource(R.string.more_back))
+            Text(stringResource(backLabel))
         }
         Box(Modifier.weight(1f)) { content() }
     }
@@ -367,6 +375,7 @@ private fun MoreScreen(onOpen: (MoreDestination) -> Unit) {
 private fun SettingsScreen(
     themeMode: ThemeMode,
     onThemeModeChange: (ThemeMode) -> Unit,
+    onOpenBackup: () -> Unit,
 ) {
     val context = LocalContext.current
     val activity = context as? MainActivity
@@ -381,6 +390,7 @@ private fun SettingsScreen(
     ) {
         item { Text(stringResource(R.string.more_settings), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold) }
         item { Text(stringResource(R.string.more_settings_description), color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        item { MoreRow(Icons.Default.Download, stringResource(R.string.backup_title), stringResource(R.string.backup_included), onOpenBackup) }
         item { SettingsSectionHeader(Icons.Default.SettingsIcon, stringResource(R.string.settings_general)) }
         item {
             ElevatedCard(Modifier.fillMaxWidth()) {

@@ -5,6 +5,8 @@ import java.io.InputStream
 import java.io.OutputStream
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import com.actionanand.localtell.app.backup.AppBackupCodec
+import com.actionanand.localtell.app.backup.AppBackupData
 
 /** Stream boundary shared by local, remote-provider and external backups. Call on Dispatchers.IO.
  * Provider calls may block; cancellation is checked between calls and all opened streams close.
@@ -41,7 +43,7 @@ internal object BackupDocumentIO {
         BackupFileFormat.requireFilename(displayName())
     }
 
-    suspend fun read(displayName: () -> String?, openInput: () -> InputStream): List<SavedPlace> {
+    suspend fun read(displayName: () -> String?, openInput: () -> InputStream): AppBackupData {
         currentCoroutineContext().ensureActive()
         val filename = displayName()
         BackupFileFormat.requireFilename(filename)
@@ -53,7 +55,7 @@ internal object BackupDocumentIO {
                 val count = input.read(buffer)
                 currentCoroutineContext().ensureActive()
                 if (count < 0) break
-                require(output.size() + count <= SavedPlacesBackupCodec.MAX_BYTES)
+                require(output.size() + count <= AppBackupCodec.MAX_BYTES)
                 output.write(buffer, 0, count)
             }
             output.toByteArray()

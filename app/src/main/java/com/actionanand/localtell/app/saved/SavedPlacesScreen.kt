@@ -1,12 +1,8 @@
 package com.actionanand.localtell.app.saved
 
 import androidx.activity.compose.BackHandler
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -21,7 +17,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.LocalLocale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.selected
@@ -36,6 +31,7 @@ import java.util.Date
 @Composable
 fun SavedPlacesFeedback(onManageSavedPlaces: () -> Unit, vm: SavedPlacesViewModel = viewModel()) {
     val state by vm.state.collectAsStateWithLifecycle()
+    val places by vm.places.collectAsStateWithLifecycle()
     val host = remember { SnackbarHostState() }
     val message = state.message?.let { stringResource(it) }
     LaunchedEffect(state.messageSequence) { if (message != null) host.showSnackbar(message) }
@@ -45,8 +41,8 @@ fun SavedPlacesFeedback(onManageSavedPlaces: () -> Unit, vm: SavedPlacesViewMode
         title = { Text(stringResource(R.string.saved_limit_title)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(stringResource(R.string.saved_limit_count, MAX_SAVED_PLACES, MAX_SAVED_PLACES), fontWeight = FontWeight.SemiBold)
-                Text(stringResource(R.string.saved_limit_message))
+                Text(stringResource(R.string.saved_limit_count, places.size, MAX_SAVED_PLACES), fontWeight = FontWeight.SemiBold)
+                Text(stringResource(R.string.saved_limit_message, MAX_SAVED_PLACES))
             }
         },
         confirmButton = { TextButton(onClick = { vm.dismissLimit(); onManageSavedPlaces() }) { Text(stringResource(R.string.saved_manage)) } },
@@ -82,28 +78,10 @@ fun SavedPlacesScreen(onOpen: (SavedPlace) -> Unit, vm: SavedPlacesViewModel = v
     val places by vm.places.collectAsStateWithLifecycle()
     val state by vm.state.collectAsStateWithLifecycle()
     val locale = LocalLocale.current.platformLocale
-    val context = LocalContext.current
-    val shareTitle = stringResource(R.string.saved_backup_share)
     var selection by rememberSaveable { mutableStateOf(SavedPlacesSelection()) }
     val selectedIds = selection.selected.filter { id -> places.any { it.id == id } }.toSet()
     val selecting = selection.selected.isNotEmpty()
     BackHandler(selecting) { selection = selection.cancelSelection() }
-    val export = rememberLauncherForActivityResult(CreateBackupDocument()) { uri ->
-        if (uri == null) vm.cancelBackup() else vm.export(uri)
-    }
-    // One-time import: read while the transient grant is valid, retain decoded data for preview.
-    val restore = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        uri?.let(vm::inspectBackup)
-    }
-    val restoreDeviceFile = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        uri?.let(vm::inspectBackup)
-    }
-    fun saveBackup() {
-        val prepared = state.preparedBackup ?: return
-        vm.destinationPickerStarted()
-        runCatching { export.launch(prepared.filename) }
-            .onFailure { vm.backupDestinationUnavailable() }
-    }
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 20.dp, top = 12.dp, end = 20.dp, bottom = 32.dp),
@@ -112,6 +90,7 @@ fun SavedPlacesScreen(onOpen: (SavedPlace) -> Unit, vm: SavedPlacesViewModel = v
         item {
             Text(stringResource(R.string.saved_title), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
             Text(stringResource(R.string.saved_count, places.size, MAX_SAVED_PLACES), style = MaterialTheme.typography.bodyMedium)
+            if (places.size > MAX_SAVED_PLACES) Text(stringResource(R.string.saved_over_limit, places.size, MAX_SAVED_PLACES))
             if (state.busy) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 8.dp))
             if (!state.loaded && !state.busy) TextButton(onClick = vm::refresh) { Text(stringResource(R.string.saved_retry)) }
         }
@@ -127,22 +106,11 @@ fun SavedPlacesScreen(onOpen: (SavedPlace) -> Unit, vm: SavedPlacesViewModel = v
                 }
             } else {
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(enabled = state.loaded && !state.busy && places.isNotEmpty(), onClick = {
-                        vm.prepareBackup()
-                    }) { Text(stringResource(R.string.saved_export)) }
-                    OutlinedButton(enabled = state.loaded && !state.busy, onClick = {
-                        // Extensions are not reliable MIME types. Validate DISPLAY_NAME and content afterward.
-                        runCatching { restore.launch("*/*") }.onFailure { vm.restorePickerUnavailable() }
-                    }) { Text(stringResource(R.string.saved_restore)) }
-                    TextButton(enabled = state.loaded && !state.busy, onClick = {
-                        runCatching { restoreDeviceFile.launch(arrayOf("*/*")) }.onFailure { vm.restorePickerUnavailable() }
-                    }) { Text(stringResource(R.string.saved_restore_device_file)) }
                     TextButton(enabled = !state.busy && places.isNotEmpty(), onClick = {
                         selection = selection.requestRemoval(places.map { it.id }, all = true)
                     }) { Text(stringResource(R.string.saved_remove_all)) }
                 }
-                Text(stringResource(R.string.saved_backup_privacy), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(stringResource(R.string.saved_restore_help), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(stringResource(R.string.saved_selection_help), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
         if (state.loaded && places.isEmpty()) item {
@@ -193,49 +161,11 @@ fun SavedPlacesScreen(onOpen: (SavedPlace) -> Unit, vm: SavedPlacesViewModel = v
             }
         }
     }
-    state.preparedBackup?.takeIf { state.chooseBackupDestination }?.let { prepared ->
-        AlertDialog(
-            onDismissRequest = vm::cancelBackup,
-            title = { Text(stringResource(R.string.saved_backup_ready)) },
-            text = {
-                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(prepared.filename, style = MaterialTheme.typography.bodyMedium)
-                    Text(stringResource(R.string.saved_backup_choose))
-                    Text(
-                        stringResource(R.string.saved_backup_folder_help),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    OutlinedButton(enabled = !state.busy, onClick = { saveBackup() }) { Text(stringResource(R.string.saved_backup_local)) }
-                    OutlinedButton(enabled = !state.busy, onClick = {
-                        vm.shareBackup { backup -> sharePreparedBackup(context, backup, shareTitle) }
-                    }) { Text(stringResource(R.string.saved_backup_share)) }
-                }
-            },
-            confirmButton = { TextButton(onClick = vm::cancelBackup) { Text(stringResource(R.string.cancel)) } },
-        )
-    }
     if (selection.pendingRemoval.isNotEmpty()) SavedRemovalDialog(selection.pendingRemoval.size, selection.removeAll, onDismiss = { selection = selection.cancelRemoval() }, onConfirm = {
         val (approvedIds, next) = selection.confirmRemoval()
         vm.delete(approvedIds); selection = next
     })
-    state.preview?.let { preview ->
-        AlertDialog(
-            onDismissRequest = vm::dismissRestore,
-            title = { Text(stringResource(R.string.saved_restore)) },
-            text = {
-                Text(
-                    stringResource(
-                        if (preview.fits) R.string.saved_restore_preview else R.string.saved_restore_overflow,
-                        state.restore?.size ?: 0, preview.total - preview.added, preview.added, preview.total, preview.duplicates,
-                    ),
-                    modifier = Modifier.verticalScroll(rememberScrollState()),
-                )
-            },
-            confirmButton = { if (preview.fits) TextButton(enabled = !state.busy, onClick = vm::restore) { Text(stringResource(R.string.saved_restore)) } },
-            dismissButton = { TextButton(onClick = vm::dismissRestore) { Text(stringResource(R.string.cancel)) } },
-        )
-    }
+
 }
 
 @Composable

@@ -2,6 +2,8 @@ package com.actionanand.localtell.app.saved
 
 import com.actionanand.localtell.app.HomeStatus
 import com.actionanand.localtell.app.LocalityState
+import com.actionanand.localtell.app.backup.AppBackupCodec
+import com.actionanand.localtell.app.backup.AppBackupData
 import com.actionanand.localtell.app.journey.JourneyPoint
 import com.actionanand.localtell.app.locationcode.LocalTellLocationCode
 import com.actionanand.localtell.app.locationcode.LocationCodeDecodeResult
@@ -28,7 +30,7 @@ class SavedPlaceLocationsTest {
         )
         coordinates.forEach { (lat, lon) ->
             val bookmark = requireNotNull(savedPlaceFor(lat, lon, null, null, SavedPlaceSource.LOOKUP))
-            val restored = SavedPlacesBackupCodec.decode(SavedPlacesBackupCodec.encode(listOf(bookmark))).single()
+            val restored = AppBackupCodec.decode(AppBackupCodec.encode(AppBackupData(listOf(bookmark), emptyList()))).savedPlaces.single()
             val result = restored.toEasyLocation()
             assertNull(result.locality)
             assertEquals(restored, result.savedPlace)

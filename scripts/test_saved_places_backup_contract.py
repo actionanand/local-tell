@@ -11,6 +11,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 MAIN = ROOT / "app/src/main"
 SAVED = MAIN / "java/com/actionanand/localtell/app/saved"
+BACKUP = MAIN / "java/com/actionanand/localtell/app/backup"
 ANDROID = "{http://schemas.android.com/apk/res/android}"
 
 
@@ -29,12 +30,16 @@ class BackupContractTest(unittest.TestCase):
 
     def test_external_and_picker_restore_use_one_filename_and_content_boundary(self):
         activity = (MAIN / "java/com/actionanand/localtell/app/MainActivity.kt").read_text(encoding="utf-8")
-        screen = (SAVED / "SavedPlacesScreen.kt").read_text(encoding="utf-8")
-        vm = (SAVED / "SavedPlacesViewModel.kt").read_text(encoding="utf-8")
+        screen = (BACKUP / "BackupRestoreScreen.kt").read_text(encoding="utf-8")
+        vm = (BACKUP / "AppBackupViewModel.kt").read_text(encoding="utf-8")
         documents = (SAVED / "BackupDocuments.kt").read_text(encoding="utf-8")
-        self.assertIn("savedPlacesViewModel.inspectBackup(incomingBackup)", activity)
+        self.assertIn("backupViewModel?.inspectBackup(incomingBackup)", activity)
         self.assertIn("val visibleTab = if (incomingBackup != null) RootTab.MORE else tab", activity)
         self.assertIn("when (visibleTab)", activity)
+        self.assertIn("MoreDestination.BACKUP_RESTORE", activity)
+        self.assertIn("BackupRestoreScreen()", activity)
+        self.assertNotIn("Manual Backup", (SAVED / "SavedPlacesScreen.kt").read_text(encoding="utf-8"))
+        self.assertNotIn("fun prepareBackup", (SAVED / "SavedPlacesViewModel.kt").read_text(encoding="utf-8"))
         self.assertIn("uri?.let(vm::inspectBackup)", screen)
         self.assertIn("OpenableColumns.DISPLAY_NAME", documents)
         self.assertIn("BackupFileFormat.requireFilename(name)", documents)
@@ -56,11 +61,11 @@ class BackupContractTest(unittest.TestCase):
         self.assertLess(documents.index("BackupDocumentIO.requireContentUri"), documents.index("query(uri"))
 
     def test_one_time_and_device_restore_routes_share_validation_and_ignore_cancellation(self):
-        screen = (SAVED / "SavedPlacesScreen.kt").read_text(encoding="utf-8")
+        screen = (BACKUP / "BackupRestoreScreen.kt").read_text(encoding="utf-8")
         self.assertIn("ActivityResultContracts.GetContent()", screen)
         self.assertIn("ActivityResultContracts.OpenDocument()", screen)
         self.assertIn('restore.launch("*/*")', screen)
-        self.assertIn('restoreDeviceFile.launch(arrayOf("*/*"))', screen)
+        self.assertIn('device.launch(arrayOf("*/*"))', screen)
         self.assertEqual(2, screen.count("uri?.let(vm::inspectBackup)"))
         self.assertNotIn("takePersistableUriPermission", screen)
         permissions = {n.get(ANDROID + "name") for n in ET.parse(MAIN / "AndroidManifest.xml").getroot().findall("uses-permission")}
@@ -68,8 +73,8 @@ class BackupContractTest(unittest.TestCase):
                                        "android.permission.MANAGE_EXTERNAL_STORAGE"})
 
     def test_sharing_retains_the_snapshot_before_handoff_and_cleanup_runs_only_on_io(self):
-        screen = (SAVED / "SavedPlacesScreen.kt").read_text(encoding="utf-8")
-        vm = (SAVED / "SavedPlacesViewModel.kt").read_text(encoding="utf-8")
+        screen = (BACKUP / "BackupRestoreScreen.kt").read_text(encoding="utf-8")
+        vm = (BACKUP / "AppBackupViewModel.kt").read_text(encoding="utf-8")
         self.assertIn("vm.shareBackup { backup -> sharePreparedBackup(context, backup, shareTitle) }", screen)
         self.assertIn('java.io.File(getApplication<Application>().filesDir, "saved-place-backups")', vm)
         self.assertIn("withContext(Dispatchers.IO) { snapshots.retain(prepared.snapshot) }", vm)
@@ -81,7 +86,7 @@ class BackupContractTest(unittest.TestCase):
             self.assertNotIn(obsolete, screen + vm)
 
     def test_no_backup_creation_uses_json_filename_or_json_mime(self):
-        screen = (SAVED / "SavedPlacesScreen.kt").read_text(encoding="utf-8")
+        screen = (BACKUP / "BackupRestoreScreen.kt").read_text(encoding="utf-8")
         documents = (SAVED / "BackupDocuments.kt").read_text(encoding="utf-8")
         format_source = (SAVED / "BackupFileFormat.kt").read_text(encoding="utf-8")
         self.assertIn("CreateBackupDocument()", screen)
@@ -112,8 +117,8 @@ class BackupContractTest(unittest.TestCase):
         self.assertEqual("Share Backup", english["saved_backup_share"])
         self.assertEqual("Choose device file", english["saved_restore_device_file"])
         self.assertIn("download it first", english["saved_restore_help"])
-        for key in ("saved_restore_preview", "saved_restore_overflow"):
-            self.assertEqual(["%1$d", "%2$d", "%3$d", "%4$d", "%5$d"], re.findall(r"%\d\$d", english[key]))
+        for key, count in (("backup_preview_saved", 5), ("backup_preview_journey", 6)):
+            self.assertEqual([f"%{i}$d" for i in range(1, count + 1)], re.findall(r"%\d\$d", english[key]))
 
     def test_all_three_languages_have_unique_keys_and_matching_placeholders(self):
         maps = {}
@@ -133,14 +138,14 @@ class BackupContractTest(unittest.TestCase):
             self.assertTrue(english[name])
         self.assertEqual("Saved Places limit reached", english["saved_limit_title"])
         self.assertEqual("%1$d of %2$d places saved", english["saved_limit_count"])
-        self.assertEqual("You've reached the maximum of 30 saved places. Remove an existing place to save a new one.",
+        self.assertEqual("You've reached the maximum of %1$d saved places. Existing places are kept. Remove a place to save a new one.",
                          english["saved_limit_message"].replace("\\'", "'"))
         self.assertEqual("Save locally", english["saved_backup_local"])
         self.assertEqual("Share Backup", english["saved_backup_share"])
 
     def test_all_saved_place_source_resource_references_exist(self):
         resources = {n.get("name") for n in ET.parse(MAIN / "res/values/strings.xml").getroot()}
-        for path in SAVED.glob("*.kt"):
+        for path in [*SAVED.glob("*.kt"), *BACKUP.glob("*.kt")]:
             for key in re.findall(r"R\.string\.(\w+)", path.read_text(encoding="utf-8")):
                 self.assertIn(key, resources, f"{path.name}: {key}")
 

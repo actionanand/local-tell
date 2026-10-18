@@ -19,5 +19,7 @@
       "manifestUrl": "https://github.com/actionanand/localtell-data/releases/download/country-lk-v1/manifest-LK.json"
     }
   ],
-  "enableTowerSurvey": false
+  "enableTowerSurvey": false,
+  "maxSavedPlaces": 30,
+  "maxJourneyPoints": 100
 }

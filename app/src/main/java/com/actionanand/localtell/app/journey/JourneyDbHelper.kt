@@ -4,8 +4,9 @@ import android.content.ContentValues
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
+import com.actionanand.localtell.app.AppLimits
 
-private const val MAX_JOURNEY_POINTS = 100
+private val MAX_JOURNEY_POINTS: Int get() = AppLimits.current.maxJourneyPoints
 
 data class JourneyPoint(
     val id: Long,
@@ -23,7 +24,7 @@ data class JourneyPoint(
     val subDistrict: String? = null,
 )
 
-class JourneyDbHelper(context: Context) : SQLiteOpenHelper(context, "journeys.db", null, 2) {
+class JourneyDbHelper(context: Context, private val trimOnOpen: Boolean = true) : SQLiteOpenHelper(context, "journeys.db", null, 2) {
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
             """CREATE TABLE journey_point (
@@ -56,10 +57,10 @@ class JourneyDbHelper(context: Context) : SQLiteOpenHelper(context, "journeys.db
 
     override fun onOpen(db: SQLiteDatabase) {
         super.onOpen(db)
-        if (!db.isReadOnly) trimHistory(db)
+        if (trimOnOpen && !db.isReadOnly) trimHistory(db)
     }
 
-    fun add(point: JourneyPoint) {
+    internal fun insert(db: SQLiteDatabase, point: JourneyPoint) {
         val values = ContentValues().apply {
             put("timestamp", point.timestamp)
             put("area_name", point.areaName)
@@ -74,10 +75,14 @@ class JourneyDbHelper(context: Context) : SQLiteOpenHelper(context, "journeys.db
             put("accuracy", point.accuracyMetres)
             put("sub_district", point.subDistrict)
         }
+        db.insertOrThrow("journey_point", null, values)
+    }
+
+    fun add(point: JourneyPoint) {
         val db = writableDatabase
         db.beginTransaction()
         try {
-            db.insertOrThrow("journey_point", null, values)
+            insert(db, point)
             trimHistory(db)
             db.setTransactionSuccessful()
         } finally {
@@ -85,7 +90,7 @@ class JourneyDbHelper(context: Context) : SQLiteOpenHelper(context, "journeys.db
         }
     }
 
-    private fun trimHistory(db: SQLiteDatabase) {
+    internal fun trimHistory(db: SQLiteDatabase) {
         db.execSQL(
             """DELETE FROM journey_point WHERE id IN (
                 SELECT id FROM journey_point
@@ -95,10 +100,12 @@ class JourneyDbHelper(context: Context) : SQLiteOpenHelper(context, "journeys.db
         )
     }
 
-    fun latest(limit: Int = MAX_JOURNEY_POINTS): List<JourneyPoint> = readableDatabase.rawQuery(
+    fun latest(limit: Int = MAX_JOURNEY_POINTS): List<JourneyPoint> = readFrom(readableDatabase, limit.coerceIn(1, MAX_JOURNEY_POINTS))
+
+    internal fun readFrom(database: SQLiteDatabase, limit: Int): List<JourneyPoint> = database.rawQuery(
         """SELECT id,timestamp,area_name,district,state,radio,plmn,cell_id,confidence,latitude,longitude,accuracy,sub_district
            FROM journey_point ORDER BY timestamp DESC, id DESC LIMIT ?""".trimIndent(),
-        arrayOf(limit.coerceIn(1, MAX_JOURNEY_POINTS).toString())
+        arrayOf(limit.toString())
     ).use { c ->
         buildList {
             while (c.moveToNext()) {

@@ -56,34 +56,9 @@ class SavedPlacesRepository(context: Context) {
         }
     }
 
-    suspend fun preview(places: List<SavedPlace>): RestorePreview = withContext(Dispatchers.IO) {
-        mutex.withLock { planSavedPlacesMerge(readAll(db.readableDatabase), places) }
-    }
-
-    /** Rechecks capacity and duplicates inside the same transaction that performs the merge. */
-    suspend fun merge(places: List<SavedPlace>): RestorePreview = withContext(Dispatchers.IO) {
-        require(places.size <= MAX_SAVED_PLACES && places.all(SavedPlaceIdentity::valid))
-        require(places.map { it.id }.distinct().size == places.size && !SavedPlaceIdentity.hasDuplicates(places))
-        mutex.withLock {
-            val database = db.writableDatabase
-            database.beginTransaction()
-            try {
-                val current = readAll(database)
-                val preview = planSavedPlacesMerge(current, places)
-                require(preview.fits) { "Saved places capacity exceeded" }
-                places.filter { candidate -> current.none { SavedPlaceIdentity.matches(it, candidate) } }.forEach { insert(database, it) }
-                database.setTransactionSuccessful()
-                preview
-            } finally {
-                database.endTransaction()
-                publish()
-            }
-        }
-    }
-
     private fun publish() { mutablePlaces.value = readAll(db.readableDatabase) }
 
-    private fun insert(database: SQLiteDatabase, place: SavedPlace) {
+    internal fun insert(database: SQLiteDatabase, place: SavedPlace) {
         database.insertOrThrow("saved_place", null, ContentValues().apply {
             put("id", place.id); put("identity", place.identity); put("name", place.displayName)
             put("locality", place.localityName); put("sub_district", place.subDistrict); put("district", place.district)
@@ -93,7 +68,7 @@ class SavedPlacesRepository(context: Context) {
         })
     }
 
-    private fun readAll(database: SQLiteDatabase): List<SavedPlace> = database.rawQuery(
+    internal fun readAll(database: SQLiteDatabase): List<SavedPlace> = database.rawQuery(
         "SELECT id,name,locality,sub_district,district,state,country_code,latitude,longitude,saved_at,source,accuracy FROM saved_place ORDER BY saved_at DESC,id DESC", null,
     ).use { cursor ->
         buildList {

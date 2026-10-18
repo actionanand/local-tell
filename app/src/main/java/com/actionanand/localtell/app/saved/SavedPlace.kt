@@ -3,8 +3,10 @@ package com.actionanand.localtell.app.saved
 import java.util.Locale
 import java.util.UUID
 import kotlin.math.*
+import com.actionanand.localtell.app.AppLimits
+import com.actionanand.localtell.app.DataLimits
 
-const val MAX_SAVED_PLACES = 30
+val MAX_SAVED_PLACES: Int get() = AppLimits.current.maxSavedPlaces
 
 enum class SavedPlaceSource { HOME, EASY, LOOKUP, JOURNEY }
 
@@ -33,24 +35,24 @@ sealed interface SaveResult {
     data object Full : SaveResult
 }
 
-internal fun classifySavedPlace(current: List<SavedPlace>, place: SavedPlace): SaveResult {
+internal fun classifySavedPlace(current: List<SavedPlace>, place: SavedPlace, limit: Int = MAX_SAVED_PLACES): SaveResult {
     require(SavedPlaceIdentity.valid(place))
     return when {
         current.any { SavedPlaceIdentity.matches(it, place) || it.id == place.id } -> SaveResult.Duplicate
-        current.size >= MAX_SAVED_PLACES -> SaveResult.Full
+        current.size >= limit -> SaveResult.Full
         else -> SaveResult.Saved
     }
 }
 
 /** Existing identities win. An ID collision with a different place is an invalid backup. */
-internal fun planSavedPlacesMerge(current: List<SavedPlace>, incoming: List<SavedPlace>): RestorePreview {
-    require(incoming.size <= MAX_SAVED_PLACES && incoming.all(SavedPlaceIdentity::valid))
+internal fun planSavedPlacesMerge(current: List<SavedPlace>, incoming: List<SavedPlace>, limit: Int = MAX_SAVED_PLACES): RestorePreview {
+    require(incoming.size <= DataLimits.MAX_SAVED_BOUND && incoming.all(SavedPlaceIdentity::valid))
     require(incoming.map { it.id }.distinct().size == incoming.size)
     require(!SavedPlaceIdentity.hasDuplicates(incoming))
     val existingById = current.associateBy { it.id }
     require(incoming.none { candidate -> existingById[candidate.id]?.let { !SavedPlaceIdentity.matches(it, candidate) } == true })
     val additions = incoming.count { candidate -> current.none { SavedPlaceIdentity.matches(it, candidate) } }
-    return RestorePreview(additions, incoming.size - additions, current.size + additions, current.size + additions <= MAX_SAVED_PLACES)
+    return RestorePreview(additions, incoming.size - additions, current.size + additions, additions == 0 || current.size + additions <= limit)
 }
 
 /** Identity is a storage key; duplicate decisions also consider distance, including grid edges. */

@@ -17,10 +17,13 @@ class SavedPlacesResourcesTest {
                 node.attributes.getNamedItem("name").nodeValue to node.textContent
             }
             assertEquals("Duplicate resources in $directory", pairs.size, pairs.map { it.first }.distinct().size)
-            return pairs.filter { it.first.startsWith("saved_") }.toMap()
+            return pairs.filter { it.first.startsWith("saved_") || it.first.startsWith("backup_") }.toMap()
         }
         val english = strings("values")
         assertTrue(english.isNotEmpty())
+        assertTrue(english.getValue("saved_limit_message").contains("%1\$d"))
+        assertTrue(english.getValue("backup_preview_saved").contains("%5\$d"))
+        assertTrue(english.getValue("backup_preview_journey").contains("%6\$d"))
         val placeholders = Regex("%(?:[0-9]+\\$)?(?:[0-9.]+)?[sdf]")
         listOf("values-ta", "values-sa").forEach { directory ->
             val translated = strings(directory)
@@ -30,6 +33,11 @@ class SavedPlacesResourcesTest {
                 assertEquals(key, placeholders.findAll(value).map { it.value }.sorted().toList(),
                     placeholders.findAll(requireNotNull(translated[key])).map { it.value }.sorted().toList())
             }
+        }
+        for (directory in listOf("values", "values-ta", "values-sa")) {
+            val values = strings(directory)
+            assertTrue(String.format(java.util.Locale.ROOT, values.getValue("saved_limit_count"), 35, 50).contains("50"))
+            assertTrue(String.format(java.util.Locale.ROOT, values.getValue("saved_limit_message"), 50).contains("50"))
         }
     }
 }
