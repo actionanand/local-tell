@@ -25,6 +25,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
@@ -33,12 +34,15 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.BrightnessAuto
@@ -70,16 +74,14 @@ import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Constraints
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.FilterChip
@@ -117,6 +119,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLocale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
@@ -166,6 +169,7 @@ import com.actionanand.localtell.app.model.SubscriptionCells
 import com.actionanand.localtell.app.survey.TowerSurveyScreen
 import com.actionanand.localtell.app.ui.LocationGuideScreen
 import com.actionanand.localtell.app.ui.theme.LocalTellTheme
+import com.actionanand.localtell.app.ui.theme.LocalTellCodeTheme
 import com.actionanand.localtell.app.ui.theme.ThemeMode
 import com.actionanand.localtell.app.ui.SignalQuality
 import com.actionanand.localtell.app.ui.signalVisual
@@ -763,8 +767,8 @@ private fun EasyLocationCard(location: EasyLocation, showAccuracy: Boolean, onSp
                 )
             }
             location.locationNotice?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-            EasyCode(location.encoded.numericCode, stringResource(R.string.easy_number), stringResource(R.string.saved_copy_numeric), stringResource(R.string.saved_share_numeric), MaterialTheme.colorScheme.primary)
-            EasyCode(location.encoded.shortCode, stringResource(R.string.easy_short_code), stringResource(R.string.saved_copy_short), stringResource(R.string.saved_share_short), MaterialTheme.colorScheme.tertiary)
+            EasyCode(location.encoded.numericCode, stringResource(R.string.easy_number), stringResource(R.string.saved_copy_numeric), stringResource(R.string.saved_share_numeric), LocalTellCodeTheme.colors.easyNumber)
+            EasyCode(location.encoded.shortCode, stringResource(R.string.easy_short_code), stringResource(R.string.saved_copy_short), stringResource(R.string.saved_share_short), LocalTellCodeTheme.colors.shortCode)
             location.locality?.let { match ->
                 val localityName = match.localityName.takeIf(String::isNotBlank)
                 val hierarchy = listOfNotNull(match.subDistrict, match.district, match.state)
@@ -805,7 +809,8 @@ private fun EasyCode(code: String, label: String, copyDescription: String, share
         IconButton(onClick = { copyText(context, code) }) { Icon(Icons.Default.ContentCopy, copyDescription) }
         IconButton(onClick = { shareCode(context, code) }) { Icon(Icons.Default.Share, shareDescription) }
     }
-    Text(code, style = MaterialTheme.typography.titleLarge, fontFamily = FontFamily.Monospace, color = valueColor)
+    // No maxLines: at large font scales the value wraps at its existing spaces or hyphens.
+    Text(code, style = MaterialTheme.typography.titleLarge, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.SemiBold, color = valueColor)
 }
 
 @Composable
@@ -842,18 +847,14 @@ private fun UberChoiceDialog(onDismiss: () -> Unit, onPickup: () -> Unit, onDest
         Surface(
             modifier = Modifier.widthIn(min = 280.dp, max = 560.dp).semantics { paneTitle = title },
             shape = MaterialTheme.shapes.extraLarge,
-            color = MaterialTheme.colorScheme.surfaceContainerHigh,
-            tonalElevation = 6.dp,
+            color = MaterialTheme.colorScheme.surface,
         ) {
-            Column(Modifier.padding(24.dp)) {
-                Text(title, style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.semantics { heading() })
+            Column(Modifier.verticalScroll(rememberScrollState()).padding(24.dp)) {
+                Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.semantics { heading() })
                 Spacer(Modifier.height(16.dp))
                 Text(stringResource(R.string.easy_uber_choice_message), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(24.dp))
-                UberChoiceActions(spacing = 12.dp) {
-                    FilledTonalButton(onClick = onPickup) { Text(stringResource(R.string.easy_uber_pickup), textAlign = TextAlign.Center) }
-                    FilledTonalButton(onClick = onDestination) { Text(stringResource(R.string.easy_uber_destination), textAlign = TextAlign.Center) }
-                }
+                UberChoiceActions(onPickup = onPickup, onDestination = onDestination)
                 Spacer(Modifier.height(12.dp))
                 TextButton(onClick = onDismiss, modifier = Modifier.align(Alignment.End)) { Text(stringResource(R.string.cancel)) }
             }
@@ -861,34 +862,57 @@ private fun UberChoiceDialog(onDismiss: () -> Unit, onPickup: () -> Unit, onDest
     }
 }
 
-/** Equal-width buttons in one row when they fit; stacked full-width for large fonts or narrow screens. */
 @Composable
-private fun UberChoiceActions(spacing: Dp, content: @Composable () -> Unit) {
-    Layout(content = content, modifier = Modifier.fillMaxWidth()) { measurables, constraints ->
-        val gap = spacing.roundToPx()
-        val available = constraints.maxWidth
-        val widest = measurables.maxOfOrNull { it.maxIntrinsicWidth(constraints.maxHeight) } ?: 0
-        if (!constraints.hasBoundedWidth || UberChoiceLayout.sideBySide(widest, measurables.size, gap, available)) {
-            val width = if (constraints.hasBoundedWidth) UberChoiceLayout.equalWidth(measurables.size, gap, available) else widest
-            val rowHeight = (measurables.maxOfOrNull { it.maxIntrinsicHeight(width) } ?: 0).coerceAtMost(constraints.maxHeight)
-            val placeables = measurables.map { it.measure(Constraints.fixed(width, rowHeight)) }
-            val totalWidth = if (constraints.hasBoundedWidth) available else placeables.sumOf { it.width } + gap * (placeables.size - 1).coerceAtLeast(0)
-            layout(totalWidth, placeables.maxOfOrNull { it.height } ?: 0) {
-                var x = 0
-                placeables.forEach { placeable ->
-                    placeable.placeRelative(x, 0)
-                    x += placeable.width + gap
+private fun UberChoiceActions(onPickup: () -> Unit, onDestination: () -> Unit) {
+    val labels = listOf(stringResource(R.string.easy_uber_pickup), stringResource(R.string.easy_uber_destination))
+    val labelStyle = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)
+    val textMeasurer = rememberTextMeasurer()
+    val density = LocalDensity.current
+    val spacing = 12.dp
+    val horizontalPadding = 12.dp
+    val verticalPadding = 12.dp
+    val colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF126B3B), contentColor = Color.White)
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val paddingPx = with(density) { horizontalPadding.roundToPx() * 2 }
+        val availableWidth = if (constraints.hasBoundedWidth) constraints.maxWidth else with(density) { 560.dp.roundToPx() }
+        val columnWidth = UberChoiceLayout.equalWidth(labels.size, with(density) { spacing.roundToPx() }, availableWidth)
+        val columnContentWidth = columnWidth - paddingPx
+        fun measureLabels(width: Int) = labels.map {
+            textMeasurer.measure(it, style = labelStyle, constraints = Constraints(maxWidth = width.coerceAtLeast(0)))
+        }
+        val columnLabels = measureLabels(columnContentWidth)
+        // A two-line fit only counts if no single word had to be broken mid-word.
+        val widestWord = labels.flatMap(UberChoiceLayout::words).maxOfOrNull { textMeasurer.measure(it, style = labelStyle).size.width } ?: 0
+        val sideBySide = UberChoiceLayout.sideBySide(
+            actionContentWidthPx = columnContentWidth,
+            labelLineCounts = columnLabels.map { it.lineCount },
+            hasTextOverflow = columnLabels.any { it.hasVisualOverflow },
+            widestWordPx = widestWord,
+        )
+        val displayedLabels = if (sideBySide) columnLabels else measureLabels(availableWidth - paddingPx)
+        val buttonHeight = with(density) {
+            (displayedLabels.maxOf { it.size.height }.toDp() + verticalPadding * 2).coerceAtLeast(48.dp)
+        }
+        val actions: @Composable (Modifier) -> Unit = { modifier ->
+            labels.forEachIndexed { index, label ->
+                Button(
+                    onClick = if (index == 0) onPickup else onDestination,
+                    modifier = modifier.heightIn(min = buttonHeight),
+                    shape = ButtonDefaults.shape,
+                    colors = colors,
+                    contentPadding = PaddingValues(horizontal = horizontalPadding, vertical = verticalPadding),
+                ) {
+                    Text(label, style = labelStyle)
                 }
             }
+        }
+        if (sideBySide) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(spacing)) {
+                actions(Modifier.weight(1f))
+            }
         } else {
-            val placeables = measurables.map { it.measure(Constraints(minWidth = available, maxWidth = available)) }
-            val height = placeables.sumOf { it.height } + gap * (placeables.size - 1).coerceAtLeast(0)
-            layout(available, height) {
-                var y = 0
-                placeables.forEach { placeable ->
-                    placeable.placeRelative(0, y)
-                    y += placeable.height + gap
-                }
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(spacing)) {
+                actions(Modifier.fillMaxWidth())
             }
         }
     }

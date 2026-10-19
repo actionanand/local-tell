@@ -6,20 +6,28 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.ReadOnlyComposable
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 
-enum class ThemeMode {
-    SYSTEM,
-    LIGHT,
-    DARK;
+/** Dedicated colours for the Easy number and Short code values; not part of the global scheme. */
+@Immutable
+data class LocalTellCodeColors(val easyNumber: Color, val shortCode: Color)
 
-    companion object {
-        fun fromPreference(value: String?): ThemeMode = entries.firstOrNull { it.name == value } ?: SYSTEM
-    }
+private fun CodeValueArgb.toCodeColors() = LocalTellCodeColors(Color(easyNumber), Color(shortCode))
+
+private val LocalCodeColors = staticCompositionLocalOf { CodeValuePalette.light.toCodeColors() }
+
+/** Current theme's code-value colours, following LocalTell's Light/Dark/System setting. */
+object LocalTellCodeTheme {
+    val colors: LocalTellCodeColors
+        @Composable @ReadOnlyComposable get() = LocalCodeColors.current
 }
 
 private val LightColors = lightColorScheme(
@@ -30,7 +38,7 @@ private val LightColors = lightColorScheme(
     tertiary = Color(0xFF2E715A), onTertiary = Color.White,
     background = Color(0xFFF7FAF7), surface = Color(0xFFFFFFFF),
     surfaceVariant = Color(0xFFE4F0E7), surfaceContainerLowest = Color(0xFFFFFFFF),
-    surfaceContainerLow = Color(0xFFF0F7F2), surfaceContainer = Color(0xFFEAF3ED),
+    surfaceContainerLow = Color(CodeValuePalette.lightCardSurface), surfaceContainer = Color(0xFFEAF3ED),
     surfaceContainerHigh = Color(0xFFE4EEE7), surfaceContainerHighest = Color(0xFFDDE8E0),
     onBackground = Color(0xFF17221B), onSurface = Color(0xFF17221B), outline = Color(0xFF718377),
 )
@@ -43,18 +51,14 @@ private val DarkColors = darkColorScheme(
     tertiary = Color(0xFF8CD5B4), onTertiary = Color(0xFF073927),
     background = Color(0xFF09120D), surface = Color(0xFF101A14),
     surfaceVariant = Color(0xFF1B2920), surfaceContainerLowest = Color(0xFF06100A),
-    surfaceContainerLow = Color(0xFF101A14), surfaceContainer = Color(0xFF152119),
+    surfaceContainerLow = Color(CodeValuePalette.darkCardSurface), surfaceContainer = Color(0xFF152119),
     surfaceContainerHigh = Color(0xFF1B2920), surfaceContainerHighest = Color(0xFF243228),
     onBackground = Color(0xFFE2ECE5), onSurface = Color(0xFFE2ECE5), outline = Color(0xFF89988E),
 )
 
 @Composable
 fun LocalTellTheme(themeMode: ThemeMode, content: @Composable () -> Unit) {
-    val darkTheme = when (themeMode) {
-        ThemeMode.SYSTEM -> isSystemInDarkTheme()
-        ThemeMode.LIGHT -> false
-        ThemeMode.DARK -> true
-    }
+    val darkTheme = themeMode.isDark(isSystemInDarkTheme())
     val colors = if (darkTheme) DarkColors else LightColors
     val view = LocalView.current
     SideEffect {
@@ -66,5 +70,7 @@ fun LocalTellTheme(themeMode: ThemeMode, content: @Composable () -> Unit) {
             isAppearanceLightNavigationBars = !darkTheme
         }
     }
-    MaterialTheme(colorScheme = colors, content = content)
+    CompositionLocalProvider(LocalCodeColors provides CodeValuePalette.forTheme(darkTheme).toCodeColors()) {
+        MaterialTheme(colorScheme = colors, content = content)
+    }
 }

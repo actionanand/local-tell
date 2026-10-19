@@ -36,6 +36,8 @@ class EasyButtonLabelsResourcesTest {
         assertEquals("Pickup location", strings("values")["easy_uber_pickup"])
         assertEquals("Destination", strings("values")["easy_uber_destination"])
         assertEquals("ஏறும் இடம்", strings("values-ta")["easy_uber_pickup"])
+        assertEquals("சேருமிடம்", strings("values-ta")["easy_uber_destination"])
+        assertEquals("ग्रहणस्थानम्", strings("values-sa")["easy_uber_pickup"])
         assertEquals("गन्तव्यम्", strings("values-sa")["easy_uber_destination"])
     }
 }

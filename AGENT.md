@@ -426,7 +426,7 @@ The user chooses whether the LocalTell location is:
 - Pickup; or
 - Destination.
 
-The choice dialog shows Pickup and Destination as equally prominent buttons on one row (stacking only when large fonts or narrow screens require it), with Cancel on a separate bottom-right row.
+The choice dialog uses the theme's normal surface and a bold title. Pickup and Destination are equal-width, equal-height dark-green (`#126B3B`) pill buttons with white semibold labels and at least 48dp touch targets. Keep them on one row when each translated label fits its allocated content width in up to two centered lines; do not use single-line intrinsic widths to decide stacking. Stack only when that two-line layout cannot fit, without truncating text. Cancel stays on a separate bottom-right row, and the dialog scrolls if needed at large font sizes.
 
 Do not reintroduce Ola or Rapido unless explicitly requested.
 
