@@ -16,7 +16,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
@@ -37,12 +37,12 @@ fun SavedPlacesFeedback(onManageSavedPlaces: () -> Unit, vm: SavedPlacesViewMode
     val state by vm.state.collectAsStateWithLifecycle()
     val places by vm.places.collectAsStateWithLifecycle()
     val host = remember { SnackbarHostState() }
-    val context = LocalContext.current
+    val resources = LocalResources.current
     val lifecycleOwner = LocalLifecycleOwner.current
-    // Consumes one-time events; text is resolved from the current (possibly re-localized) context.
-    LaunchedEffect(vm, lifecycleOwner, context) {
+    // Consumes one-time events; text is resolved from the current (possibly re-localized) resources.
+    LaunchedEffect(vm, lifecycleOwner, resources) {
         lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
-            vm.feedbackMessages.collect { resource -> host.showSnackbar(context.getString(resource)) }
+            vm.feedbackMessages.collect { resourceId -> host.showSnackbar(resources.getString(resourceId)) }
         }
     }
     SnackbarHost(host, Modifier.padding(12.dp))
