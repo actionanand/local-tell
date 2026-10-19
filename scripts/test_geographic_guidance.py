@@ -20,10 +20,11 @@ ASSET = ROOT / "app/src/main/assets/geography"
 class GeographicGuidanceTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.index = Index(ASSET / "boundaries.ltg.gz")
+        cls.index = Index(ASSET / "boundaries.ltgz")
 
     def test_actual_india_state_and_island_polygons(self):
         for code, lat, lng in [("KA",12.971598,77.594566), ("TN",8.181910,77.352330),
+                              ("TN",8.1833,77.4119),  # Nagercoil
                               ("KL",10.5276,76.2144), ("MH",18.5204,73.8567),
                               ("DL",28.6139,77.209), ("PY",11.934,79.812),
                               ("AN",11.6234,92.7265), ("LD",10.5667,72.6417)]:
@@ -66,7 +67,7 @@ class GeographicGuidanceTest(unittest.TestCase):
 
     def test_provenance_hashes_all_current_36_units_and_bounded_size(self):
         metadata = json.loads((ASSET / "provenance.json").read_text(encoding="utf-8"))
-        raw = (ASSET / "boundaries.ltg.gz").read_bytes()
+        raw = (ASSET / "boundaries.ltgz").read_bytes()
         self.assertEqual(metadata["generated"]["bytes"],len(raw))
         self.assertEqual(metadata["generated"]["sha256"],hashlib.sha256(raw).hexdigest())
         self.assertLess(len(raw),7 * 1024 * 1024)
@@ -83,7 +84,8 @@ class GeographicGuidanceTest(unittest.TestCase):
         loader = (APP / "geography/BuiltInGeography.kt").read_text()
         self.assertIn("withContext(Dispatchers.IO)",loader)
         self.assertIn("mutex.withLock",loader)
-        self.assertIn("index ?: BoundaryIndex.read",loader)
+        self.assertIn("GeographyAssetLoader.load",loader)
+        self.assertIn('context.assets.open("geography/boundaries.ltgz")',loader)
 
     def test_home_does_not_return_for_missing_pack_before_acquisition(self):
         home = (APP / "HomeViewModel.kt").read_text(encoding="utf-8")

@@ -7,7 +7,7 @@ import com.actionanand.localtell.app.data.RemotePack
 data class OfflineDataTarget(val countryCode: String, val packId: String? = null,
     val adminCode: String? = null, val label: String = countryCode)
 
-enum class DataAvailability { UNKNOWN_REGION, UNSUPPORTED, CATALOG_UNKNOWN, UNPUBLISHED, DOWNLOADABLE, INSTALLED_NO_MATCH, INSTALLED_ERROR }
+enum class DataAvailability { ASSET_UNAVAILABLE, UNKNOWN_REGION, UNSUPPORTED, CATALOG_UNKNOWN, UNPUBLISHED, DOWNLOADABLE, INSTALLED_NO_MATCH, INSTALLED_ERROR }
 data class OfflineDataGuidance(val region: DetectedRegion?, val availability: DataAvailability,
     val target: OfflineDataTarget? = null, val partialCountryData: Boolean = false)
 

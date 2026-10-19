@@ -149,6 +149,6 @@ if __name__ == "__main__":
     args = parser.parse_args()
     binary, metadata = build(args.source_dir)
     args.output.mkdir(parents=True, exist_ok=True)
-    (args.output / "boundaries.ltg.gz").write_bytes(binary)
+    (args.output / "boundaries.ltgz").write_bytes(binary)
     (args.output / "provenance.json").write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(metadata["generated"], indent=2))

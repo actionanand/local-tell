@@ -68,14 +68,22 @@ jobs:
         run: |
           python3 -m json.tool app-config.json >/dev/null
           python3 -m json.tool android-version.json >/dev/null
+          python3 -B -m unittest discover -s scripts -p 'test_*.py' -v
           gradle lint testDebugUnitTest
 
       - name: Build installable debug APK
-        run: gradle assembleDebug
+        run: gradle assembleDebug assembleDebugAndroidTest
 
       # Release outputs stay under app/build; no production signing or publishing.
       - name: Validate release compilation and R8
         run: gradle assembleRelease bundleRelease
+
+      - name: Verify packaged geographic gzip in debug APK, release APK and AAB
+        run: |
+          python3 -B scripts/verify_geographic_artifacts.py \
+            app/build/outputs/apk/debug/*.apk \
+            app/build/outputs/apk/release/*.apk \
+            app/build/outputs/bundle/release/*.aab
 
       - name: Prepare versioned debug APK
         id: debug_apk

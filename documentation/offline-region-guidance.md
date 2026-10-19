@@ -6,7 +6,7 @@ schema-v3 packs, estimate a position from cellular signals or alter location cod
 
 ## Sources and redistribution
 
-The shipped `assets/geography/boundaries.ltg.gz` is **6,032,996 bytes** (about
+The shipped `assets/geography/boundaries.ltgz` is **6,032,996 bytes** (about
 5.75 MiB), containing 4,900 polygon parts, 1,593,585 vertices, 238 country/territory
 codes and all 36 India state/UT identifiers. A code being present does not promise
 a confident result everywhere in that territory.
@@ -61,6 +61,35 @@ grid maps cells to candidate part IDs. Grid cells/bounds only prune candidates;
 ray casting of outer rings and holes determines containment. The globe is not
 classified by rectangular extents. Antimeridian cut segments are not treated as
 real coastlines; nearby genuine edges still apply.
+
+### Android asset packaging hotfix
+
+The file extension is deliberately **`.ltgz`**, not `.gz`. The production APK/AAB
+inspection confirmed that Android packaging expanded the old `.gz` input and
+removed its suffix, leaving `assets/geography/boundaries.ltg` (7,079,992 decoded
+bytes). The loader's old `.gz` lookup consequently failed despite valid GPS.
+The renamed asset retains the original gzip bytes, size and SHA-256:
+
+```text
+e34ce12b0ad1d5a289704a30848fcb021f6a09ed70babf421e90136df1ebb4e0
+```
+
+The generator always writes `boundaries.ltgz`. Android opens that path through
+AssetManager, and BoundaryIndex still decodes it with GZIPInputStream. There is
+no geographic-data or index-format change. Missing/corrupt assets raise a distinct
+GeographyAssetException, log a loading error without coordinates and show localized
+"Country detection unavailable" guidance rather than "Location uncertain".
+Genuinely ambiguous positions still return null after a successful load. Failed
+loads are not cached; subsequent attempts can retry. Successful installed locality
+matches bypass the bundled index as before.
+
+The feature-validation workflow verifies the **actual built** debug APK, release
+APK and AAB before upload, checking their respective `assets/geography/boundaries.ltgz`
+and `base/assets/geography/boundaries.ltgz` entries against the original gzip hash
+and source bytes. It rejects old paths, missing/duplicate assets, expanded data or
+changed compressed bytes. It also compiles the instrumentation APK. Production
+CI/signing/versioning is unchanged. This fix branch does not match the existing
+`feature/**` push trigger; run Feature Validation manually on this branch.
 
 The process-wide immutable index loads once on Dispatchers.IO behind a mutex.
 It stores integer vertex arrays (about 12.2 MiB for coordinates, plus indexing and
@@ -194,6 +223,8 @@ python -B -m unittest discover -s scripts -p 'test_*.py' -v
 git diff --check
 gradle lint testDebugUnitTest
 gradle assembleDebug assembleRelease bundleRelease
+python -B scripts/verify_geographic_artifacts.py app/build/outputs/apk/debug/*.apk app/build/outputs/apk/release/*.apk app/build/outputs/bundle/release/*.aab
+gradle connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.actionanand.localtell.app.geography.GeographicAssetRuntimeTest
 ```
 
 Compilation, lint, JVM tests, R8/builds and real Android SQLite/asset integration
@@ -204,6 +235,19 @@ catalog network failure, installation then manual Home refresh, exact target
 navigation/Back/recreation, cached catalogs, large fonts/TalkBack/all locales,
 coastal/island/border uncertainty and low-memory asset-loading performance.
 
+GeographicPackagingTest uses ZIP fixtures to test the artifact verifier, including
+the exact former packaging failure. Passing those fixtures does not prove an
+Android build passed; the separate verifier command must be run against new build
+outputs. GeographicAssetRuntimeTest uses the **target app's** AssetManager and the
+production loader for Bengaluru (IN-KA), Nagercoil (IN-TN), Sri Lanka (LK), Nepal,
+ocean/border uncertainty and missing accuracy; it checks the pinned gzip bytes and
+238/36 metadata counts. It also checks a real missing-asset error and resolves an
+isolated schema-v3 SQLite fixture through the unchanged installed-pack resolver,
+without touching user pack preferences or files. Run on an emulator/device; these
+are not source-file-only JVM tests. The current environment has no Gradle/Java/ADB,
+so actual new APK/AAB and Android execution remain validation gates, not claimed
+successes.
+
 This feature does not change Saved Places/Journey databases, limits, identity,
 location-code algorithms, `.bklt` schema/transactions, sharing/snapshot retention,
-signing, workflows, version 1.0.25/34 or the localtell-data repository.
+production signing/workflow, version 1.0.25/35 or the localtell-data repository.

@@ -298,6 +298,8 @@
     <string name="backup_restore_confirm">Merge this backup? Existing bookmarks are kept. Journey retains the newest records up to its limit.</string>
     <string name="backup_capacity_overflow">New Saved Places exceed capacity. Remove some saved places and try again. Neither dataset has been changed.</string>
     <string name="backup_back_settings">Back to Settings</string>
+    <string name="geo_asset_unavailable_title">Country detection unavailable</string>
+    <string name="geo_asset_unavailable_message">The built-in geographic data could not be loaded. This is an app data problem, not a location accuracy problem. Installed locality packs and worldwide location codes remain available.</string>
     <string name="geo_unknown_title">Location uncertain</string>
     <string name="geo_unknown_message">No reliable country match for this position. Browse available offline data or refresh with a clearer location.</string>
     <string name="geo_unsupported">Offline locality data for %1$s is not available in LocalTell yet. Country identification and worldwide location codes still work. Check for support in a future update.</string>

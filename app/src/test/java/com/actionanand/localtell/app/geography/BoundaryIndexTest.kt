@@ -7,8 +7,8 @@ import org.junit.Test
 class BoundaryIndexTest {
     companion object {
         private val index by lazy {
-            val file = File("src/main/assets/geography/boundaries.ltg.gz").takeIf { it.isFile }
-                ?: File("app/src/main/assets/geography/boundaries.ltg.gz")
+            val file = File("src/main/assets/geography/boundaries.ltgz").takeIf { it.isFile }
+                ?: File("app/src/main/assets/geography/boundaries.ltgz")
             BoundaryIndex.read(file.inputStream())
         }
     }
@@ -21,6 +21,7 @@ class BoundaryIndexTest {
     @Test fun `bundled India polygons identify states Delhi Puducherry and island territories without packs`() {
         india("IN-KA", 12.971598, 77.594566)
         india("IN-TN", 8.181910, 77.352330)
+        india("IN-TN", 8.1833, 77.4119) // Nagercoil
         india("IN-KL", 10.5276, 76.2144)
         india("IN-MH", 18.5204, 73.8567)
         india("IN-DL", 28.6139, 77.2090)

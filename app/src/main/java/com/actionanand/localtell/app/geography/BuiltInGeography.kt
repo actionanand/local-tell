@@ -1,6 +1,7 @@
 package com.actionanand.localtell.app.geography
 
 import android.content.Context
+import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -14,7 +15,13 @@ object BuiltInGeography {
     private var index: BoundaryIndex? = null
     suspend fun identify(context: Context, latitude: Double, longitude: Double, accuracy: Float?): DetectedRegion? = withContext(Dispatchers.IO) {
         val loaded = mutex.withLock {
-            index ?: BoundaryIndex.read(context.assets.open("geography/boundaries.ltg.gz")).also { index = it }
+            index ?: try {
+                GeographyAssetLoader.load { context.assets.open("geography/boundaries.ltgz") }.also { index = it }
+            } catch (error: GeographyAssetException) {
+                // Do not log coordinates. A broken/missing bundled asset is not an uncertain fix.
+                Log.e("BuiltInGeography", "Bundled geographic index could not be loaded", error)
+                throw error
+            }
         }
         val coroutine = currentCoroutineContext()
         loaded.identify(latitude, longitude, accuracy?.toDouble()) { coroutine.ensureActive() }

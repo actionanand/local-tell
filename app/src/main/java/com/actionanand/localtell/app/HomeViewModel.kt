@@ -10,6 +10,8 @@ import com.actionanand.localtell.app.data.OfflineAreaResolver
 import com.actionanand.localtell.app.data.OfflineLocalityResolver
 import com.actionanand.localtell.app.data.PackStore
 import com.actionanand.localtell.app.geography.BuiltInGeography
+import com.actionanand.localtell.app.geography.GeographyAssetException
+import com.actionanand.localtell.app.geography.DataAvailability
 import com.actionanand.localtell.app.geography.OfflineDataGuidance
 import com.actionanand.localtell.app.geography.OfflineGuidanceResolver
 import com.actionanand.localtell.app.location.GnssFixResult
@@ -200,14 +202,17 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
             catch (_: Exception) { null } // The coverage inspection distinguishes unreadable packs.
         }
         val guidanceAndCoverage: Pair<OfflineDataGuidance?, Boolean> = if (locality == null) withContext(Dispatchers.IO) {
+            var assetUnavailable = false
             val region = try {
                 BuiltInGeography.identify(getApplication(), location.latitude, location.longitude,
                     location.accuracy.takeIf { location.hasAccuracy() })
             } catch (cancelled: CancellationException) { throw cancelled }
-            catch (_: Exception) { null }
+            catch (_: GeographyAssetException) { assetUnavailable = true; null }
             val coroutine = currentCoroutineContext()
             val coverage = localityResolver.coverage(location.latitude, location.longitude) { coroutine.ensureActive() }
-            guidanceResolver.resolve(region, coverage) to coverage.geographicIds.isNotEmpty()
+            val guidance = if (assetUnavailable) OfflineDataGuidance(null, DataAvailability.ASSET_UNAVAILABLE)
+                else guidanceResolver.resolve(region, coverage)
+            guidance to coverage.geographicIds.isNotEmpty()
         } else (null to true)
         val guidance = guidanceAndCoverage.first
         val hasGeographicPack = guidanceAndCoverage.second

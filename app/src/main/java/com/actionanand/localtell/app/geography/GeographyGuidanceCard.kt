@@ -30,6 +30,7 @@ private fun regionName(region: DetectedRegion): Pair<String, String> {
 
 @Composable
 fun offlineGuidanceTitle(guidance: OfflineDataGuidance): String = when (guidance.availability) {
+    DataAvailability.ASSET_UNAVAILABLE -> stringResource(R.string.geo_asset_unavailable_title)
     DataAvailability.UNKNOWN_REGION -> stringResource(R.string.geo_unknown_title)
     DataAvailability.UNSUPPORTED -> guidance.region?.let { regionName(it).second } ?: stringResource(R.string.geo_unknown_title)
     DataAvailability.INSTALLED_NO_MATCH -> stringResource(R.string.geo_installed_nomatch_title)
@@ -46,6 +47,7 @@ fun OfflineGuidanceContent(guidance: OfflineDataGuidance, onOpen: (OfflineDataTa
             style = MaterialTheme.typography.titleMedium)
     }
     val message = when (guidance.availability) {
+        DataAvailability.ASSET_UNAVAILABLE -> stringResource(R.string.geo_asset_unavailable_message)
         DataAvailability.UNKNOWN_REGION -> stringResource(R.string.geo_unknown_message)
         DataAvailability.UNSUPPORTED -> stringResource(R.string.geo_unsupported, names?.second.orEmpty())
         DataAvailability.CATALOG_UNKNOWN -> stringResource(R.string.geo_catalog_unknown, name)

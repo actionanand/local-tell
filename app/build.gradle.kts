@@ -44,6 +44,7 @@ android {
         targetSdk = sdkConfig.getProperty("TARGET_SDK_VERSION").toInt()
         versionCode = (versionConfig["versionCode"] as Number).toInt()
         versionName = versionConfig["versionName"] as String
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         buildConfigField("String", "HOME_ANNOUNCEMENT_URL", quoted(configuredHomeAnnouncementUrl))
         buildConfigField("String", "DATA_MANIFEST_SOURCES_JSON", quoted(JsonOutput.toJson(configuredManifestSources)))
@@ -114,6 +115,8 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.tooling)
 
     testImplementation("junit:junit:4.13.2")
+    androidTestImplementation("androidx.test:runner:1.7.0")
+    androidTestImplementation("androidx.test.ext:junit:1.3.0")
     // Android's org.json stubs cannot parse manifests in local JVM tests.
     testImplementation("org.json:json:20240303")
 }
