@@ -63,6 +63,4 @@ fun OfflineGuidanceContent(guidance: OfflineDataGuidance, onOpen: (OfflineDataTa
             else stringResource(R.string.geo_browse_data))
         }
     }
-    Text(stringResource(R.string.geo_attribution), style = MaterialTheme.typography.labelSmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant)
 }

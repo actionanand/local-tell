@@ -313,7 +313,16 @@
     <string name="geo_missing_data">%1$s இணையமில்லாத வட்டாரத் தரவு நிறுவப்படவில்லை. அருகிலுள்ள ஊர்களையும் வட்டாரங்களையும் இணையமின்றிக் கண்டறிய அதைப் பதிவிறக்கவும்.</string>
     <string name="geo_download_data">%1$s தரவைப் பதிவிறக்கு</string>
     <string name="geo_browse_data">இணையமில்லாத தரவைப் பார்</string>
-    <string name="geo_attribution">பகுதித் தரவு: Natural Earth · geoBoundaries / DataMeet India · CC BY 2.5 IN: https://creativecommons.org/licenses/by/2.5/in/</string>
+    <string name="geo_sources_title">செயலியில் உள்ள புவியியல் எல்லைத் தரவு</string>
+    <string name="geo_sources_summary">இணையமின்றி நாடுகளையும் இந்திய மாநிலங்கள் அல்லது ஒன்றியப் பிரதேசங்களையும் கண்டறிய LocalTell, Natural Earth மற்றும் geoBoundaries / DataMeet India எல்லைத் தரவைப் பயன்படுத்துகிறது.\n\nஇவை செயலியில் உள்ள எல்லைத் தகவலை மட்டுமே வழங்குகின்றன. LocalTell தனியாகப் பதிவிறக்கும் இணையமில்லா இடத் தரவுத்தளங்கள் இந்த அமைப்புகளிடமிருந்து பெறப்பட்டவை அல்ல.</string>
+    <string name="geo_sources_licenses">Natural Earth — பொதுக் களம்\ngeoBoundaries / DataMeet India — CC BY 2.5 India</string>
+    <string name="geo_sources_action">தரவு மூலங்களையும் உரிமங்களையும் காண்க</string>
+    <string name="geo_sources_modifications">LocalTell செய்த மாற்றங்கள்: நிர்வாக அடையாளங்கள் மற்றும் ஆங்கிலக் காட்சிப் பெயர்கள், தீர்க்கரேகைத் தொடர்ச்சியைச் சீராக்குதல், ஆய அளவுகளின் துல்லியத்தைச் சீரமைத்தல், சுருக்குதல் மற்றும் இடவியல் அட்டவணையாக்கம். அசல் பலகோணப் பகுதிகளும் உட்புறத் துளைகளும் தக்கவைக்கப்பட்டுள்ளன; வடிவங்கள் எளிமைப்படுத்தப்படவில்லை.</string>
+    <string name="geo_sources_limitations">இந்த எல்லைகள் சட்டப்பூர்வ அல்லது நிலஅளவை வரைபடம் அல்ல. எல்லையோரம், கடற்கரை, சிறு தீவுகள் மற்றும் சர்ச்சைக்குரிய பகுதிகளின் முடிவுகள் உறுதியற்றதாக இருக்கலாம். மூலத் தேதிகளும் வரைபடத் துல்லியமும் தற்போதைய உண்மையான எல்லைகளுக்கு உத்தரவாதமல்ல. தரவு வழங்குநர்கள் LocalTell-ஐ ஆதரிப்பதாகப் பொருளல்ல.</string>
+    <string name="geo_sources_notice">அசல் நன்றியுரைகளும் மேற்கோள்களும்</string>
+    <string name="geo_sources_loading">மூல விவரங்கள் ஏற்றப்படுகின்றன…</string>
+    <string name="geo_sources_load_error">செயலியில் உள்ள மூல அறிவிப்பைப் படிக்க முடியவில்லை. மீண்டும் முயல இந்த விவரங்களை மூடித் திறக்கவும்.</string>
+    <string name="geo_sources_close">மூடு</string>
     <string name="geo_showing_data">%1$s தரவு காட்டப்படுகிறது</string>
     <string name="geo_show_all">அனைத்து இணையமில்லாத தரவையும் காட்டு</string>
     <string name="geo_target_unavailable">இந்தத் தேர்வு கிடைக்கும் தொகுப்புப் பட்டியலில் இல்லை. பட்டியலைப் புதுப்பிக்கவும் அல்லது அனைத்துத் தரவையும் காட்டவும்.</string>

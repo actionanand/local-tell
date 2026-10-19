@@ -511,6 +511,7 @@ private fun SettingsScreen(
                 }
             }
         }
+        item(key = "built-in-geographic-attribution") { GeographicAttributionSection() }
     }
 }
 

@@ -313,7 +313,16 @@
     <string name="geo_missing_data">%1$s offline locality data is not installed. Download it to identify nearby towns and localities offline.</string>
     <string name="geo_download_data">Download %1$s data</string>
     <string name="geo_browse_data">Browse Offline Data</string>
-    <string name="geo_attribution">Region data: Natural Earth · geoBoundaries / DataMeet India · CC BY 2.5 IN: https://creativecommons.org/licenses/by/2.5/in/</string>
+    <string name="geo_sources_title">Built-in Geographic Boundary Data</string>
+    <string name="geo_sources_summary">LocalTell uses Natural Earth and geoBoundaries / DataMeet India boundaries to identify countries and Indian states or union territories offline.\n\nThese sources provide only the built-in boundaries. LocalTell\'s separately downloaded offline locality databases are not sourced from these organizations.</string>
+    <string name="geo_sources_licenses">Natural Earth — Public Domain\ngeoBoundaries / DataMeet India — CC BY 2.5 India</string>
+    <string name="geo_sources_action">View data sources and licenses</string>
+    <string name="geo_sources_modifications">LocalTell modifications: administrative identifiers and English display names, longitude unwrapping, coordinate quantization, compression and spatial indexing. Original polygon parts and holes are retained; shapes are not simplified.</string>
+    <string name="geo_sources_limitations">These boundaries are not a legal or survey map. Border, coastal, small-island and disputed-area results may remain uncertain. Source dates and map accuracy are not guarantees of current real-world boundaries. No endorsement of LocalTell by the data providers is implied.</string>
+    <string name="geo_sources_notice">Original acknowledgements and references</string>
+    <string name="geo_sources_loading">Loading source details…</string>
+    <string name="geo_sources_load_error">The bundled source notice could not be read. Close and reopen these details to try again.</string>
+    <string name="geo_sources_close">Close</string>
     <string name="geo_showing_data">Showing data for %1$s</string>
     <string name="geo_show_all">Show all offline data</string>
     <string name="geo_target_unavailable">This selection is not in the available pack list. Refresh the list or show all data.</string>

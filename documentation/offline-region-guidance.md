@@ -16,7 +16,8 @@ a confident result everywhere in that territory.
 - India: **geoBoundaries gbOpen IND ADM1**, boundary ID **IND-ADM1-1811400**,
   pinned release commit **9469f09**; DataMeet India community / Election Commission
   of India. **CC BY 2.5 IN**, not public domain. The license URI and attribution
-  accompany the APK in `assets/geography/NOTICE.txt` and the Home guidance footer.
+  accompany the APK in `assets/geography/NOTICE.txt` and are accessible offline
+  from the final section of More → Settings (View data sources and licenses).
   [Source metadata](https://www.geoboundaries.org/api/current/gbOpen/IND/ADM1/),
   [license](https://creativecommons.org/licenses/by/2.5/in/).
 - Metadata describes a 2011 represented year and 2023 build, but the actual 36
@@ -201,6 +202,20 @@ Settings uses **Icons.Default.SettingsBackupRestore** instead of Download for
 Backup & Restore. Verified in Google's official `material-icons-extended:1.7.8`
 source archive, the exact version selected by the existing Compose BOM 2026.09.00.
 No dependency or Settings layout/theme/accessibility change is required.
+
+Built-in boundary attribution appears only at the bottom of More → Settings,
+after the language choices, not in Home guidance or the Offline Data downloader.
+The compact section explicitly distinguishes Natural Earth / geoBoundaries /
+DataMeet India **bundled boundaries** from LocalTell's separately downloaded
+locality databases, which are not sourced from those organizations. The read-only,
+scrollable details dialog includes localized modifications/limitations and the
+unchanged canonical `geography/NOTICE.txt`: credits, source references, license
+names/URLs and non-endorsement. The notice is read on IO only when opened, without
+network access; its text is selectable for copying references. Both NOTICE.txt
+and provenance.json remain bundled and unchanged. English/Tamil/Sanskrit controls
+and explanations use matching resources; proper names and canonical legal
+references remain verbatim. Typography/theme colors follow Settings, headings
+have accessibility semantics, and the existing 32dp bottom padding is retained.
 
 ## Validation and device gates
 

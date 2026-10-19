@@ -116,6 +116,37 @@ class GeographicGuidanceTest(unittest.TestCase):
         self.assertIn("rememberSaveable { mutableStateOf<String?>(null) }",activity)
         self.assertIn("Icons.Default.SettingsBackupRestore, stringResource(R.string.backup_title)",activity)
 
+    def test_attribution_is_only_the_final_settings_item_not_home_or_offline_data(self):
+        activity = (APP / "MainActivity.kt").read_text(encoding="utf-8")
+        settings = activity[activity.index("private fun SettingsScreen("):activity.index("private fun SettingsSectionHeader(")]
+        self.assertEqual(1, activity.count("GeographicAttributionSection()"))
+        self.assertIn('item(key = "built-in-geographic-attribution") { GeographicAttributionSection() }', settings)
+        self.assertLess(settings.index("items(listOf(AppLanguage.SYSTEM"), settings.index("GeographicAttributionSection()"))
+        self.assertRegex(settings, r"GeographicAttributionSection\(\) }\s*}\s*}\s*@Composable\s*$")
+        home = (APP / "geography/GeographyGuidanceCard.kt").read_text(encoding="utf-8")
+        self.assertNotIn("geo_attribution", home)
+        self.assertNotIn("geo_sources_", home)
+        self.assertNotIn("Natural Earth", home)
+        self.assertNotIn("geoBoundaries", home)
+        self.assertIn("onOpen(guidance.target)", home)
+
+    def test_settings_sources_use_offline_notice_with_localized_explanation(self):
+        section = (APP / "geography/GeographicAttributionSection.kt").read_text(encoding="utf-8")
+        for expected in ('context.assets.open("geography/NOTICE.txt")', "withContext(Dispatchers.IO)",
+                         "SelectionContainer", "verticalScroll(rememberScrollState())", "heading()",
+                         "MaterialTheme.colorScheme.onSurfaceVariant", "geo_sources_modifications", "geo_sources_limitations"):
+            self.assertIn(expected, section)
+        for forbidden in ("HttpURLConnection", "openConnection(", "ACTION_VIEW", "Geocoder", "getLocation("):
+            self.assertNotIn(forbidden, section)
+        resources = ET.parse(ROOT / "app/src/main/res/values/strings.xml").getroot()
+        summary = next("".join(n.itertext()) for n in resources if n.get("name") == "geo_sources_summary")
+        self.assertIn("built-in boundaries", summary)
+        self.assertIn("not sourced from these organizations", summary)
+        notice = (ASSET / "NOTICE.txt").read_text(encoding="utf-8")
+        for expected in ("Natural Earth", "Tom Patterson", "Nathaniel Vaughn Kelso", "DataMeet India",
+                         "https://creativecommons.org/licenses/by/2.5/in/", "LocalTell modifications", "No endorsement"):
+            self.assertIn(expected, notice)
+
     def test_app_resources_are_complete_and_geographic_labels_do_not_replace_pack_names(self):
         pattern = re.compile(r"%(?:\d+\$)?(?:[\d.]+)?[sdf]")
         resources = {}

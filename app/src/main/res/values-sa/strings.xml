@@ -363,7 +363,16 @@
     <string name="geo_missing_data">%1$s इत्यस्य अन्तर्जालविहीनस्थानदत्तांशाः न स्थापिताः। समीपस्थान् नगरान् स्थानानि च अन्तर्जालविना ज्ञातुं तान् अवतारय।</string>
     <string name="geo_download_data">%1$s इत्यस्य दत्तांशान् अवतारय</string>
     <string name="geo_browse_data">अन्तर्जालविहीनदत्तांशान् पश्य</string>
-    <string name="geo_attribution">प्रदेशदत्तांशाः: Natural Earth · geoBoundaries / DataMeet India · CC BY 2.5 IN: https://creativecommons.org/licenses/by/2.5/in/</string>
+    <string name="geo_sources_title">अनुप्रयोगस्थाः भौगोलिकसीमादत्तांशाः</string>
+    <string name="geo_sources_summary">अन्तर्जालं विना देशानां भारतीयानां राज्यानां केन्द्रशासितप्रदेशानां च निर्धारणाय LocalTell, Natural Earth तथा geoBoundaries / DataMeet India इत्येतयोः सीमादत्तांशान् उपयुङ्क्ते।\n\nएतानि स्रोतांसि केवलम् अनुप्रयोगस्थं सीमाविवरणं प्रयच्छन्ति। LocalTell इत्यनेन पृथक् अवरोपिताः अन्तर्जालविहीनाः स्थानीयस्थानदत्तांशसञ्चयाः एताभ्यः संस्थाभ्यः न प्राप्ताः।</string>
+    <string name="geo_sources_licenses">Natural Earth — सार्वजनिकसम्पत्\ngeoBoundaries / DataMeet India — CC BY 2.5 India</string>
+    <string name="geo_sources_action">दत्तांशस्रोतांसि अनुज्ञापत्राणि च पश्य</string>
+    <string name="geo_sources_modifications">LocalTell-कृतानि परिवर्तनानि: प्रशासनिकपरिचायकाः आङ्ग्लप्रदर्शननामानि च, देशान्तररेखासातत्यस्य समायोजनम्, निर्देशाङ्कपरिमाणनम्, सङ्कोचनं स्थानिकानुक्रमणीकरणं च। मूलबहुभुजानां भागाः अन्तश्छिद्राणि च यथावत् सन्ति; आकृतयः न सरलीकृताः।</string>
+    <string name="geo_sources_limitations">इदं सीमाविवरणं न वैधानिकं न वा भू-सर्वेक्षणाधारितं मानचित्रम्। सीमासमीपे, तटे, लघुद्वीपेषु विवादितप्रदेशेषु च परिणामाः अनिश्चिताः भवितुम् अर्हन्ति। स्रोतस्तिथयः मानचित्रस्य यथार्थता च वर्तमानवास्तविकसीम्नां प्रत्याभूतिः न सन्ति। दत्तांशप्रदातृभिः LocalTell इत्यस्य समर्थनं न सूच्यते।</string>
+    <string name="geo_sources_notice">मूलकृतज्ञतावचनानि सन्दर्भाश्च</string>
+    <string name="geo_sources_loading">स्रोतसां विवरणम् आनीयते…</string>
+    <string name="geo_sources_load_error">अनुप्रयोगस्था स्रोतःसूचना पठितुं न शक्यते। पुनः प्रयत्नाय इदं विवरणं पिधाय पुनरुद्घाटय।</string>
+    <string name="geo_sources_close">पिधेहि</string>
     <string name="geo_showing_data">%1$s इत्यस्य दत्तांशाः दर्श्यन्ते</string>
     <string name="geo_show_all">सर्वान् अन्तर्जालविहीनदत्तांशान् दर्शय</string>
     <string name="geo_target_unavailable">अयं चयनः उपलब्धसम्पुटसूच्यां नास्ति। सूचीं नवीकुरु अथवा सर्वान् दत्तांशान् दर्शय।</string>
