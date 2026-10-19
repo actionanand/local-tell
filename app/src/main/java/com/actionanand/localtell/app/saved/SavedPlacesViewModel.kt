@@ -8,6 +8,7 @@ import com.actionanand.localtell.app.backup.SavedPlacesChanges
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
@@ -15,8 +16,6 @@ import kotlinx.coroutines.launch
 data class SavedPlacesUiState(
     val loaded: Boolean = false,
     val busy: Boolean = false,
-    val message: Int? = null,
-    val messageSequence: Long = 0,
     val limitReached: Boolean = false,
 )
 
@@ -26,6 +25,10 @@ class SavedPlacesViewModel(app: Application) : AndroidViewModel(app) {
     val places = repository.places
     private val mutableState = MutableStateFlow(SavedPlacesUiState())
     val state = mutableState.asStateFlow()
+    private val feedbackEvents = OneTimeEvents<Int>()
+
+    /** One-time snackbar feedback (string resource IDs), never replayed after recreation. */
+    val feedbackMessages: Flow<Int> = feedbackEvents.events
 
     init {
         viewModelScope.launch {
@@ -38,7 +41,7 @@ class SavedPlacesViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun feedback(resource: Int) {
-        mutableState.value = mutableState.value.copy(message = resource, messageSequence = mutableState.value.messageSequence + 1)
+        feedbackEvents.send(resource)
     }
     private fun operation(action: suspend () -> Unit) {
         if (mutableState.value.busy) return

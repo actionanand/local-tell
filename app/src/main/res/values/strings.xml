@@ -28,6 +28,7 @@
     <string name="easy_copy_maps">Copy Google Maps link</string>
     <string name="easy_ride_title">Use this location in Uber</string>
     <string name="easy_uber">Uber</string>
+    <string name="easy_uber_button">Uber</string>
     <string name="easy_uber_choice_title">Use location in Uber</string>
     <string name="easy_uber_choice_message">How would you like to use this LocalTell location?</string>
     <string name="easy_uber_pickup">Pickup location</string>

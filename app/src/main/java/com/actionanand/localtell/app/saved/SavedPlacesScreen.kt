@@ -16,6 +16,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.compose.ui.platform.LocalLocale
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
@@ -33,8 +37,14 @@ fun SavedPlacesFeedback(onManageSavedPlaces: () -> Unit, vm: SavedPlacesViewMode
     val state by vm.state.collectAsStateWithLifecycle()
     val places by vm.places.collectAsStateWithLifecycle()
     val host = remember { SnackbarHostState() }
-    val message = state.message?.let { stringResource(it) }
-    LaunchedEffect(state.messageSequence) { if (message != null) host.showSnackbar(message) }
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    // Consumes one-time events; text is resolved from the current (possibly re-localized) context.
+    LaunchedEffect(vm, lifecycleOwner, context) {
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            vm.feedbackMessages.collect { resource -> host.showSnackbar(context.getString(resource)) }
+        }
+    }
     SnackbarHost(host, Modifier.padding(12.dp))
     if (state.limitReached) AlertDialog(
         onDismissRequest = vm::dismissLimit,

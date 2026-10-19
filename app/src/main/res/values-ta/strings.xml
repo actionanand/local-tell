@@ -24,10 +24,11 @@
     <string name="easy_find">இருப்பிடத்தைக் கண்டறி</string>
     <string name="easy_resolved_location">கண்டறியப்பட்ட இருப்பிடம்</string>
     <string name="easy_offline_unavailable">இணையமில்லா பகுதிப் பெயர் கிடைக்கவில்லை</string>
-    <string name="easy_open_maps">Google Maps-ல் திறக்கவும்</string>
-    <string name="easy_copy_maps">Google Maps இணைப்பை நகலெடு</string>
+    <string name="easy_open_maps">கூகிள் வரைபடத்தில் திறக்கவும்</string>
+    <string name="easy_copy_maps">கூகிள் வரைபட இணைப்பை நகலெடுக்கவும்</string>
     <string name="easy_ride_title">இந்த இருப்பிடத்தை Uber-ல் பயன்படுத்தவும்</string>
     <string name="easy_uber">Uber</string>
+    <string name="easy_uber_button">உபெர்</string>
     <string name="easy_uber_choice_title">Uber-ல் இருப்பிடத்தைப் பயன்படுத்தவும்</string>
     <string name="easy_uber_choice_message">இந்த LocalTell இருப்பிடத்தை எவ்வாறு பயன்படுத்த விரும்புகிறீர்கள்?</string>
     <string name="easy_uber_pickup">ஏறும் இடம்</string>

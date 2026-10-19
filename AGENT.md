@@ -426,6 +426,8 @@ The user chooses whether the LocalTell location is:
 - Pickup; or
 - Destination.
 
+The choice dialog shows Pickup and Destination as equally prominent buttons on one row (stacking only when large fonts or narrow screens require it), with Cancel on a separate bottom-right row.
+
 Do not reintroduce Ola or Rapido unless explicitly requested.
 
 Do not add Uber client credentials/product IDs unless explicitly requested.

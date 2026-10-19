@@ -69,7 +69,13 @@ class EasyViewModel(app: Application) : AndroidViewModel(app) {
     private val _state = MutableStateFlow(EasyUiState())
     val state: StateFlow<EasyUiState> = _state.asStateFlow()
     private var lookupRevision = 0L
+    internal val locationRequestFlow = EasyLocationRequestFlow()
 
+    /** Shows why a pending Get my location request could not continue (permission or Location declined). */
+    fun reportLocationPrerequisite(error: EasyError) {
+        if (_state.value.locating) return
+        _state.value = _state.value.copy(error = error)
+    }
     fun getMyLocation() {
         if (_state.value.locating) return
         viewModelScope.launch {

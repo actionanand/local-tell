@@ -70,6 +70,15 @@ import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.paneTitle
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.window.Dialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
@@ -90,6 +99,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -139,6 +149,9 @@ import com.actionanand.localtell.app.easy.EasyLocation
 import com.actionanand.localtell.app.easy.EasyError
 import com.actionanand.localtell.app.easy.EasyViewModel
 import com.actionanand.localtell.app.easy.EasySpeech
+import com.actionanand.localtell.app.easy.UberChoiceLayout
+import com.actionanand.localtell.app.easy.EasyFindInput
+import com.actionanand.localtell.app.easy.EasyLocationRequestFlow
 import com.actionanand.localtell.app.external.MapLinkBuilder
 import com.actionanand.localtell.app.external.RideDestination
 import com.actionanand.localtell.app.external.RideLinkBuilder
@@ -184,7 +197,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         super.onCreate(savedInstanceState)
-        locationEnablement = LocationEnablement(this)
+        locationEnablement = LocationEnablement(this, savedInstanceState?.getBundle("location_enablement"))
         incomingBackup = if (savedInstanceState == null) backupUriFromIntent(intent)
             else savedInstanceState.getString("pending_backup_uri")?.let(android.net.Uri::parse)
         setContent {
@@ -202,6 +215,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onSaveInstanceState(outState: Bundle) {
         incomingBackup?.let { outState.putString("pending_backup_uri", it.toString()) }
+        outState.putBundle("location_enablement", locationEnablement.saveState())
         super.onSaveInstanceState(outState)
     }
 
@@ -221,16 +235,22 @@ class MainActivity : ComponentActivity() {
 
     fun isLocationEnabled(): Boolean = locationEnablement.isEnabled()
 
-    fun requestLocationEnable(onEnabled: () -> Unit) {
+    fun hasPendingLocationEnableRequest(): Boolean = locationEnablement.hasPendingAction
+
+    fun reconnectLocationEnable(onDeclined: () -> Unit, onEnabled: () -> Unit) {
+        locationEnablement.reconnect(onDeclined, onEnabled)
+    }
+
+    fun requestLocationEnable(onDeclined: () -> Unit = {}, onEnabled: () -> Unit) {
         val locationWasOff = !isLocationEnabled()
-        locationEnablement.requestEnable {
+        locationEnablement.requestEnable(onEnabled = {
             if (locationWasOff && isLocationEnabled() && isLocationTurnOffReminderEnabled()) {
                 locationWasEnabledByLocalTell = true
             } else if (!isLocationTurnOffReminderEnabled()) {
                 locationWasEnabledByLocalTell = false
             }
             onEnabled()
-        }
+        }, onDeclined = onDeclined)
     }
 
     fun takeLocationTurnOffReminder(): Boolean {
@@ -584,22 +604,48 @@ private fun EasyScreen(
         locationRequestObservedInFlight = false
         vm.getMyLocation()
     }
-    lateinit var requestLocation: () -> Unit
+    val locationFlow = vm.locationRequestFlow
+    fun fineGranted() = hasPermission(context, Manifest.permission.ACCESS_FINE_LOCATION)
+    fun locationOn() = activity?.isLocationEnabled() != false
+    lateinit var handleStep: (EasyLocationRequestFlow.Step) -> Unit
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
-        if (granted[Manifest.permission.ACCESS_FINE_LOCATION] == true) {
-            requestLocation()
-        }
+        // Approximate-only grants leave ACCESS_FINE_LOCATION denied and are reported, not retried.
+        handleStep(locationFlow.onPermissionResult(granted[Manifest.permission.ACCESS_FINE_LOCATION] == true || fineGranted(), locationOn()))
     }
-    requestLocation = {
-        when {
-            !hasPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) -> permissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION))
-            activity?.isLocationEnabled() == false -> activity.requestLocationEnable {
-                if (activity.isLocationEnabled()) {
-                    beginLocationRequest()
+    handleStep = { step ->
+        when (step) {
+            EasyLocationRequestFlow.Step.REQUEST_PERMISSION -> permissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION))
+            EasyLocationRequestFlow.Step.REQUEST_LOCATION_ENABLE -> if (activity == null) {
+                handleStep(locationFlow.onLocationEnabled())
+            } else {
+                activity.requestLocationEnable(onDeclined = { handleStep(locationFlow.onLocationDeclined()) }) {
+                    handleStep(locationFlow.onLocationEnabled())
                 }
             }
-            else -> beginLocationRequest()
+            EasyLocationRequestFlow.Step.RECONNECT_LOCATION_ENABLE -> activity?.reconnectLocationEnable(
+                onDeclined = { handleStep(locationFlow.onLocationDeclined()) },
+                onEnabled = { handleStep(locationFlow.onLocationEnabled()) },
+            )
+            EasyLocationRequestFlow.Step.START_LOCATING -> beginLocationRequest()
+            EasyLocationRequestFlow.Step.PERMISSION_DENIED -> vm.reportLocationPrerequisite(EasyError.PERMISSION_MISSING)
+            EasyLocationRequestFlow.Step.LOCATION_DECLINED -> vm.reportLocationPrerequisite(EasyError.LOCATION_DISABLED)
+            EasyLocationRequestFlow.Step.NONE -> Unit
         }
+    }
+    val latestHandleStep = rememberUpdatedState(handleStep)
+    val requestLocation: () -> Unit = { handleStep(locationFlow.onTap(fineGranted(), locationOn(), state.locating)) }
+    val easyLifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(easyLifecycleOwner, locationFlow) {
+        latestHandleStep.value(locationFlow.onHostAttached(
+            enablementRequestActive = activity?.hasPendingLocationEnableRequest() == true,
+        ))
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME && locationFlow.isPending) {
+                latestHandleStep.value(locationFlow.onResume(fineGranted(), locationOn(), vm.state.value.locating))
+            }
+        }
+        easyLifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { easyLifecycleOwner.lifecycle.removeObserver(observer) }
     }
     androidx.compose.runtime.LaunchedEffect(
         state.locating,
@@ -670,7 +716,8 @@ private fun EasyScreen(
             Text(stringResource(R.string.easy_find_title), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             OutlinedTextField(value = findInput, onValueChange = { findInput = it }, modifier = Modifier.fillMaxWidth(), singleLine = true, placeholder = { Text(stringResource(R.string.easy_find_placeholder)) }, leadingIcon = { Icon(Icons.Default.Search, stringResource(R.string.easy_search_icon)) }, trailingIcon = if (findInput.isNotEmpty()) ({ IconButton(onClick = { findInput = "" }) { Icon(Icons.Default.Close, stringResource(R.string.easy_clear_input)) } }) else null)
             Spacer(Modifier.height(8.dp))
-            Button(onClick = { vm.find(findInput) }) { Text(stringResource(R.string.easy_find)) }
+            // Material's disabled colours (muted container and content) signal the inactive state.
+            Button(enabled = EasyFindInput.canSubmit(findInput, state.locating), onClick = { vm.find(findInput) }) { Text(stringResource(R.string.easy_find)) }
         }
         if (state.currentLocation == null && state.resolvedLocation == null) announcement?.let { current ->
             item(key = "home-announcement-${current.id}-${current.revision}") {
@@ -716,8 +763,8 @@ private fun EasyLocationCard(location: EasyLocation, showAccuracy: Boolean, onSp
                 )
             }
             location.locationNotice?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-            EasyCode(location.encoded.numericCode, stringResource(R.string.easy_number), stringResource(R.string.saved_copy_numeric), stringResource(R.string.saved_share_numeric))
-            EasyCode(location.encoded.shortCode, stringResource(R.string.easy_short_code), stringResource(R.string.saved_copy_short), stringResource(R.string.saved_share_short))
+            EasyCode(location.encoded.numericCode, stringResource(R.string.easy_number), stringResource(R.string.saved_copy_numeric), stringResource(R.string.saved_share_numeric), MaterialTheme.colorScheme.primary)
+            EasyCode(location.encoded.shortCode, stringResource(R.string.easy_short_code), stringResource(R.string.saved_copy_short), stringResource(R.string.saved_share_short), MaterialTheme.colorScheme.tertiary)
             location.locality?.let { match ->
                 val localityName = match.localityName.takeIf(String::isNotBlank)
                 val hierarchy = listOfNotNull(match.subDistrict, match.district, match.state)
@@ -743,22 +790,22 @@ private fun EasyLocationCard(location: EasyLocation, showAccuracy: Boolean, onSp
                 Button(onClick = onShare) { Icon(Icons.Default.Share, null); Spacer(Modifier.padding(2.dp)); Text(stringResource(R.string.easy_share)) }
             }
             if (!showAccuracy) {
-                OutlinedButton(onClick = { openMaps(context, location) }) { Text(stringResource(R.string.easy_open_maps)) }
-                TextButton(onClick = { copyText(context, MapLinkBuilder.googleMaps(location.encoded.latitude, location.encoded.longitude).toString()) }) { Text(stringResource(R.string.easy_copy_maps)) }
+                OutlinedButton(onClick = { openMaps(context, location) }) { Text(stringResource(R.string.easy_open_maps), textAlign = TextAlign.Center) }
+                TextButton(onClick = { copyText(context, MapLinkBuilder.googleMaps(location.encoded.latitude, location.encoded.longitude).toString()) }) { Text(stringResource(R.string.easy_copy_maps), textAlign = TextAlign.Center) }
             }
         }
     }
 }
 
 @Composable
-private fun EasyCode(code: String, label: String, copyDescription: String, shareDescription: String) {
+private fun EasyCode(code: String, label: String, copyDescription: String, shareDescription: String, valueColor: Color) {
     val context = LocalContext.current
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(label, modifier = Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
         IconButton(onClick = { copyText(context, code) }) { Icon(Icons.Default.ContentCopy, copyDescription) }
         IconButton(onClick = { shareCode(context, code) }) { Icon(Icons.Default.Share, shareDescription) }
     }
-    Text(code, style = MaterialTheme.typography.titleLarge, fontFamily = FontFamily.Monospace)
+    Text(code, style = MaterialTheme.typography.titleLarge, fontFamily = FontFamily.Monospace, color = valueColor)
 }
 
 @Composable
@@ -769,30 +816,81 @@ private fun RideActions(context: Context, location: EasyLocation) {
     ElevatedCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(stringResource(R.string.easy_ride_title), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            OutlinedButton(onClick = { showUberChoice = true }) { Text(stringResource(R.string.easy_uber)) }
+            OutlinedButton(onClick = { showUberChoice = true }) { Text(stringResource(R.string.easy_uber_button)) }
         }
     }
     if (showUberChoice) {
-        AlertDialog(
-            onDismissRequest = { showUberChoice = false },
-            title = { Text(stringResource(R.string.easy_uber_choice_title)) },
-            text = { Text(stringResource(R.string.easy_uber_choice_message)) },
-            confirmButton = {
-                TextButton(onClick = {
-                    showUberChoice = false
-                    launchUberAsDestination(context, destination)
-                }) { Text(stringResource(R.string.easy_uber_destination)) }
+        UberChoiceDialog(
+            onDismiss = { showUberChoice = false },
+            onPickup = {
+                showUberChoice = false
+                launchUberAsPickup(context, destination)
             },
-            dismissButton = {
-                Row {
-                    TextButton(onClick = {
-                        showUberChoice = false
-                        launchUberAsPickup(context, destination)
-                    }) { Text(stringResource(R.string.easy_uber_pickup)) }
-                    TextButton(onClick = { showUberChoice = false }) { Text(stringResource(R.string.cancel)) }
-                }
+            onDestination = {
+                showUberChoice = false
+                launchUberAsDestination(context, destination)
             },
         )
+    }
+}
+
+@Composable
+private fun UberChoiceDialog(onDismiss: () -> Unit, onPickup: () -> Unit, onDestination: () -> Unit) {
+    val title = stringResource(R.string.easy_uber_choice_title)
+    // Dialog keeps the platform back-press and outside-tap dismissal defaults.
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            modifier = Modifier.widthIn(min = 280.dp, max = 560.dp).semantics { paneTitle = title },
+            shape = MaterialTheme.shapes.extraLarge,
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            tonalElevation = 6.dp,
+        ) {
+            Column(Modifier.padding(24.dp)) {
+                Text(title, style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.semantics { heading() })
+                Spacer(Modifier.height(16.dp))
+                Text(stringResource(R.string.easy_uber_choice_message), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(24.dp))
+                UberChoiceActions(spacing = 12.dp) {
+                    FilledTonalButton(onClick = onPickup) { Text(stringResource(R.string.easy_uber_pickup), textAlign = TextAlign.Center) }
+                    FilledTonalButton(onClick = onDestination) { Text(stringResource(R.string.easy_uber_destination), textAlign = TextAlign.Center) }
+                }
+                Spacer(Modifier.height(12.dp))
+                TextButton(onClick = onDismiss, modifier = Modifier.align(Alignment.End)) { Text(stringResource(R.string.cancel)) }
+            }
+        }
+    }
+}
+
+/** Equal-width buttons in one row when they fit; stacked full-width for large fonts or narrow screens. */
+@Composable
+private fun UberChoiceActions(spacing: Dp, content: @Composable () -> Unit) {
+    Layout(content = content, modifier = Modifier.fillMaxWidth()) { measurables, constraints ->
+        val gap = spacing.roundToPx()
+        val available = constraints.maxWidth
+        val widest = measurables.maxOfOrNull { it.maxIntrinsicWidth(constraints.maxHeight) } ?: 0
+        if (!constraints.hasBoundedWidth || UberChoiceLayout.sideBySide(widest, measurables.size, gap, available)) {
+            val width = if (constraints.hasBoundedWidth) UberChoiceLayout.equalWidth(measurables.size, gap, available) else widest
+            val rowHeight = (measurables.maxOfOrNull { it.maxIntrinsicHeight(width) } ?: 0).coerceAtMost(constraints.maxHeight)
+            val placeables = measurables.map { it.measure(Constraints.fixed(width, rowHeight)) }
+            val totalWidth = if (constraints.hasBoundedWidth) available else placeables.sumOf { it.width } + gap * (placeables.size - 1).coerceAtLeast(0)
+            layout(totalWidth, placeables.maxOfOrNull { it.height } ?: 0) {
+                var x = 0
+                placeables.forEach { placeable ->
+                    placeable.placeRelative(x, 0)
+                    x += placeable.width + gap
+                }
+            }
+        } else {
+            val placeables = measurables.map { it.measure(Constraints(minWidth = available, maxWidth = available)) }
+            val height = placeables.sumOf { it.height } + gap * (placeables.size - 1).coerceAtLeast(0)
+            layout(available, height) {
+                var y = 0
+                placeables.forEach { placeable ->
+                    placeable.placeRelative(0, y)
+                    y += placeable.height + gap
+                }
+            }
+        }
     }
 }
 
@@ -877,7 +975,16 @@ private fun HomeScreen(
     }
     DisposableEffect(lifecycleOwner, activity) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) syncLocationEnabled()
+            if (event == Lifecycle.Event.ON_RESUME) {
+                syncLocationEnabled()
+                // Permissions can change in Android Settings while LocalTell is in the background.
+                permissionGranted = hasPermission(context, Manifest.permission.ACCESS_FINE_LOCATION)
+                val phoneStateNow = hasPermission(context, Manifest.permission.READ_PHONE_STATE)
+                val refreshForSimDetails = HomeCellularVisibility.shouldRefreshAfterResume(phoneStateGranted, phoneStateNow, permissionGranted)
+                phoneStateGranted = phoneStateNow
+                if (!phoneStateNow) selectedSubscriptionId = null
+                if (refreshForSimDetails && vm.status.value !is HomeStatus.Loading) vm.refresh()
+            }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
@@ -980,12 +1087,17 @@ private fun HomeScreen(
                 HomeStatus.Idle -> Unit
                 is HomeStatus.Loading -> Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     LocationLoadingState(current.state)
+                    if (HomeCellularVisibility.showDiagnostics(phoneStateGranted, current.subscriptions)) {
+                        HomeCellularDiagnostics(current.subscriptions, selectedSubscriptionId) { selectedSubscriptionId = it }
+                    }
+                }
+                is HomeStatus.AwaitingLocationChoice -> if (HomeCellularVisibility.showDiagnostics(phoneStateGranted, current.subscriptions)) {
                     HomeCellularDiagnostics(current.subscriptions, selectedSubscriptionId) { selectedSubscriptionId = it }
                 }
-                is HomeStatus.AwaitingLocationChoice -> HomeCellularDiagnostics(current.subscriptions, selectedSubscriptionId) { selectedSubscriptionId = it }
                 is HomeStatus.Error -> InfoCard(stringResource(R.string.home_unable_to_resolve), current.message)
                 is HomeStatus.Ready -> HomeResults(
                     status = current,
+                    showCellularDiagnostics = HomeCellularVisibility.showDiagnostics(phoneStateGranted, current.subscriptions),
                     selectedSubscriptionId = selectedSubscriptionId,
                     onSelect = { selectedSubscriptionId = it },
                     onRefresh = refreshLocality,
@@ -1097,6 +1209,7 @@ private fun openAnnouncementPlayStore(context: Context, value: String) {
 @Composable
 private fun HomeResults(
     status: HomeStatus.Ready,
+    showCellularDiagnostics: Boolean,
     selectedSubscriptionId: Int?,
     onSelect: (Int?) -> Unit,
     onRefresh: () -> Unit,
@@ -1170,7 +1283,7 @@ private fun HomeResults(
             }
         }
         RefreshLocalityButton(enabled = true, onRefresh = onRefresh)
-        HomeCellularDiagnostics(status.subscriptions, selectedSubscriptionId, onSelect)
+        if (showCellularDiagnostics) HomeCellularDiagnostics(status.subscriptions, selectedSubscriptionId, onSelect)
     }
 }
 

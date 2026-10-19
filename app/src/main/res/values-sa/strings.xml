@@ -24,10 +24,11 @@
     <string name="easy_find">स्थानम् अन्वेषय</string>
     <string name="easy_resolved_location">निर्धारितस्थानम्</string>
     <string name="easy_offline_unavailable">अन्तर्जालरहितस्थानीयस्थानस्य नाम अनुपलब्धम्</string>
-    <string name="easy_open_maps">Google Maps-अनुप्रयोगे उद्घाटय</string>
-    <string name="easy_copy_maps">Google Maps-संयोजकस्य प्रतिलिपिं कुरु</string>
+    <string name="easy_open_maps">गूगल् मानचित्रे उद्घाटयतु</string>
+    <string name="easy_copy_maps">गूगल् मानचित्रस्य सङ्केतं प्रतिलिपीकरोतु</string>
     <string name="easy_ride_title">एतत् स्थानम् Uber-अनुप्रयोगे उपयुङ्क्ष्व</string>
     <string name="easy_uber">Uber</string>
+    <string name="easy_uber_button">ऊबर्</string>
     <string name="easy_uber_choice_title">स्थानम् Uber-अनुप्रयोगे उपयुङ्क्ष्व</string>
     <string name="easy_uber_choice_message">एतत् LocalTell-स्थानं कथम् उपयोक्तुम् इच्छसि?</string>
     <string name="easy_uber_pickup">ग्रहणस्थानम्</string>
