@@ -308,6 +308,7 @@
     <string name="dropbox_disconnect">Dropbox இணைப்பை நீக்கு</string>
     <string name="dropbox_connection_failed">Dropbox இணைப்பை முடிக்க முடியவில்லை. எந்தக் காப்புப்பிரதியும் பதிவேற்றப்படவில்லை.</string>
     <string name="dropbox_credential_storage_failed">இந்தச் சாதனத்தில் Dropbox நற்சான்றிதழ்களைப் புதுப்பிக்க முடியவில்லை. Dropbox-இல் எதுவும் மாற்றப்படவில்லை.</string>
+    <string name="dropbox_local_disconnect_failed">உள்ளூர் இணைப்பு நீக்கத்தை முடிக்க முடியவில்லை. Dropbox அனுமதி ஏற்கனவே திரும்பப்பெறப்பட்டிருக்கலாம்.</string>
     <string name="dropbox_reauthorization_required">Dropbox அனுமதி காலாவதியானது அல்லது நீக்கப்பட்டது. தொடர மீண்டும் இணைக்கவும்.</string>
     <string name="dropbox_try_again">மீண்டும் முயற்சிக்கவும்</string>
     <string name="dropbox_reauthorize">Dropbox-ஐ மீண்டும் இணைக்கவும்</string>

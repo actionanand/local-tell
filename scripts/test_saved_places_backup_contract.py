@@ -37,7 +37,7 @@ class BackupContractTest(unittest.TestCase):
         self.assertIn("val visibleTab = if (incomingBackup != null) RootTab.MORE else tab", activity)
         self.assertIn("when (visibleTab)", activity)
         self.assertIn("MoreDestination.BACKUP_RESTORE", activity)
-        self.assertIn("BackupRestoreScreen()", activity)
+        self.assertRegex(activity, r"BackupRestoreScreen\s*\(\s*onConnectDropbox\s*=")
         self.assertNotIn("Manual Backup", (SAVED / "SavedPlacesScreen.kt").read_text(encoding="utf-8"))
         self.assertNotIn("fun prepareBackup", (SAVED / "SavedPlacesViewModel.kt").read_text(encoding="utf-8"))
         self.assertIn("uri?.let(vm::inspectBackup)", screen)

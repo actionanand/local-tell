@@ -88,14 +88,16 @@ class DropboxConnectionLifecycleTest {
         assertEquals(0, store.clearCalls)
     }
 
-    @Test fun `failed encrypted credential clear does not claim disconnect`() = runBlocking {
+    @Test fun `successful remote revocation with failed local removal reports incomplete local disconnect`() = runBlocking {
         val store = FakeStore(credential, clearResult = false)
-        val lifecycle = DropboxConnectionLifecycle(store, FakeGateway(DropboxVerification.Connected("A")))
+        val gateway = FakeGateway(DropboxVerification.Connected("A"))
+        val lifecycle = DropboxConnectionLifecycle(store, gateway)
 
         lifecycle.disconnect(lifecycle.beginDisconnect())
 
         assertEquals(DropboxConnectionStatus.FAILED, lifecycle.state.value.status)
-        assertEquals(DropboxConnectionFailure.CREDENTIAL_STORAGE, lifecycle.state.value.failure)
+        assertEquals(DropboxConnectionFailure.LOCAL_DISCONNECT, lifecycle.state.value.failure)
+        assertEquals(1, gateway.revokeCalls)
         assertEquals(credential, store.credential)
     }
 
@@ -205,8 +207,12 @@ class DropboxConnectionLifecycleTest {
     }
 
     private class FakeGateway(var result: DropboxVerification) : DropboxAccountGateway {
+        var revokeCalls = 0
         override fun verify(credential: StoredDropboxCredential): DropboxVerification = result
-        override fun revoke(credential: StoredDropboxCredential): Boolean = true
+        override fun revoke(credential: StoredDropboxCredential): Boolean {
+            revokeCalls++
+            return true
+        }
     }
 
     private class UnusableStore(private val removed: Boolean) : DropboxCredentialPersistence {

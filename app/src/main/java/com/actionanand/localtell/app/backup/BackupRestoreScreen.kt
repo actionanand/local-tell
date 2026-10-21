@@ -92,10 +92,10 @@ fun BackupRestoreScreen(
                             DropboxConnectionStatus.FAILED -> {
                                 Text(
                                     stringResource(
-                                        if (dropboxState.failure == DropboxConnectionFailure.CREDENTIAL_STORAGE) {
-                                            R.string.dropbox_credential_storage_failed
-                                        } else {
-                                            R.string.dropbox_connection_failed
+                                        when (dropboxState.failure) {
+                                            DropboxConnectionFailure.CREDENTIAL_STORAGE -> R.string.dropbox_credential_storage_failed
+                                            DropboxConnectionFailure.LOCAL_DISCONNECT -> R.string.dropbox_local_disconnect_failed
+                                            else -> R.string.dropbox_connection_failed
                                         },
                                     ),
                                     color = MaterialTheme.colorScheme.error,

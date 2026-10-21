@@ -358,6 +358,7 @@
     <string name="dropbox_disconnect">Dropbox-वियोगं कुरु</string>
     <string name="dropbox_connection_failed">Dropbox-संयोजनं पूर्णं नाभवत्। कापि प्रतिलिपिः न आरोपिता।</string>
     <string name="dropbox_credential_storage_failed">अस्मिन् उपकरणे Dropbox-अनुज्ञापत्राणि अद्यतनानि न कर्तुं शक्यन्ते। Dropbox मध्ये किमपि न परिवर्तितम्।</string>
+    <string name="dropbox_local_disconnect_failed">स्थानीय-वियोगः पूर्णः कर्तुं न शक्यते। Dropbox-अनुमतिः पूर्वमेव निरस्ता भवेत्।</string>
     <string name="dropbox_reauthorization_required">Dropbox-अनुमतिः समाप्ता अथवा निरस्ता। अग्रे गन्तुं पुनः संयोजय।</string>
     <string name="dropbox_try_again">पुनः प्रयतस्व</string>
     <string name="dropbox_reauthorize">Dropbox पुनः संयोजय</string>

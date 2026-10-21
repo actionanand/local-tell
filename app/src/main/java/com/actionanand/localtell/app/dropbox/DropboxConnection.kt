@@ -35,7 +35,7 @@ import org.json.JSONObject
 
 internal enum class DropboxConnectionStatus { NOT_CONNECTED, CONNECTING, DISCONNECTING, CONNECTED, FAILED, REAUTHORIZATION_REQUIRED }
 
-internal enum class DropboxConnectionFailure { TRANSPORT, CREDENTIAL_STORAGE }
+internal enum class DropboxConnectionFailure { TRANSPORT, CREDENTIAL_STORAGE, LOCAL_DISCONNECT }
 
 internal enum class DropboxRetryAction { VERIFY_STORED, AUTHORIZE }
 
@@ -291,7 +291,7 @@ internal class DropboxConnectionLifecycle(
                 operation,
                 DropboxConnectionUiState(
                     DropboxConnectionStatus.FAILED,
-                    failure = DropboxConnectionFailure.CREDENTIAL_STORAGE,
+                    failure = DropboxConnectionFailure.LOCAL_DISCONNECT,
                     retryAction = DropboxRetryAction.VERIFY_STORED,
                 ),
             )
