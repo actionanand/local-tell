@@ -10,7 +10,9 @@ import android.os.Bundle
 import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.LocalActivity
 import androidx.activity.ComponentActivity
+import androidx.activity.viewModels
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -163,6 +165,10 @@ import com.actionanand.localtell.app.journey.JourneyPoint
 import com.actionanand.localtell.app.geography.*
 import com.actionanand.localtell.app.backup.AppBackupViewModel
 import com.actionanand.localtell.app.backup.BackupRestoreScreen
+import com.actionanand.localtell.app.dropbox.DropboxConnectionViewModel
+import com.actionanand.localtell.app.dropbox.DropboxAuthorization
+import com.dropbox.core.DbxRequestConfig
+import com.dropbox.core.android.Auth
 import com.actionanand.localtell.app.journey.JourneyTrackingMode
 import com.actionanand.localtell.app.model.RadioCell
 import com.actionanand.localtell.app.model.SubscriptionCells
@@ -190,6 +196,7 @@ import kotlinx.coroutines.flow.first
 
 class MainActivity : ComponentActivity() {
     private lateinit var locationEnablement: LocationEnablement
+    private val dropboxConnectionViewModel: DropboxConnectionViewModel by viewModels()
     private var incomingBackup by mutableStateOf<android.net.Uri?>(null)
     var locationWasEnabledByLocalTell by mutableStateOf(false)
         private set
@@ -231,6 +238,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        if (dropboxConnectionViewModel.consumeAuthorizationResult()) {
+            dropboxConnectionViewModel.completeAuthorization(Auth.getDbxCredential(), Auth.getScope())
+        }
         if (::locationEnablement.isInitialized) locationEnablement.onResume()
         if (::locationEnablement.isInitialized && !locationEnablement.isEnabled()) {
             locationWasEnabledByLocalTell = false
@@ -285,6 +295,20 @@ class MainActivity : ComponentActivity() {
 
     fun openLocationSettings() {
         startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
+    }
+
+    fun connectDropbox() {
+        if (!dropboxConnectionViewModel.beginAuthorization()) return
+        try {
+            Auth.startOAuth2PKCE(
+                this,
+                BuildConfig.DROPBOX_APP_KEY,
+                DbxRequestConfig("LocalTell/Dropbox"),
+                DropboxAuthorization.requiredScopes.toList(),
+            )
+        } catch (_: Exception) {
+            dropboxConnectionViewModel.authorizationLaunchFailed()
+        }
     }
 }
 
@@ -367,7 +391,10 @@ private fun LocalTellApp(defaultTab: RootTab, themeMode: ThemeMode, incomingBack
                     MoreDestination.SETTINGS -> MoreChild(onBack = { moreDestination = MoreDestination.MENU }) {
                         SettingsScreen(themeMode, onThemeModeChange) { moreDestination = MoreDestination.BACKUP_RESTORE }
                     }
-                    MoreDestination.BACKUP_RESTORE -> MoreChild(onBack = { moreDestination = MoreDestination.SETTINGS }, backLabel = R.string.backup_back_settings) { BackupRestoreScreen() }
+                    MoreDestination.BACKUP_RESTORE -> MoreChild(onBack = { moreDestination = MoreDestination.SETTINGS }, backLabel = R.string.backup_back_settings) {
+                        val activity = LocalActivity.current as? MainActivity
+                        BackupRestoreScreen(onConnectDropbox = activity?.let { it::connectDropbox } ?: {})
+                    }
                     MoreDestination.OFFLINE_DATA -> MoreChild(onBack = { moreDestination = MoreDestination.MENU }) { PacksScreen(target = offlineTarget, onClearTarget = { targetCountry = null }) }
                     MoreDestination.JOURNEY -> MoreChild(onBack = { moreDestination = MoreDestination.MENU }) { JourneyScreen() }
                     MoreDestination.SAVED_PLACES -> MoreChild(onBack = { moreDestination = MoreDestination.MENU }) {

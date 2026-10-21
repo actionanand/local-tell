@@ -32,6 +32,9 @@ fun configuredLimit(key: String, maximum: Int): Int {
 }
 val configuredMaxSavedPlaces = configuredLimit("maxSavedPlaces", 200)
 val configuredMaxJourneyPoints = configuredLimit("maxJourneyPoints", 1000)
+val configuredDropboxAppKey = System.getenv("DROPBOX_APP_KEY")?.trim()
+    ?.takeIf { it.matches(Regex("[A-Za-z0-9]+")) }
+    ?: error("DROPBOX_APP_KEY must be set to the Dropbox App Key before building LocalTell.")
 
 android {
     namespace = "com.actionanand.localtell.app" // source/R namespace; applicationId remains configurable
@@ -51,7 +54,10 @@ android {
         buildConfigField("Boolean", "ENABLE_TOWER_SURVEY", configuredTowerSurvey.toString())
         buildConfigField("int", "MAX_SAVED_PLACES", configuredMaxSavedPlaces.toString())
         buildConfigField("int", "MAX_JOURNEY_POINTS", configuredMaxJourneyPoints.toString())
+        // Public OAuth client identifier only. No Dropbox app secret is used by Android.
+        buildConfigField("String", "DROPBOX_APP_KEY", quoted(configuredDropboxAppKey))
         resValue("string", "app_name", configuredAppName)
+        manifestPlaceholders["dropboxAppKey"] = configuredDropboxAppKey
     }
 
     buildFeatures {
@@ -102,6 +108,8 @@ dependencies {
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.dropbox.core)
+    implementation(libs.dropbox.android)
     implementation("com.google.android.gms:play-services-location:21.3.0")
 
     val composeBom = platform(libs.androidx.compose.bom)
