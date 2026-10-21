@@ -10,6 +10,7 @@ import android.os.Bundle
 import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.LocalActivity
 import androidx.activity.ComponentActivity
 import androidx.activity.viewModels
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -391,7 +392,7 @@ private fun LocalTellApp(defaultTab: RootTab, themeMode: ThemeMode, incomingBack
                         SettingsScreen(themeMode, onThemeModeChange) { moreDestination = MoreDestination.BACKUP_RESTORE }
                     }
                     MoreDestination.BACKUP_RESTORE -> MoreChild(onBack = { moreDestination = MoreDestination.SETTINGS }, backLabel = R.string.backup_back_settings) {
-                        val activity = LocalContext.current as? MainActivity
+                        val activity = LocalActivity.current as? MainActivity
                         BackupRestoreScreen(onConnectDropbox = activity?.let { it::connectDropbox } ?: {})
                     }
                     MoreDestination.OFFLINE_DATA -> MoreChild(onBack = { moreDestination = MoreDestination.MENU }) { PacksScreen(target = offlineTarget, onClearTarget = { targetCountry = null }) }
