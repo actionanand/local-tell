@@ -65,6 +65,8 @@ jobs:
           gradle-version: '9.5.0'
 
       - name: Validate configuration, lint and unit tests
+        env:
+          DROPBOX_APP_KEY: ${{ secrets.DROPBOX_APP_KEY }}
         run: |
           python3 -m json.tool app-config.json >/dev/null
           python3 -m json.tool android-version.json >/dev/null
@@ -72,10 +74,14 @@ jobs:
           gradle lint testDebugUnitTest
 
       - name: Build installable debug APK
+        env:
+          DROPBOX_APP_KEY: ${{ secrets.DROPBOX_APP_KEY }}
         run: gradle assembleDebug assembleDebugAndroidTest
 
       # Release outputs stay under app/build; no production signing or publishing.
       - name: Validate release compilation and R8
+        env:
+          DROPBOX_APP_KEY: ${{ secrets.DROPBOX_APP_KEY }}
         run: gradle assembleRelease bundleRelease
 
       - name: Verify packaged geographic gzip in debug APK, release APK and AAB

@@ -19,10 +19,20 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.actionanand.localtell.app.AppLimits
 import com.actionanand.localtell.app.R
 import com.actionanand.localtell.app.saved.*
+import com.actionanand.localtell.app.dropbox.DropboxConnectionStatus
+import com.actionanand.localtell.app.dropbox.DropboxConnectionViewModel
+import com.actionanand.localtell.app.dropbox.DropboxConnectionFailure
+import com.actionanand.localtell.app.dropbox.DropboxConnectionNotice
+import com.actionanand.localtell.app.dropbox.DropboxRetryAction
 
 @Composable
-fun BackupRestoreScreen(vm: AppBackupViewModel = viewModel()) {
+fun BackupRestoreScreen(
+    vm: AppBackupViewModel = viewModel(),
+    dropboxVm: DropboxConnectionViewModel = viewModel(),
+    onConnectDropbox: () -> Unit = {},
+) {
     val state by vm.state.collectAsStateWithLifecycle()
+    val dropboxState by dropboxVm.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val shareTitle = stringResource(R.string.saved_backup_share)
     val host = remember { SnackbarHostState() }
@@ -57,6 +67,68 @@ fun BackupRestoreScreen(vm: AppBackupViewModel = viewModel()) {
                 if (state.loaded && state.savedCount + state.journeyCount == 0) Text(stringResource(R.string.backup_empty))
                 Text(stringResource(R.string.backup_privacy), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(stringResource(R.string.saved_restore_help), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            item {
+                ElevatedCard(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(stringResource(R.string.dropbox_title), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        when (dropboxState.status) {
+                            DropboxConnectionStatus.NOT_CONNECTED -> {
+                                Text(stringResource(R.string.dropbox_not_connected), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Button(enabled = !state.busy, onClick = onConnectDropbox) { Text(stringResource(R.string.dropbox_connect)) }
+                            }
+                            DropboxConnectionStatus.CONNECTING -> {
+                                Text(stringResource(R.string.dropbox_connecting), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                LinearProgressIndicator(Modifier.fillMaxWidth())
+                            }
+                            DropboxConnectionStatus.DISCONNECTING -> {
+                                Text(stringResource(R.string.dropbox_disconnecting), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                LinearProgressIndicator(Modifier.fillMaxWidth())
+                            }
+                            DropboxConnectionStatus.CONNECTED -> {
+                                Text(stringResource(R.string.dropbox_connected, dropboxState.accountName.orEmpty()), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                OutlinedButton(onClick = dropboxVm::disconnect) { Text(stringResource(R.string.dropbox_disconnect)) }
+                            }
+                            DropboxConnectionStatus.FAILED -> {
+                                Text(
+                                    stringResource(
+                                        if (dropboxState.failure == DropboxConnectionFailure.CREDENTIAL_STORAGE) {
+                                            R.string.dropbox_credential_storage_failed
+                                        } else {
+                                            R.string.dropbox_connection_failed
+                                        },
+                                    ),
+                                    color = MaterialTheme.colorScheme.error,
+                                )
+                                Button(
+                                    enabled = !state.busy,
+                                    onClick = if (dropboxState.retryAction == DropboxRetryAction.VERIFY_STORED) {
+                                        dropboxVm::retry
+                                    } else {
+                                        onConnectDropbox
+                                    },
+                                ) { Text(stringResource(R.string.dropbox_try_again)) }
+                            }
+                            DropboxConnectionStatus.REAUTHORIZATION_REQUIRED -> {
+                                Text(stringResource(R.string.dropbox_reauthorization_required), color = MaterialTheme.colorScheme.error)
+                                Button(enabled = !state.busy, onClick = onConnectDropbox) { Text(stringResource(R.string.dropbox_reauthorize)) }
+                            }
+                        }
+                        dropboxState.notice?.let {
+                            Text(
+                                stringResource(
+                                    if (it == DropboxConnectionNotice.DISCONNECTED) {
+                                        R.string.dropbox_disconnected
+                                    } else {
+                                        R.string.dropbox_disconnect_revocation_failed
+                                    },
+                                ),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
             }
         }
         SnackbarHost(host, Modifier.align(Alignment.BottomCenter))

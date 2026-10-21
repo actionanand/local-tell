@@ -64,6 +64,8 @@ jobs:
           gradle-version: '9.5.0'
 
       - name: Validate configuration and tests
+        env:
+          DROPBOX_APP_KEY: ${{ secrets.DROPBOX_APP_KEY }}
         run: |
           python3 -m json.tool app-config.json >/dev/null
           python3 -m json.tool android-version.json >/dev/null
@@ -95,6 +97,8 @@ jobs:
           rm -f releases/*.apk releases/*.aab releases/*.apk.idsig releases/*-mapping.txt
 
       - name: Build unsigned APK and AAB
+        env:
+          DROPBOX_APP_KEY: ${{ secrets.DROPBOX_APP_KEY }}
         run: gradle clean assembleRelease bundleRelease
 
       - name: Collect unsigned artifacts and R8 mapping
