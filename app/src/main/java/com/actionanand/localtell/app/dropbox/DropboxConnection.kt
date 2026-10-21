@@ -12,7 +12,7 @@ import androidx.lifecycle.viewModelScope
 import com.actionanand.localtell.app.BuildConfig
 import com.dropbox.core.DbxException
 import com.dropbox.core.InvalidAccessTokenException
-import com.dropbox.core.DbxOAuthException
+import com.dropbox.core.oauth.DbxOAuthException
 import com.dropbox.core.DbxRequestConfig
 import com.dropbox.core.oauth.DbxCredential
 import com.dropbox.core.v2.DbxClientV2

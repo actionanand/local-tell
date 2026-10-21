@@ -26,7 +26,7 @@ import com.actionanand.localtell.app.dropbox.DropboxConnectionNotice
 import com.actionanand.localtell.app.dropbox.DropboxRetryAction
 
 @Composable
-fun BackupRestoreScreen(
+internal fun BackupRestoreScreen(
     vm: AppBackupViewModel = viewModel(),
     dropboxVm: DropboxConnectionViewModel = viewModel(),
     onConnectDropbox: () -> Unit = {},
