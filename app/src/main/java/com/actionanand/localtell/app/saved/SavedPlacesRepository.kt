@@ -4,7 +4,10 @@ import android.content.ContentValues
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
+import com.actionanand.localtell.app.backup.SavedPlacesChanges
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -51,6 +54,30 @@ class SavedPlacesRepository(context: Context) {
                 database.setTransactionSuccessful()
             } finally {
                 database.endTransaction()
+                publish()
+            }
+        }
+    }
+
+    /** Recompute inside the write transaction; never remove more than the user confirmed. */
+    internal suspend fun removeOldestOverflow(confirmedMaximum: Int) = withContext(Dispatchers.IO) {
+        require(confirmedMaximum >= 0)
+        mutex.withLock {
+            val database = db.writableDatabase
+            database.beginTransaction()
+            var committed = false
+            try {
+                val extra = SavedPlacesOverflow.oldestToRemove(readAll(database)).take(confirmedMaximum)
+                extra.forEach {
+                    currentCoroutineContext().ensureActive()
+                    database.delete("saved_place", "id=?", arrayOf(it.id))
+                }
+                currentCoroutineContext().ensureActive()
+                database.setTransactionSuccessful()
+                committed = true
+            } finally {
+                database.endTransaction()
+                if (committed) SavedPlacesChanges.changed()
                 publish()
             }
         }

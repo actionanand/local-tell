@@ -39,6 +39,7 @@ internal data class DropboxBackupUiState(
     val pendingChanges: Boolean = false,
     val conflictPath: String? = null,
     val conflictFingerprint: String? = null,
+    val conflictRemoteState: String? = null,
 )
 
 /** Persisted, account-scoped sync metadata. Tokens and backup contents are never stored here. */
@@ -68,15 +69,17 @@ internal class DropboxBackupStateStore(context: Context) {
     fun frequency(): DropboxBackupFrequency =
         DropboxBackupFrequency.fromPreference(preferences.getString(FREQUENCY, DropboxBackupFrequency.OFF.preferenceValue))
 
-    fun beginAttempt(account: String, now: Long = System.currentTimeMillis()) {
+    fun revision(account: String): Long = preferences.getLong(key(account, REVISION), 0L)
+
+    fun beginAttempt(account: String, now: Long = System.currentTimeMillis()) = synchronized(stateLock) {
         editAccount(account).putString(key(account, STATUS), DropboxBackupStatus.SYNCING.name)
             .putLong(key(account, LAST_ATTEMPTED), now).remove(key(account, ERROR)).apply()
     }
 
-    fun markInterrupted(account: String) {
+    fun markInterrupted(account: String) = synchronized(stateLock) {
         val hasConflict = preferences.contains(key(account, CONFLICT_FINGERPRINT))
         val pending = preferences.getBoolean(key(account, PENDING), false)
-        if (readStatus(account) == DropboxBackupStatus.SAVED_LIMIT_EXCEEDED) return
+        if (readStatus(account) == DropboxBackupStatus.SAVED_LIMIT_EXCEEDED) return@synchronized
         val status = when {
             hasConflict -> DropboxBackupStatus.CONFLICT
             pending -> DropboxBackupStatus.PENDING
@@ -85,14 +88,16 @@ internal class DropboxBackupStateStore(context: Context) {
         editAccount(account).putString(key(account, STATUS), status.name).apply()
     }
 
-    fun markSuccess(account: String, fingerprint: String, now: Long = System.currentTimeMillis()) {
-        editAccount(account).putString(key(account, STATUS), DropboxBackupStatus.UP_TO_DATE.name)
+    fun markSuccess(account: String, fingerprint: String, pending: Boolean, now: Long = System.currentTimeMillis()) = synchronized(stateLock) {
+        editAccount(account).putString(key(account, STATUS), (if (pending) DropboxBackupStatus.PENDING else DropboxBackupStatus.UP_TO_DATE).name)
             .putLong(key(account, LAST_SUCCESSFUL), now).putString(key(account, BASELINE_FINGERPRINT), fingerprint)
-            .putBoolean(key(account, PENDING), false).remove(key(account, ERROR))
-            .remove(key(account, CONFLICT_PATH)).remove(key(account, CONFLICT_FINGERPRINT)).apply()
+            .putBoolean(key(account, PENDING), pending).remove(key(account, ERROR))
+            .remove(key(account, CONFLICT_PATH)).remove(key(account, CONFLICT_FINGERPRINT))
+            .remove(key(account, CONFLICT_REMOTE_STATE)).apply()
     }
 
-    fun markPending(account: String, pending: Boolean) {
+    fun markPending(account: String, pending: Boolean, expectedRevision: Long) = synchronized(stateLock) {
+        if (revision(account) != expectedRevision) return@synchronized
         val builder = editAccount(account).putBoolean(key(account, PENDING), pending)
         val status = readStatus(account)
         when {
@@ -106,12 +111,14 @@ internal class DropboxBackupStateStore(context: Context) {
     }
 
     /** After merging Dropbox data into this device, the merged remote snapshot is the new common ancestor. */
-    fun adoptBaseline(account: String, fingerprint: String) {
+    fun adoptBaseline(account: String, fingerprint: String) = synchronized(stateLock) {
         editAccount(account).putString(key(account, BASELINE_FINGERPRINT), fingerprint)
-            .remove(key(account, CONFLICT_PATH)).remove(key(account, CONFLICT_FINGERPRINT)).apply()
+            .remove(key(account, CONFLICT_PATH)).remove(key(account, CONFLICT_FINGERPRINT))
+            .remove(key(account, CONFLICT_REMOTE_STATE)).apply()
     }
 
-    fun markSavedLimitExceeded(account: String) {
+    fun markSavedLimitExceeded(account: String, expectedRevision: Long? = null) = synchronized(stateLock) {
+        if (expectedRevision != null && revision(account) != expectedRevision) return@synchronized
         editAccount(account).putString(key(account, STATUS), DropboxBackupStatus.SAVED_LIMIT_EXCEEDED.name)
             .putBoolean(key(account, PENDING), true).remove(key(account, ERROR)).apply()
     }
@@ -123,11 +130,15 @@ internal class DropboxBackupStateStore(context: Context) {
         status: DropboxBackupStatus,
         error: DropboxBackupError?,
         now: Long = System.currentTimeMillis(),
-    ) {
+    ) = synchronized(stateLock) {
         require(status in setOf(DropboxBackupStatus.FAILED, DropboxBackupStatus.OFFLINE, DropboxBackupStatus.REAUTHORIZATION_REQUIRED))
         val builder = editAccount(account).putString(key(account, STATUS), status.name).putLong(key(account, LAST_ATTEMPTED), now)
         if (error == null) builder.remove(key(account, ERROR)) else builder.putString(key(account, ERROR), error.name)
-        builder.remove(key(account, CONFLICT_PATH)).remove(key(account, CONFLICT_FINGERPRINT)).apply()
+        // Retrying a failed conflict resolution must not lose the user's unresolved conflict.
+        if (preferences.contains(key(account, CONFLICT_FINGERPRINT))) {
+            builder.putString(key(account, STATUS), DropboxBackupStatus.CONFLICT.name)
+        }
+        builder.apply()
     }
 
     fun markConflict(
@@ -135,11 +146,13 @@ internal class DropboxBackupStateStore(context: Context) {
         path: String?,
         fingerprint: String?,
         now: Long = System.currentTimeMillis(),
-    ) {
+        remoteState: String? = null,
+    ) = synchronized(stateLock) {
         editAccount(account).putString(key(account, STATUS), DropboxBackupStatus.CONFLICT.name)
             .putLong(key(account, LAST_ATTEMPTED), now)
             .putString(key(account, CONFLICT_PATH), path)
             .putString(key(account, CONFLICT_FINGERPRINT), fingerprint)
+            .putString(key(account, CONFLICT_REMOTE_STATE), remoteState)
             .remove(key(account, ERROR))
             .apply()
     }
@@ -162,12 +175,13 @@ internal class DropboxBackupStateStore(context: Context) {
             pendingChanges = scopedKey(PENDING)?.let { preferences.getBoolean(it, false) } ?: false,
             conflictPath = scopedKey(CONFLICT_PATH)?.let { preferences.getString(it, null) },
             conflictFingerprint = scopedKey(CONFLICT_FINGERPRINT)?.let { preferences.getString(it, null) },
+            conflictRemoteState = scopedKey(CONFLICT_REMOTE_STATE)?.let { preferences.getString(it, null) },
         )
     }
 
     private fun editAccount(account: String): SharedPreferences.Editor {
         require(account.matches(Regex("[a-f0-9]{64}")))
-        return preferences.edit()
+        return preferences.edit().putLong(key(account, REVISION), revision(account) + 1L)
     }
     private fun key(account: String, name: String): String = "$ACCOUNT_PREFIX$account.$name"
     private fun readStatus(account: String): DropboxBackupStatus =
@@ -176,6 +190,7 @@ internal class DropboxBackupStateStore(context: Context) {
             ?: DropboxBackupStatus.UP_TO_DATE
 
     private companion object {
+        val stateLock = Any()
         const val PREFERENCES = "localtell_dropbox_backup"
         const val FREQUENCY = "frequency"
         const val ACCOUNT_PREFIX = "account."
@@ -187,6 +202,8 @@ internal class DropboxBackupStateStore(context: Context) {
         const val BASELINE_FINGERPRINT = "baseline_fingerprint"
         const val CONFLICT_PATH = "conflict_path"
         const val CONFLICT_FINGERPRINT = "conflict_fingerprint"
+        const val CONFLICT_REMOTE_STATE = "conflict_remote_state"
+        const val REVISION = "revision"
     }
 }
 
@@ -195,12 +212,19 @@ internal object DropboxBackupScheduler {
 
     fun update(context: Context, frequency: DropboxBackupFrequency, connected: Boolean) {
         val manager = WorkManager.getInstance(context.applicationContext)
-        val interval = DropboxBackupSchedulePolicy.periodDays(frequency, connected)
+        val session = DropboxBackupSessionStore(context).current()
+        val interval = DropboxBackupSchedulePolicy.periodDays(frequency, connected && session != null)
         if (interval == null) {
-            manager.cancelUniquePeriodicWork(PERIODIC_WORK)
+            manager.cancelUniqueWork(PERIODIC_WORK)
             return
         }
+        val activeSession = requireNotNull(session)
         val request = PeriodicWorkRequestBuilder<DropboxBackupWorker>(interval, TimeUnit.DAYS)
+            .setInputData(androidx.work.workDataOf(
+                DropboxBackupWorker.KEY_ACCOUNT_HASH to activeSession.account,
+                DropboxBackupWorker.KEY_SESSION to activeSession.generation,
+                DropboxBackupWorker.KEY_SCHEDULED to true,
+            ))
             .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 15, TimeUnit.MINUTES)
             .build()
@@ -210,7 +234,7 @@ internal object DropboxBackupScheduler {
 
     fun cancel(context: Context) {
         WorkManager.getInstance(context.applicationContext).apply {
-            cancelUniquePeriodicWork(PERIODIC_WORK)
+            cancelUniqueWork(PERIODIC_WORK)
             cancelUniqueWork(DropboxBackupWorker.MANUAL_WORK)
         }
     }

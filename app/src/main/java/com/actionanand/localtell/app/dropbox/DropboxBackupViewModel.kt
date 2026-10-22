@@ -13,6 +13,7 @@ import com.actionanand.localtell.app.saved.SavedPlacesRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -27,6 +28,7 @@ internal class DropboxBackupViewModel(application: Application) : AndroidViewMod
     private var accountHash: String? = null
     private val mutableSavedPlacesExcess = MutableStateFlow(0)
     private var removingOverflow = false
+    private var refreshJob: Job? = null
     val state: StateFlow<DropboxBackupUiState> = store.state
 
     /** Number of Saved Places above the limit after a Dropbox merge; 0 when within the limit. */
@@ -84,15 +86,12 @@ internal class DropboxBackupViewModel(application: Application) : AndroidViewMod
     /** Deletes only the oldest places beyond the limit, after the user explicitly confirmed it. */
     fun removeOldestExtraPlaces() {
         if (removingOverflow) return
+        val confirmedMaximum = mutableSavedPlacesExcess.value
+        if (confirmedMaximum == 0) return
         removingOverflow = true
         viewModelScope.launch {
             try {
-                savedPlaces.refresh()
-                val extra = SavedPlacesOverflow.oldestToRemove(savedPlaces.places.value)
-                if (extra.isNotEmpty()) {
-                    savedPlaces.delete(extra.map { it.id }.toSet())
-                    SavedPlacesChanges.changed()
-                }
+                savedPlaces.removeOldestOverflow(confirmedMaximum)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
@@ -117,27 +116,36 @@ internal class DropboxBackupViewModel(application: Application) : AndroidViewMod
             action,
             current.conflictPath,
             current.conflictFingerprint.orEmpty(),
+            current.conflictRemoteState,
         )
     }
 
     private fun refreshPending() {
-        viewModelScope.launch {
+        refreshJob?.cancel()
+        val account = accountHash
+        val session = DropboxBackupSessionStore(getApplication()).current()
+        val revision = account?.let(store::revision)
+        refreshJob = viewModelScope.launch {
             try {
                 val local = withContext(Dispatchers.IO) { repository.snapshot() }
+                if (account != accountHash || session != DropboxBackupSessionStore(getApplication()).current()) return@launch
                 val excess = SavedPlacesOverflow.excess(local.savedPlaces.size)
                 mutableSavedPlacesExcess.value = excess
-                val account = accountHash ?: return@launch
+                if (account == null || revision == null || session?.account != account) return@launch
                 if (excess > 0) {
-                    store.markSavedLimitExceeded(account)
+                    store.markSavedLimitExceeded(account, revision)
                     return@launch
                 }
                 val baseline = store.baseline(account)
                 val localFingerprint = AppBackupCodec.fingerprint(local)
-                store.markPending(account, if (baseline == null) !local.isEmpty else localFingerprint != baseline)
+                store.markPending(account, if (baseline == null) !local.isEmpty else localFingerprint != baseline, revision)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
-                accountHash?.let { store.markFailure(it, DropboxBackupStatus.FAILED, DropboxBackupError.STORAGE) }
+                if (account != null && account == accountHash && revision == store.revision(account) &&
+                    session == DropboxBackupSessionStore(getApplication()).current()) {
+                    store.markFailure(account, DropboxBackupStatus.FAILED, DropboxBackupError.STORAGE)
+                }
             }
         }
     }
@@ -151,4 +159,3 @@ internal class DropboxBackupViewModel(application: Application) : AndroidViewMod
         super.onCleared()
     }
 }
-

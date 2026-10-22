@@ -117,6 +117,7 @@ internal fun BackupRestoreScreen(
                             DropboxConnectionStatus.CONNECTED -> {
                                 Text(stringResource(R.string.dropbox_connected, dropboxState.accountName.orEmpty()), color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 Text(stringResource(R.string.dropbox_location), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(stringResource(R.string.dropbox_folder_scope), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 Text(
                                     stringResource(
                                         when (backupState.status) {

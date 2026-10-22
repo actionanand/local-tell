@@ -22,23 +22,67 @@ internal object DropboxBackupSchedulePolicy {
         if (connected) frequency.periodDays else null
 }
 
-internal data class DropboxRemoteFile(val path: String, val name: String, val modifiedAtMillis: Long)
+internal data class DropboxRemoteFile(
+    val path: String,
+    val name: String,
+    val modifiedAtMillis: Long,
+    val id: String,
+    val revision: String,
+    val size: Long,
+    val contentHash: String?,
+)
+
+/** Recorded only from a successful upload response followed by a verified download. */
+internal data class DropboxOwnedBackup(val file: DropboxRemoteFile) {
+    fun matches(remote: DropboxRemoteFile): Boolean =
+        file.id == remote.id && file.revision == remote.revision && file.path == remote.path &&
+            file.size == remote.size && file.contentHash != null && file.contentHash == remote.contentHash
+}
 
 internal object DropboxBackupRetention {
     const val KEEP = 3
 
     /**
-     * Managed snapshots older than the newest [keep]. The verified [justUploadedPath] is never returned,
-     * so the only valid recovery copy cannot be deleted.
+     * Unknown or modified files are never eligible, even inside the managed directory.
+     * A missing/inconsistent record for the new upload disables cleanup entirely.
      */
-    fun obsolete(files: List<DropboxRemoteFile>, justUploadedPath: String, keep: Int = KEEP): List<DropboxRemoteFile> {
+    fun obsolete(
+        files: List<DropboxRemoteFile>,
+        ownership: List<DropboxOwnedBackup>,
+        justUploaded: DropboxRemoteFile,
+        keep: Int = KEEP,
+    ): List<DropboxRemoteFile> {
         require(keep >= 1)
-        val newestFirst = files.sortedWith(
-            compareByDescending<DropboxRemoteFile> { it.modifiedAtMillis }.thenByDescending { it.name },
+        if (ownership.map { it.file.id }.distinct().size != ownership.size) return emptyList()
+        if (ownership.none { it.matches(justUploaded) } || files.none { it == justUploaded }) return emptyList()
+        val newestFirst = files.filter { file -> ownership.any { it.matches(file) } }.sortedWith(
+            compareByDescending<DropboxRemoteFile> { it.modifiedAtMillis }
+                .thenByDescending { file -> ownership.indexOfFirst { it.file.id == file.id } }
+                .thenByDescending { it.name },
         )
-        val kept = (listOf(justUploadedPath.lowercase()) + newestFirst.map { it.path.lowercase() })
+        val kept = (listOf(justUploaded.id) + newestFirst.map { it.id })
             .distinct().take(keep).toSet()
-        return newestFirst.filter { it.path.lowercase() !in kept }
+        return newestFirst.filter { it.id !in kept }
+    }
+}
+
+internal data class DropboxBackupSession(val account: String, val generation: String, val credentialTag: String) {
+    fun accepts(accountHint: String?, generationHint: String?, verifiedAccount: String, currentCredentialTag: String): Boolean =
+        accountHint == account && generationHint == generation && verifiedAccount == account &&
+            currentCredentialTag == credentialTag
+}
+
+internal object DropboxRemoteState {
+    fun unchanged(before: List<DropboxRemoteFile>, after: List<DropboxRemoteFile>, excludingId: String? = null): Boolean =
+        before.associateBy { it.id } == after.filter { it.id != excludingId }.associateBy { it.id }
+
+    fun token(files: List<DropboxRemoteFile>): String {
+        val description = files.sortedBy { it.id }.joinToString("") { file ->
+            listOf(file.id, file.revision, file.path, file.size.toString(), file.contentHash.orEmpty())
+                .joinToString("") { "${it.length}:$it" }
+        }
+        return java.security.MessageDigest.getInstance("SHA-256").digest(description.toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it.toInt() and 0xff) }
     }
 }
 

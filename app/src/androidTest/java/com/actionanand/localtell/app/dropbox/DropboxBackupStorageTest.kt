@@ -1,0 +1,200 @@
+package com.actionanand.localtell.app.dropbox
+
+import android.content.Context
+import android.content.ContextWrapper
+import android.database.DatabaseErrorHandler
+import android.database.sqlite.SQLiteDatabase
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
+import com.actionanand.localtell.app.AppLimits
+import com.actionanand.localtell.app.DataLimits
+import com.actionanand.localtell.app.backup.AppBackupCodec
+import com.actionanand.localtell.app.backup.AppBackupData
+import com.actionanand.localtell.app.backup.AppBackupRepository
+import com.actionanand.localtell.app.journey.JourneyPoint
+import com.actionanand.localtell.app.saved.SaveResult
+import com.actionanand.localtell.app.saved.SavedPlace
+import com.actionanand.localtell.app.saved.SavedPlaceSource
+import com.actionanand.localtell.app.saved.SavedPlacesRepository
+import java.io.File
+import java.util.UUID
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.runBlocking
+import org.junit.Assert.*
+import org.junit.Test
+import org.junit.runner.RunWith
+
+/** All fixtures use isolated database paths/preferences, never the installed user's databases. */
+@RunWith(AndroidJUnit4::class)
+class DropboxBackupStorageTest {
+    @Test fun overflowMergePreservesAllPlacesAndExplicitTrimmingReturnsToConfiguredLimit() = runBlocking {
+        fixture { _, repository, saved ->
+            val count = (AppLimits.current.maxSavedPlaces + 2).coerceAtMost(DataLimits.MAX_SAVED_BOUND)
+            repository.mergeKeepingAllPlaces(AppBackupData((1..count).map(::place), emptyList()))
+            assertEquals(count, repository.snapshot().savedPlaces.size)
+            if (count > AppLimits.current.maxSavedPlaces) {
+                assertEquals(SaveResult.Full, saved.save(place(count + 1)))
+                // No implicit trimming happened. The user has explicitly approved only one deletion.
+                saved.removeOldestOverflow(1)
+                assertEquals(count - 1, repository.snapshot().savedPlaces.size)
+                saved.removeOldestOverflow(count - AppLimits.current.maxSavedPlaces)
+                val kept = repository.snapshot().savedPlaces
+                assertEquals(AppLimits.current.maxSavedPlaces, kept.size)
+                assertFalse(kept.any { it.id == "p-1" })
+            }
+        }
+    }
+
+    @Test fun cancelledSessionBeforeCommitRollsBackEveryInsertedPlace() = runBlocking {
+        fixture { _, repository, _ ->
+            repository.mergeKeepingAllPlaces(AppBackupData(listOf(place(1)), emptyList()))
+            val before = repository.snapshot()
+            var checks = 0
+            try {
+                val incoming = AppBackupData(listOf(place(2), place(3)), listOf(
+                    JourneyPoint(
+                        id = 0, timestamp = 1_700_000_000_000, areaName = "Rollback test",
+                        district = null, state = null, radio = "NR", plmn = "405-869", cellId = 1, confidence = 100,
+                    ),
+                ))
+                repository.mergeKeepingAllPlaces(incoming) {
+                    if (++checks == 2) throw CancellationException("Disconnect before commit")
+                }
+                fail("Expected cancellation")
+            } catch (_: CancellationException) {
+                assertEquals(before, repository.snapshot())
+            }
+        }
+    }
+
+    @Test fun hardBoundOrInvalidBackupDoesNotChangeLocalDatabase() = runBlocking {
+        fixture { _, repository, _ ->
+            repository.mergeKeepingAllPlaces(AppBackupData(listOf(place(1)), emptyList()))
+            val before = repository.snapshot()
+            val incoming = AppBackupData((2..(DataLimits.MAX_SAVED_BOUND + 1)).map(::place), emptyList())
+            try {
+                repository.mergeKeepingAllPlaces(incoming)
+                fail("Expected hard bound rejection")
+            } catch (_: IllegalArgumentException) {
+                assertEquals(before, repository.snapshot())
+            }
+            try {
+                repository.mergeKeepingAllPlaces(AppBackupData(listOf(place(2).copy(latitude = Double.NaN)), emptyList()))
+                fail("Expected validation rejection")
+            } catch (_: IllegalArgumentException) {
+                assertEquals(before, repository.snapshot())
+            }
+        }
+    }
+
+    @Test fun localEditDuringUploadStaysPendingAndStaleRefreshCannotClearIt() = runBlocking {
+        fixture { context, repository, saved ->
+            val store = DropboxBackupStateStore(context)
+            val account = "a".repeat(64)
+            try {
+                store.selectAccount(account)
+                repository.mergeKeepingAllPlaces(AppBackupData(listOf(place(1)), emptyList()))
+                val uploadedFingerprint = AppBackupCodec.fingerprint(repository.snapshot())
+                val staleRevision = store.revision(account)
+                saved.delete(setOf("p-1"))
+                completeDropboxBackup(store, repository, account, uploadedFingerprint) {}
+                store.markPending(account, false, staleRevision)
+                store.selectAccount(account)
+                assertTrue(store.state.value.pendingChanges)
+                assertEquals(DropboxBackupStatus.PENDING, store.state.value.status)
+                assertNotNull(store.state.value.lastSuccessfulAt)
+                store.markConflict(account, "/conflict.bklt", "remote")
+                store.markFailure(account, DropboxBackupStatus.OFFLINE, DropboxBackupError.NETWORK)
+                store.selectAccount(account)
+                assertEquals(DropboxBackupStatus.CONFLICT, store.state.value.status)
+                assertEquals("remote", store.state.value.conflictFingerprint)
+            } finally {
+                store.close()
+            }
+        }
+    }
+
+    @Test fun savedLimitPauseClearsOnlyAfterCurrentCountIsWithinLimitAndSessionInvalidatesOnDisconnect() = runBlocking {
+        fixture { context, _, _ ->
+            val store = DropboxBackupStateStore(context)
+            try {
+                val account = "b".repeat(64)
+                store.selectAccount(account)
+                store.markSavedLimitExceeded(account)
+                store.markPending(account, true, store.revision(account))
+                store.selectAccount(account)
+                assertEquals(DropboxBackupStatus.PENDING, store.state.value.status)
+                val sessions = DropboxBackupSessionStore(context)
+                val credential = StoredDropboxCredential("fake-access", null, "fake-refresh")
+                sessions.activate(account, credential)
+                val first = requireNotNull(sessions.current())
+                sessions.invalidate()
+                assertNull(sessions.current())
+                sessions.activate(account, credential)
+                assertNotEquals(first.generation, sessions.current()?.generation)
+                sessions.activate("c".repeat(64), credential)
+                assertNotEquals(first.account, sessions.current()?.account)
+            } finally {
+                store.close()
+            }
+        }
+    }
+
+    @Test fun failedBackupRetainsSuccessTimestampAndConflictMetadataAcrossStoreRecreation() = runBlocking {
+        fixture { context, _, _ ->
+            val account = "d".repeat(64)
+            val first = DropboxBackupStateStore(context)
+            first.markSuccess(account, "verified-fingerprint", pending = true, now = 1000L)
+            first.markConflict(account, "/remote.bklt", "remote-fingerprint", remoteState = "remote-state")
+            first.markFailure(account, DropboxBackupStatus.FAILED, DropboxBackupError.STORAGE, now = 2000L)
+            first.close()
+            val restored = DropboxBackupStateStore(context)
+            try {
+                restored.selectAccount(account)
+                assertEquals(1000L, restored.state.value.lastSuccessfulAt)
+                assertEquals(2000L, restored.state.value.lastAttemptedAt)
+                assertEquals("remote-state", restored.state.value.conflictRemoteState)
+                assertEquals(DropboxBackupStatus.CONFLICT, restored.state.value.status)
+                assertTrue(restored.state.value.pendingChanges)
+            } finally {
+                restored.close()
+            }
+        }
+    }
+
+    private suspend fun fixture(action: suspend (Context, AppBackupRepository, SavedPlacesRepository) -> Unit) {
+        val base = InstrumentationRegistry.getInstrumentation().targetContext
+        val prefix = "dropbox-safety-${UUID.randomUUID()}"
+        val directory = File(base.cacheDir, prefix).apply { check(mkdir()) }
+        val preferenceNames = mutableSetOf<String>()
+        val context = object : ContextWrapper(base) {
+            override fun getApplicationContext(): Context = this
+            override fun getDatabasePath(name: String) = File(directory, name)
+            override fun getSharedPreferences(name: String, mode: Int) =
+                base.getSharedPreferences("$prefix-$name".also { preferenceNames += it }, mode)
+            override fun openOrCreateDatabase(name: String, mode: Int, factory: SQLiteDatabase.CursorFactory?): SQLiteDatabase =
+                SQLiteDatabase.openOrCreateDatabase(getDatabasePath(name), factory)
+            override fun openOrCreateDatabase(
+                name: String, mode: Int, factory: SQLiteDatabase.CursorFactory?, errorHandler: DatabaseErrorHandler?,
+            ): SQLiteDatabase = SQLiteDatabase.openOrCreateDatabase(getDatabasePath(name).path, factory, errorHandler)
+        }
+        val repository = AppBackupRepository(context)
+        val saved = SavedPlacesRepository(context)
+        try {
+            action(context, repository, saved)
+        } finally {
+            repository.close()
+            saved.close()
+            preferenceNames.forEach { base.deleteSharedPreferences(it) }
+            directory.listFiles()?.forEach { check(it.delete()) }
+            check(directory.delete())
+        }
+    }
+
+    private fun place(number: Int) = SavedPlace(
+        id = "p-$number", displayName = "Place $number", localityName = "Locality $number",
+        subDistrict = null, district = null, state = null, countryCode = "IN",
+        latitude = 8.0 + number * 0.01, longitude = 77.0, savedAt = number.toLong(),
+        source = SavedPlaceSource.EASY,
+    )
+}

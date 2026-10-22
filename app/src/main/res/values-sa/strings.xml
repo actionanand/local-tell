@@ -366,7 +366,8 @@
     <string name="dropbox_disconnect_revocation_failed">Dropbox स्थानीयरीत्या विच्छिन्नम्, किन्तु अनुज्ञापत्रनिरसनं न निश्चितम्। Dropbox-सञ्चिकाः न निष्कासिताः।</string>
     <string name="dropbox_disconnect_confirm_title">Dropbox-वियोगं कुर्याम?</string>
     <string name="dropbox_disconnect_confirm_message">Dropbox-वियोगं कर्तुम् इच्छसि किम्?\n\nस्वयञ्चालिताः प्रतिलिपयः समन्वयश्च स्थास्यतः।\n\nस्थानीयदत्तांशः अस्मिन् उपकरणे सुरक्षितः भविष्यति। Dropbox-स्थिताः प्रतिलिपयः न निष्कास्यन्ते।\n\nDropbox पुनः संयोजयितुं शक्यते।</string>
-    <string name="dropbox_location">प्रतिलिपि-स्थानम्: Apps / LocalTell</string>
+    <string name="dropbox_location">प्रतिलिपि-स्थानम्: Apps / LocalTell / localtell-managed-backups</string>
+    <string name="dropbox_folder_scope">Dropbox App Folder-अनुमत्या Apps / AR Apps / LocalTell न उपयोक्तुं शक्यते। LocalTell केवलं स्वस्य अनुमत-अनुप्रयोग-सञ्चयिकाम् उपयुङ्क्ते; विस्तृतं Dropbox-अभिगमनं न याचते।</string>
     <string name="dropbox_sync_now">इदानीं समन्वयः</string>
     <string name="dropbox_status_up_to_date">अद्यतनम्</string>
     <string name="dropbox_status_pending">परिवर्तनानि प्रतीक्षन्ते</string>
@@ -382,8 +383,8 @@
     <string name="dropbox_frequency_weekly">प्रतिसप्ताहम्</string>
     <string name="dropbox_error_network">जालबाधया प्रतिलिपिः स्थगिता। स्थानीयदत्तांशः सुरक्षितः; सम्बन्धे सति पुनः प्रयतस्व।</string>
     <string name="dropbox_error_authorization">Dropbox-अनुमतिः समाप्ता। अग्रे गन्तुं पुनः संयोजय।</string>
-    <string name="dropbox_error_storage">प्रतिलिपेः सत्यापनं वा रक्षणं वा न शक्यते। स्थानीयदत्तांशः अपरिवर्तितः।</string>
-    <string name="dropbox_error_unknown">प्रतिलिपिः पूर्णा नाभवत्। स्थानीयदत्तांशः अपरिवर्तितः।</string>
+    <string name="dropbox_error_storage">प्रतिलिपेः परीक्षणं रक्षणं वा पुरातनानां सुरक्षितम् अपनयनं न शक्यम्। स्थानीयाभिलेखाः न अधिलेखिताः। सम्पन्नं संयोजनम् अस्मिन् उपकरणे तिष्ठति।</string>
+    <string name="dropbox_error_unknown">प्रतिलिपिः पूर्णा नाभवत्। स्थानीयाभिलेखाः अस्मिन् उपकरणे रक्षिताः।</string>
     <string name="dropbox_conflict_title">Dropbox-प्रतिलिपि-विरोधः</string>
     <string name="dropbox_conflict_message">स्थानीयदत्तांशः Dropbox-स्य नवीनतम-प्रतिलिपिश्च भिन्नौ। किमपि न अधिलेखितम्। अस्य उपकरणस्य दत्तांशं नूतनायां Dropbox-प्रतिलिपौ स्थापय अथवा Dropbox-प्रतिलिपिम् अस्मिन् उपकरणे संयोजय इति वृणु। संयोजने विद्यमानाः स्थानीय-अभिलेखाः रक्षिताः; Journey-इतिहासे सीमायां नवीनतमाः अभिलेखाः स्थाप्यन्ते।</string>
     <string name="dropbox_use_local">अस्य उपकरणस्य दत्तांशं प्रयुङ्क्ष्व</string>
@@ -397,7 +398,7 @@
     <string name="dropbox_mode_manual_description">इदानीं समन्वयः इति स्पृष्टे एव प्रतिलिपिः क्रियते।</string>
     <string name="dropbox_mode_daily_description">अन्तर्जाले संयुक्ते प्रायः प्रतिदिनम् एकवारं प्रतिलिपिः क्रियते। विद्युत्कोशरक्षणाय Android विलम्बयितुं शक्नोति।</string>
     <string name="dropbox_mode_weekly_description">अन्तर्जाले संयुक्ते प्रायः प्रतिसप्ताहम् एकवारं प्रतिलिपिः क्रियते। विद्युत्कोशरक्षणाय Android विलम्बयितुं शक्नोति।</string>
-    <string name="dropbox_retention">Dropbox नूतनतमाः %1$d LocalTell-प्रतिलिपीः रक्षति। नूतनप्रतिलिपेः परीक्षणानन्तरं पुरातनाः अपनीयन्ते।</string>
+    <string name="dropbox_retention">अनेन संस्थापनेन निर्मिताः परीक्षिताः नूतनतमाः %1$d प्रतिलिपयः रक्ष्यन्ते। उपारोपण-स्वामित्वाभिलेखे मेलिते एव पुरातनसञ्चिकाः अपनीयन्ते। हस्तेन उपारोपिताः पुरातनाः अज्ञाताश्च सञ्चिकाः स्वयमेव न अपनीयन्ते।</string>
     <string name="dropbox_status_saved_limit">स्थगितम्: संयोजनानन्तरं सञ्चितस्थानानि सीमाम् अतिक्रान्तानि</string>
     <string name="dropbox_saved_limit_fix">सञ्चितस्थान-सीमां संशोधय</string>
     <string name="dropbox_saved_limit_title">अतिबहूनि सञ्चितस्थानानि</string>

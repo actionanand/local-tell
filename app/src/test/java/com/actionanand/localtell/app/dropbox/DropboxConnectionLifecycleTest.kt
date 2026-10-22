@@ -7,6 +7,34 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DropboxConnectionLifecycleTest {
+    @Test fun `disconnect invalidates backup session before asynchronous revocation`() {
+        var invalidated = false
+        val lifecycle = DropboxConnectionLifecycle(FakeStore(credential), FakeGateway(DropboxVerification.Connected("A")),
+            invalidateBackupSession = { invalidated = true })
+        lifecycle.beginDisconnect()
+        assertTrue(invalidated)
+        assertEquals(DropboxConnectionStatus.DISCONNECTING, lifecycle.state.value.status)
+    }
+
+    @Test fun `account switch invalidates old session and activates only verified new account`() = runBlocking {
+        val events = mutableListOf<String>()
+        val lifecycle = DropboxConnectionLifecycle(FakeStore(), FakeGateway(DropboxVerification.Connected("B", "account-B")),
+            invalidateBackupSession = { events += "invalidated" },
+            activateBackupSession = { account, _ -> events += account })
+        val operation = lifecycle.beginNewAuthorization()
+        assertEquals(listOf("invalidated"), events)
+        lifecycle.saveAndVerifyNew(operation, credential)
+        assertEquals(listOf("invalidated", "account-B"), events)
+    }
+
+    @Test fun `session persistence failure is reported instead of claiming connected`() = runBlocking {
+        val lifecycle = DropboxConnectionLifecycle(FakeStore(credential), FakeGateway(DropboxVerification.Connected("A")),
+            activateBackupSession = { _, _ -> error("Storage failure") })
+        lifecycle.verifyStored(lifecycle.beginStoredVerification())
+        assertEquals(DropboxConnectionStatus.FAILED, lifecycle.state.value.status)
+        assertEquals(DropboxConnectionFailure.CREDENTIAL_STORAGE, lifecycle.state.value.failure)
+    }
+
     @Test fun `offline startup preserves stored credentials and offers retry`() = runBlocking {
         val store = FakeStore(credential)
         val lifecycle = DropboxConnectionLifecycle(store, FakeGateway(DropboxVerification.TemporarilyUnavailable))

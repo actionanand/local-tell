@@ -316,7 +316,8 @@
     <string name="dropbox_disconnect_revocation_failed">Dropbox was disconnected locally, but token revocation could not be confirmed. No Dropbox files were deleted.</string>
     <string name="dropbox_disconnect_confirm_title">Disconnect Dropbox?</string>
     <string name="dropbox_disconnect_confirm_message">Are you sure you want to disconnect Dropbox?\n\nAutomatic backups and syncing will stop.\n\nYour local data will remain safe on this device. Existing backups stored in Dropbox will not be deleted.\n\nYou can reconnect Dropbox anytime.</string>
-    <string name="dropbox_location">Backup location: Apps / LocalTell</string>
+    <string name="dropbox_location">Backup location: Apps / LocalTell / localtell-managed-backups</string>
+    <string name="dropbox_folder_scope">Dropbox App Folder access cannot use Apps / AR Apps / LocalTell. LocalTell uses its authorized app folder only; no broader Dropbox access is requested.</string>
     <string name="dropbox_sync_now">Sync now</string>
     <string name="dropbox_status_up_to_date">Up to date</string>
     <string name="dropbox_status_pending">Pending changes</string>
@@ -332,11 +333,11 @@
     <string name="dropbox_frequency_weekly">Weekly</string>
     <string name="dropbox_error_network">The network interrupted the backup. Your local data is safe; try again when connected.</string>
     <string name="dropbox_error_authorization">Dropbox authorization expired. Reconnect Dropbox to continue.</string>
-    <string name="dropbox_error_storage">The backup could not be validated or saved. Your local data is unchanged.</string>
-    <string name="dropbox_error_unknown">The backup could not be completed. Your local data is unchanged.</string>
+    <string name="dropbox_error_storage">The backup could not be validated, saved, or safely cleaned up. No local records were overwritten. Any completed merge remains on this device.</string>
+    <string name="dropbox_error_unknown">The backup could not be completed. Your local records are kept on this device.</string>
     <string name="dropbox_conflict_title">Dropbox backup conflict</string>
-    <string name="dropbox_conflict_message">The local data and latest Dropbox backup differ. Nothing was overwritten. Choose to keep this device's data in a new Dropbox snapshot, or merge the Dropbox backup into this device. Merge keeps existing local records; Journey history keeps the newest records within its limit.</string>
-    <string name="dropbox_use_local">Use this device's data</string>
+    <string name="dropbox_conflict_message">The local data and latest Dropbox backup differ. Nothing was overwritten. Choose to keep this device\'s data in a new Dropbox snapshot, or merge the Dropbox backup into this device. Merge keeps existing local records; Journey history keeps the newest records within its limit.</string>
+    <string name="dropbox_use_local">Use this device\'s data</string>
     <string name="dropbox_merge_remote">Merge Dropbox backup</string>
     <string name="dropbox_resolve_conflict">Resolve conflict</string>
     <string name="dropbox_connection_required">Connect Dropbox before syncing.</string>
@@ -347,7 +348,7 @@
     <string name="dropbox_mode_manual_description">Backs up only when you tap Sync now.</string>
     <string name="dropbox_mode_daily_description">Backs up about once a day when connected to the internet. Android may delay it to save battery.</string>
     <string name="dropbox_mode_weekly_description">Backs up about once a week when connected to the internet. Android may delay it to save battery.</string>
-    <string name="dropbox_retention">Dropbox keeps the %1$d most recent LocalTell backups. Older ones are removed after a new backup is verified.</string>
+    <string name="dropbox_retention">Keeps the %1$d latest verified backups owned by this installation. Older files are removed only with a matching upload ownership record. Manual, legacy, and unknown files are never automatically deleted.</string>
     <string name="dropbox_status_saved_limit">Paused: too many saved places after merging</string>
     <string name="dropbox_saved_limit_fix">Fix Saved Places limit</string>
     <string name="dropbox_saved_limit_title">Too many saved places</string>

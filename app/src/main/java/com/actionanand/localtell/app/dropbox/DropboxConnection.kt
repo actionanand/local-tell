@@ -178,7 +178,7 @@ internal class DropboxCredentialStore(context: Context) : DropboxCredentialPersi
 internal class DropboxSdkGateway : DropboxAccountGateway {
     override fun verify(credential: StoredDropboxCredential): DropboxVerification = try {
         val account = client(credential).users().currentAccount
-        DropboxVerification.Connected(account.name.displayName, backupAccountHash(account.accountId.value))
+        DropboxVerification.Connected(account.name.displayName, backupAccountHash(account.accountId))
     } catch (_: InvalidAccessTokenException) {
         DropboxVerification.CredentialsInvalid
     } catch (_: DbxOAuthException) {
@@ -213,6 +213,8 @@ internal class DropboxSdkGateway : DropboxAccountGateway {
 internal class DropboxConnectionLifecycle(
     private val credentials: DropboxCredentialPersistence,
     private val gateway: DropboxAccountGateway,
+    private val invalidateBackupSession: () -> Unit = {},
+    private val activateBackupSession: (String, StoredDropboxCredential) -> Unit = { _, _ -> },
 ) {
     private val stateLock = Any()
     private val credentialOperations = Mutex()
@@ -222,9 +224,9 @@ internal class DropboxConnectionLifecycle(
 
     fun beginStoredVerification(): Long = begin(DropboxConnectionStatus.CONNECTING)
 
-    fun beginNewAuthorization(): Long = begin(DropboxConnectionStatus.CONNECTING)
+    fun beginNewAuthorization(): Long = begin(DropboxConnectionStatus.CONNECTING, invalidateBackup = true)
 
-    fun beginDisconnect(): Long = begin(DropboxConnectionStatus.DISCONNECTING)
+    fun beginDisconnect(): Long = begin(DropboxConnectionStatus.DISCONNECTING, invalidateBackup = true)
 
     fun authorizationFailed(operation: Long) = publishIfCurrent(
         operation,
@@ -309,14 +311,21 @@ internal class DropboxConnectionLifecycle(
     private fun verifyExisting(operation: Long, credential: StoredDropboxCredential) {
         if (!isCurrent(operation)) return
         when (val result = gateway.verify(credential)) {
-            is DropboxVerification.Connected -> publishIfCurrent(
-                operation,
-                DropboxConnectionUiState(
-                    DropboxConnectionStatus.CONNECTED,
-                    accountName = result.accountName,
-                    accountIdHash = result.accountIdHash,
-                ),
-            )
+            is DropboxVerification.Connected -> synchronized(stateLock) {
+                if (operation == generation) {
+                    try {
+                        activateBackupSession(result.accountIdHash, credential)
+                    } catch (_: IllegalStateException) {
+                        publishSessionStorageFailure(operation)
+                        return
+                    }
+                    mutableState.value = DropboxConnectionUiState(
+                        DropboxConnectionStatus.CONNECTED,
+                        accountName = result.accountName,
+                        accountIdHash = result.accountIdHash,
+                    )
+                }
+            }
             DropboxVerification.TemporarilyUnavailable -> publishIfCurrent(
                 operation,
                 DropboxConnectionUiState(
@@ -327,6 +336,7 @@ internal class DropboxConnectionLifecycle(
             )
             DropboxVerification.CredentialsInvalid -> {
                 if (!isCurrent(operation)) return
+                if (!invalidateSession(operation)) return
                 if (credentials.clear()) {
                     publishIfCurrent(operation, DropboxConnectionUiState(DropboxConnectionStatus.REAUTHORIZATION_REQUIRED))
                 } else {
@@ -343,11 +353,29 @@ internal class DropboxConnectionLifecycle(
         }
     }
 
-    private fun begin(status: DropboxConnectionStatus): Long = synchronized(stateLock) {
+    private fun begin(status: DropboxConnectionStatus, invalidateBackup: Boolean = false): Long = synchronized(stateLock) {
         generation += 1
+        if (invalidateBackup && !invalidateSession(generation)) return@synchronized generation
         mutableState.value = DropboxConnectionUiState(status)
         generation
     }
+
+    private fun invalidateSession(operation: Long): Boolean = try {
+        invalidateBackupSession()
+        true
+    } catch (_: IllegalStateException) {
+        publishSessionStorageFailure(operation)
+        false
+    }
+
+    private fun publishSessionStorageFailure(operation: Long) = publishIfCurrent(
+        operation,
+        DropboxConnectionUiState(
+            DropboxConnectionStatus.FAILED,
+            failure = DropboxConnectionFailure.CREDENTIAL_STORAGE,
+            retryAction = DropboxRetryAction.VERIFY_STORED,
+        ),
+    )
 
     private fun isCurrent(operation: Long): Boolean = synchronized(stateLock) { operation == generation }
 
@@ -358,7 +386,10 @@ internal class DropboxConnectionLifecycle(
 
 /** OAuth result ownership stays in the Activity; account and keystore work stays off the UI thread. */
 internal class DropboxConnectionViewModel(app: Application, private val savedState: SavedStateHandle) : AndroidViewModel(app) {
-    private val lifecycle = DropboxConnectionLifecycle(DropboxCredentialStore(app), DropboxSdkGateway())
+    private val sessions = DropboxBackupSessionStore(app)
+    private val lifecycle = DropboxConnectionLifecycle(
+        DropboxCredentialStore(app), DropboxSdkGateway(), sessions::invalidate, sessions::activate,
+    )
     private val backupSettings = DropboxBackupStateStore(app)
     val state = lifecycle.state
     private var awaitingAuthorization: Boolean
@@ -378,6 +409,10 @@ internal class DropboxConnectionViewModel(app: Application, private val savedSta
         }
         if (awaitingAuthorization) {
             savedState[AUTHORIZATION_OPERATION] = lifecycle.beginNewAuthorization()
+            if (state.value.status != DropboxConnectionStatus.CONNECTING) {
+                savedState.remove<Long>(AUTHORIZATION_OPERATION)
+                awaitingAuthorization = false
+            }
         } else {
             val operation = lifecycle.beginStoredVerification()
             launchIo { lifecycle.verifyStored(operation) }
@@ -387,6 +422,11 @@ internal class DropboxConnectionViewModel(app: Application, private val savedSta
     fun beginAuthorization(): Boolean {
         if (awaitingAuthorization || state.value.status == DropboxConnectionStatus.DISCONNECTING) return false
         savedState[AUTHORIZATION_OPERATION] = lifecycle.beginNewAuthorization()
+        if (state.value.status != DropboxConnectionStatus.CONNECTING) {
+            savedState.remove<Long>(AUTHORIZATION_OPERATION)
+            return false
+        }
+        DropboxBackupScheduler.cancel(getApplication())
         awaitingAuthorization = true
         return true
     }
@@ -423,10 +463,12 @@ internal class DropboxConnectionViewModel(app: Application, private val savedSta
     }
 
     fun disconnect() {
+        if (state.value.status == DropboxConnectionStatus.DISCONNECTING) return
         awaitingAuthorization = false
         savedState.remove<Long>(AUTHORIZATION_OPERATION)
-        DropboxBackupScheduler.cancel(getApplication())
         val operation = lifecycle.beginDisconnect()
+        DropboxBackupScheduler.cancel(getApplication())
+        if (state.value.status != DropboxConnectionStatus.DISCONNECTING) return
         launchIo { lifecycle.disconnect(operation) }
     }
 

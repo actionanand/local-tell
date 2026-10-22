@@ -316,7 +316,8 @@
     <string name="dropbox_disconnect_revocation_failed">Dropbox உள்ளூரில் துண்டிக்கப்பட்டது; ஆனால் டோக்கன் திரும்பப்பெறுதல் உறுதிப்படுத்தப்படவில்லை. Dropbox கோப்புகள் எதுவும் நீக்கப்படவில்லை.</string>
     <string name="dropbox_disconnect_confirm_title">Dropbox இணைப்பை நீக்கவா?</string>
     <string name="dropbox_disconnect_confirm_message">Dropbox இணைப்பை நீக்க விரும்புகிறீர்களா?\n\nதானியங்கி காப்புப்பிரதியும் ஒத்திசைவும் நிறுத்தப்படும்.\n\nஉங்கள் உள்ளூர் தரவு இந்தச் சாதனத்தில் பாதுகாப்பாக இருக்கும். Dropbox-இல் உள்ள காப்புப்பிரதிகள் நீக்கப்படாது.\n\nஎப்போது வேண்டுமானாலும் மீண்டும் இணைக்கலாம்.</string>
-    <string name="dropbox_location">காப்புப்பிரதி இடம்: Apps / LocalTell</string>
+    <string name="dropbox_location">காப்புப்பிரதி இடம்: Apps / LocalTell / localtell-managed-backups</string>
+    <string name="dropbox_folder_scope">Dropbox App Folder அனுமதியால் Apps / AR Apps / LocalTell இடத்தைப் பயன்படுத்த முடியாது. LocalTell தனக்கு அனுமதிக்கப்பட்ட செயலிக் கோப்புறையை மட்டுமே பயன்படுத்துகிறது; விரிவான Dropbox அணுகலைக் கோராது.</string>
     <string name="dropbox_sync_now">இப்போது ஒத்திசைக்கவும்</string>
     <string name="dropbox_status_up_to_date">புதுப்பித்த நிலையில் உள்ளது</string>
     <string name="dropbox_status_pending">நிலுவையில் உள்ள மாற்றங்கள்</string>
@@ -332,8 +333,8 @@
     <string name="dropbox_frequency_weekly">வாரந்தோறும்</string>
     <string name="dropbox_error_network">இணையத் தடையால் காப்புப்பிரதி நிறுத்தப்பட்டது. உள்ளூர் தரவு பாதுகாப்பாக உள்ளது; இணைப்பு கிடைத்ததும் மீண்டும் முயற்சிக்கவும்.</string>
     <string name="dropbox_error_authorization">Dropbox அனுமதி காலாவதியானது. தொடர மீண்டும் இணைக்கவும்.</string>
-    <string name="dropbox_error_storage">காப்புப்பிரதியைச் சரிபார்க்கவோ சேமிக்கவோ முடியவில்லை. உள்ளூர் தரவு மாற்றப்படவில்லை.</string>
-    <string name="dropbox_error_unknown">காப்புப்பிரதியை முடிக்க முடியவில்லை. உள்ளூர் தரவு மாற்றப்படவில்லை.</string>
+    <string name="dropbox_error_storage">காப்புப்பிரதியைச் சரிபார்க்கவோ சேமிக்கவோ பாதுகாப்பாகப் பழையவற்றை அகற்றவோ முடியவில்லை. உள்ளூர் பதிவுகள் மேலெழுதப்படவில்லை. முடிந்த இணைப்பு இந்தச் சாதனத்தில் இருக்கும்.</string>
+    <string name="dropbox_error_unknown">காப்புப்பிரதியை முடிக்க முடியவில்லை. உள்ளூர் பதிவுகள் இந்தச் சாதனத்தில் பாதுகாக்கப்படும்.</string>
     <string name="dropbox_conflict_title">Dropbox காப்புப்பிரதி முரண்பாடு</string>
     <string name="dropbox_conflict_message">உள்ளூர் தரவும் Dropbox-இன் சமீபத்திய காப்புப்பிரதியும் வேறுபடுகின்றன. எதுவும் மேலெழுதப்படவில்லை. இந்தச் சாதனத்தின் தரவைப் புதிய Dropbox காப்புப்பிரதியாகச் சேமிக்கவும் அல்லது Dropbox காப்புப்பிரதியை இந்தச் சாதனத்துடன் இணைக்கவும் தேர்வு செய்யவும். இணைப்பில் உள்ளூர் பதிவுகள் பாதுகாக்கப்படும்; Journey வரலாறு வரம்புக்குள் உள்ள புதிய பதிவுகளை வைத்திருக்கும்.</string>
     <string name="dropbox_use_local">இந்தச் சாதனத்தின் தரவைப் பயன்படுத்தவும்</string>
@@ -347,7 +348,7 @@
     <string name="dropbox_mode_manual_description">இப்போது ஒத்திசைக்கவும் என்பதைத் தட்டும்போது மட்டுமே காப்புப்பிரதி எடுக்கும்.</string>
     <string name="dropbox_mode_daily_description">இணைய இணைப்பு இருக்கும்போது சுமார் தினமும் ஒருமுறை காப்புப்பிரதி எடுக்கும். பேட்டரியைச் சேமிக்க Android தாமதப்படுத்தலாம்.</string>
     <string name="dropbox_mode_weekly_description">இணைய இணைப்பு இருக்கும்போது சுமார் வாரத்திற்கு ஒருமுறை காப்புப்பிரதி எடுக்கும். பேட்டரியைச் சேமிக்க Android தாமதப்படுத்தலாம்.</string>
-    <string name="dropbox_retention">Dropbox சமீபத்திய %1$d LocalTell காப்புப்பிரதிகளை வைத்திருக்கும். புதிய காப்புப்பிரதி சரிபார்க்கப்பட்ட பிறகு பழையவை அகற்றப்படும்.</string>
+    <string name="dropbox_retention">இந்த நிறுவல் உருவாக்கிச் சரிபார்த்த சமீபத்திய %1$d காப்புப்பிரதிகள் வைக்கப்படும். பதிவேற்ற உரிமைப் பதிவு பொருந்தினால் மட்டுமே பழைய கோப்புகள் அகற்றப்படும். கைமுறை, பழைய மற்றும் அறியப்படாத கோப்புகள் தானாக நீக்கப்படாது.</string>
     <string name="dropbox_status_saved_limit">இடைநிறுத்தம்: இணைத்த பிறகு சேமித்த இடங்கள் வரம்பை மீறியுள்ளன</string>
     <string name="dropbox_saved_limit_fix">சேமித்த இடங்களின் வரம்பைச் சரிசெய்</string>
     <string name="dropbox_saved_limit_title">சேமித்த இடங்கள் அதிகம்</string>

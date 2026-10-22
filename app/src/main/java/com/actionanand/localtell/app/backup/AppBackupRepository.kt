@@ -34,7 +34,11 @@ class AppBackupRepository(context: Context) {
     private val journey = JourneyDbHelper(this.context, trimOnOpen = false)
     private val mutex = Mutex()
 
-    private suspend fun <T> transaction(notifyChanges: Boolean = false, action: (SQLiteDatabase, AppBackupData) -> T): T = withContext(Dispatchers.IO) {
+    private suspend fun <T> transaction(
+        notifyChanges: Boolean = false,
+        beforeCommit: () -> Unit = {},
+        action: (SQLiteDatabase, AppBackupData) -> T,
+    ): T = withContext(Dispatchers.IO) {
         mutex.withLock {
             // Existing migrations are additive. Do not trim Journey before a restore is accepted.
             saved.refresh()
@@ -54,6 +58,7 @@ class AppBackupRepository(context: Context) {
                     val current = AppBackupData(saved.readAll(db), journey.readFrom(db, Int.MAX_VALUE))
                     val result = action(db, current)
                     currentCoroutineContext().ensureActive()
+                    beforeCommit()
                     db.setTransactionSuccessful()
                     result
                 } finally { db.endTransaction() }
@@ -71,6 +76,10 @@ class AppBackupRepository(context: Context) {
         current.copy(journeys = current.journeys.take(AppLimits.current.maxJourneyPoints))
     }
 
+    internal suspend fun <T> inspectSnapshot(action: (AppBackupData) -> T): T = transaction { _, current ->
+        action(current.copy(journeys = current.journeys.take(AppLimits.current.maxJourneyPoints)))
+    }
+
     suspend fun preview(incoming: AppBackupData): AppRestorePlan = withContext(Dispatchers.IO) {
         AppBackupCodec.validate(incoming)
         transaction { _, current -> planAppRestore(current, incoming) }
@@ -82,11 +91,17 @@ class AppBackupRepository(context: Context) {
      * Dropbox conflict merge keeps every place from both devices, even above the Saved Places limit.
      * The user then trims the list; saving new places and Dropbox sync stay paused until they do.
      */
-    suspend fun mergeKeepingAllPlaces(incoming: AppBackupData): AppRestorePlan = merge(incoming, allowSavedOverflow = true)
+    suspend fun mergeKeepingAllPlaces(incoming: AppBackupData, checkActive: () -> Unit = {}): AppRestorePlan =
+        merge(incoming, allowSavedOverflow = true, checkActive = checkActive)
 
-    private suspend fun merge(incoming: AppBackupData, allowSavedOverflow: Boolean): AppRestorePlan = withContext(Dispatchers.IO) {
+    private suspend fun merge(
+        incoming: AppBackupData,
+        allowSavedOverflow: Boolean,
+        checkActive: () -> Unit = {},
+    ): AppRestorePlan = withContext(Dispatchers.IO) {
         AppBackupCodec.validate(incoming) // No database access at all for malformed content.
-        transaction(notifyChanges = true) { db, current ->
+        transaction(notifyChanges = true, beforeCommit = checkActive) { db, current ->
+            checkActive()
             val plan = planAppRestore(current, incoming)
             if (allowSavedOverflow) {
                 require(plan.saved.total <= DataLimits.MAX_SAVED_BOUND) { "Saved Places backup bound exceeded" }
