@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Context
 import androidx.work.*
 import com.actionanand.localtell.app.update.PackUpdateWorker
+import com.actionanand.localtell.app.dropbox.DropboxBackupScheduler
 import java.util.concurrent.TimeUnit
 
 class LocalTellApplication : Application() {
@@ -21,5 +22,6 @@ class LocalTellApplication : Application() {
             ExistingPeriodicWorkPolicy.KEEP,
             request,
         )
+        DropboxBackupScheduler.scheduleConfigured(this)
     }
 }

@@ -44,6 +44,7 @@ internal enum class DropboxConnectionNotice { DISCONNECTED, REVOCATION_UNCONFIRM
 internal data class DropboxConnectionUiState(
     val status: DropboxConnectionStatus = DropboxConnectionStatus.NOT_CONNECTED,
     val accountName: String? = null,
+    val accountIdHash: String? = null,
     val failure: DropboxConnectionFailure? = null,
     val retryAction: DropboxRetryAction? = null,
     val notice: DropboxConnectionNotice? = null,
@@ -71,7 +72,7 @@ internal interface DropboxCredentialPersistence {
 }
 
 internal sealed interface DropboxVerification {
-    data class Connected(val accountName: String) : DropboxVerification
+    data class Connected(val accountName: String, val accountIdHash: String = "") : DropboxVerification
     data object CredentialsInvalid : DropboxVerification
     data object TemporarilyUnavailable : DropboxVerification
 }
@@ -177,7 +178,7 @@ internal class DropboxCredentialStore(context: Context) : DropboxCredentialPersi
 internal class DropboxSdkGateway : DropboxAccountGateway {
     override fun verify(credential: StoredDropboxCredential): DropboxVerification = try {
         val account = client(credential).users().currentAccount
-        DropboxVerification.Connected(account.name.displayName)
+        DropboxVerification.Connected(account.name.displayName, backupAccountHash(account.accountId.value))
     } catch (_: InvalidAccessTokenException) {
         DropboxVerification.CredentialsInvalid
     } catch (_: DbxOAuthException) {
@@ -310,7 +311,11 @@ internal class DropboxConnectionLifecycle(
         when (val result = gateway.verify(credential)) {
             is DropboxVerification.Connected -> publishIfCurrent(
                 operation,
-                DropboxConnectionUiState(DropboxConnectionStatus.CONNECTED, accountName = result.accountName),
+                DropboxConnectionUiState(
+                    DropboxConnectionStatus.CONNECTED,
+                    accountName = result.accountName,
+                    accountIdHash = result.accountIdHash,
+                ),
             )
             DropboxVerification.TemporarilyUnavailable -> publishIfCurrent(
                 operation,
@@ -354,12 +359,23 @@ internal class DropboxConnectionLifecycle(
 /** OAuth result ownership stays in the Activity; account and keystore work stays off the UI thread. */
 internal class DropboxConnectionViewModel(app: Application, private val savedState: SavedStateHandle) : AndroidViewModel(app) {
     private val lifecycle = DropboxConnectionLifecycle(DropboxCredentialStore(app), DropboxSdkGateway())
+    private val backupSettings = DropboxBackupStateStore(app)
     val state = lifecycle.state
     private var awaitingAuthorization: Boolean
         get() = savedState[AUTHORIZATION_PENDING] ?: false
         set(value) { savedState[AUTHORIZATION_PENDING] = value }
 
     init {
+        viewModelScope.launch {
+            state.collect { connection ->
+                when (connection.status) {
+                    DropboxConnectionStatus.CONNECTED ->
+                        DropboxBackupScheduler.update(app, backupSettings.frequency(), connected = true)
+                    DropboxConnectionStatus.REAUTHORIZATION_REQUIRED -> DropboxBackupScheduler.cancel(app)
+                    else -> Unit
+                }
+            }
+        }
         if (awaitingAuthorization) {
             savedState[AUTHORIZATION_OPERATION] = lifecycle.beginNewAuthorization()
         } else {
@@ -409,6 +425,7 @@ internal class DropboxConnectionViewModel(app: Application, private val savedSta
     fun disconnect() {
         awaitingAuthorization = false
         savedState.remove<Long>(AUTHORIZATION_OPERATION)
+        DropboxBackupScheduler.cancel(getApplication())
         val operation = lifecycle.beginDisconnect()
         launchIo { lifecycle.disconnect(operation) }
     }
@@ -424,6 +441,11 @@ internal class DropboxConnectionViewModel(app: Application, private val savedSta
     }
 
     private fun authorizationOperation(): Long? = savedState[AUTHORIZATION_OPERATION]
+
+    override fun onCleared() {
+        backupSettings.close()
+        super.onCleared()
+    }
 
     private companion object {
         const val AUTHORIZATION_PENDING = "dropbox_authorization_pending"

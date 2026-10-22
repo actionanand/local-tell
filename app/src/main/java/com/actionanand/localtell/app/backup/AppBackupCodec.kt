@@ -25,6 +25,18 @@ object AppBackupCodec {
             .also { require(it.toByteArray(Charsets.UTF_8).size <= MAX_BYTES) }
     }
 
+    /** Stable across exports of the same data; the export timestamp and database row IDs are excluded. */
+    fun fingerprint(data: AppBackupData): String {
+        validate(data)
+        val canonical = data.copy(
+            savedPlaces = data.savedPlaces.sortedBy { it.id },
+            journeys = data.journeys.sortedWith(compareBy<JourneyPoint> { it.timestamp }.thenBy { journeySortKey(it) }),
+        )
+        val payload = JSONObject(JSONObject(encode(canonical)).getString("payload"))
+        payload.remove("exportedAt")
+        return sha256(payload.toString())
+    }
+
     fun decode(json: String): AppBackupData {
         require(json.toByteArray(Charsets.UTF_8).size <= MAX_BYTES)
         StrictBackupJson(json).validate()

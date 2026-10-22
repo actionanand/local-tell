@@ -14,6 +14,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.style.TextAlign
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.actionanand.localtell.app.AppLimits
@@ -24,16 +25,29 @@ import com.actionanand.localtell.app.dropbox.DropboxConnectionViewModel
 import com.actionanand.localtell.app.dropbox.DropboxConnectionFailure
 import com.actionanand.localtell.app.dropbox.DropboxConnectionNotice
 import com.actionanand.localtell.app.dropbox.DropboxRetryAction
+import com.actionanand.localtell.app.dropbox.DropboxBackupViewModel
+import com.actionanand.localtell.app.dropbox.DropboxBackupFrequency
+import com.actionanand.localtell.app.dropbox.DropboxBackupStatus
+import com.actionanand.localtell.app.dropbox.DropboxBackupError
+import com.actionanand.localtell.app.dropbox.DropboxBackupRetention
+import java.text.DateFormat
+import java.util.Date
 
 @Composable
 internal fun BackupRestoreScreen(
     vm: AppBackupViewModel = viewModel(),
     dropboxVm: DropboxConnectionViewModel = viewModel(),
+    dropboxBackupVm: DropboxBackupViewModel = viewModel(),
     onConnectDropbox: () -> Unit = {},
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
     val dropboxState by dropboxVm.state.collectAsStateWithLifecycle()
+    val backupState by dropboxBackupVm.state.collectAsStateWithLifecycle()
+    val savedPlacesExcess by dropboxBackupVm.savedPlacesExcess.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    var showDisconnectConfirmation by remember { mutableStateOf(false) }
+    var showConflictDialog by remember { mutableStateOf(false) }
+    var showSavedLimitDialog by remember { mutableStateOf(false) }
     val shareTitle = stringResource(R.string.saved_backup_share)
     val host = remember { SnackbarHostState() }
     val message = state.message?.let { stringResource(it) }
@@ -43,6 +57,21 @@ internal fun BackupRestoreScreen(
     }
     val restore = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri -> uri?.let(vm::inspectBackup) }
     val device = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let(vm::inspectBackup) }
+    LaunchedEffect(dropboxState.status, dropboxState.accountIdHash) {
+        when {
+            dropboxState.status == DropboxConnectionStatus.CONNECTED ->
+                dropboxBackupVm.selectAccount(dropboxState.accountIdHash?.takeIf(String::isNotBlank))
+            dropboxState.status == DropboxConnectionStatus.NOT_CONNECTED ||
+                dropboxState.status == DropboxConnectionStatus.REAUTHORIZATION_REQUIRED ->
+                dropboxBackupVm.selectAccount(null)
+        }
+    }
+    LaunchedEffect(backupState.status) {
+        if (backupState.status == DropboxBackupStatus.CONFLICT) showConflictDialog = true
+    }
+    LaunchedEffect(savedPlacesExcess > 0) {
+        showSavedLimitDialog = savedPlacesExcess > 0
+    }
     Box(Modifier.fillMaxSize()) {
         LazyColumn(contentPadding = PaddingValues(start = 20.dp, top = 20.dp, end = 20.dp, bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item {
@@ -87,7 +116,107 @@ internal fun BackupRestoreScreen(
                             }
                             DropboxConnectionStatus.CONNECTED -> {
                                 Text(stringResource(R.string.dropbox_connected, dropboxState.accountName.orEmpty()), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                OutlinedButton(onClick = dropboxVm::disconnect) { Text(stringResource(R.string.dropbox_disconnect)) }
+                                Text(stringResource(R.string.dropbox_location), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(
+                                    stringResource(
+                                        when (backupState.status) {
+                                            DropboxBackupStatus.UP_TO_DATE -> R.string.dropbox_status_up_to_date
+                                            DropboxBackupStatus.PENDING -> R.string.dropbox_status_pending
+                                            DropboxBackupStatus.SYNCING -> R.string.dropbox_status_syncing
+                                            DropboxBackupStatus.FAILED -> R.string.dropbox_status_failed
+                                            DropboxBackupStatus.CONFLICT -> R.string.dropbox_status_conflict
+                                            DropboxBackupStatus.OFFLINE -> R.string.dropbox_status_offline
+                                            DropboxBackupStatus.REAUTHORIZATION_REQUIRED -> R.string.dropbox_status_reauthorize
+                                            DropboxBackupStatus.SAVED_LIMIT_EXCEEDED -> R.string.dropbox_status_saved_limit
+                                        },
+                                    ),
+                                    color = if (backupState.status in setOf(
+                                            DropboxBackupStatus.FAILED,
+                                            DropboxBackupStatus.CONFLICT,
+                                            DropboxBackupStatus.OFFLINE,
+                                            DropboxBackupStatus.REAUTHORIZATION_REQUIRED,
+                                            DropboxBackupStatus.SAVED_LIMIT_EXCEEDED,
+                                        )
+                                    ) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                val dateFormat = remember(context) {
+                                    DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
+                                }
+                                val lastSuccess = backupState.lastSuccessfulAt
+                                Text(
+                                    if (lastSuccess == null) stringResource(R.string.dropbox_never_backed_up)
+                                    else stringResource(R.string.dropbox_last_successful, dateFormat.format(Date(lastSuccess))),
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                                backupState.lastAttemptedAt?.let { attempted ->
+                                    Text(
+                                        stringResource(R.string.dropbox_last_attempted, dateFormat.format(Date(attempted))),
+                                        style = MaterialTheme.typography.bodySmall,
+                                    )
+                                }
+                                backupState.error?.let { error ->
+                                    Text(
+                                        stringResource(
+                                            when (error) {
+                                                DropboxBackupError.NETWORK -> R.string.dropbox_error_network
+                                                DropboxBackupError.AUTHORIZATION -> R.string.dropbox_error_authorization
+                                                DropboxBackupError.STORAGE -> R.string.dropbox_error_storage
+                                                DropboxBackupError.UNKNOWN -> R.string.dropbox_error_unknown
+                                            },
+                                        ),
+                                        color = MaterialTheme.colorScheme.error,
+                                        style = MaterialTheme.typography.bodySmall,
+                                    )
+                                }
+                                Text(stringResource(R.string.dropbox_backup_mode), fontWeight = FontWeight.SemiBold)
+                                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    DropboxBackupFrequency.entries.forEach { mode ->
+                                        FilterChip(
+                                            selected = backupState.frequency == mode,
+                                            enabled = backupState.status != DropboxBackupStatus.SYNCING,
+                                            onClick = { dropboxBackupVm.setFrequency(mode) },
+                                            label = { Text(stringResource(mode.labelRes())) },
+                                        )
+                                    }
+                                }
+                                Text(
+                                    stringResource(backupState.frequency.descriptionRes()),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Button(
+                                        enabled = backupState.frequency.syncAllowed &&
+                                            backupState.status != DropboxBackupStatus.SYNCING &&
+                                            savedPlacesExcess == 0,
+                                        onClick = dropboxBackupVm::syncNow,
+                                    ) {
+                                        if (backupState.status == DropboxBackupStatus.SYNCING) {
+                                            CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                                            Spacer(Modifier.width(8.dp))
+                                        }
+                                        Text(stringResource(R.string.dropbox_sync_now))
+                                    }
+                                    OutlinedButton(
+                                        enabled = dropboxState.status != DropboxConnectionStatus.DISCONNECTING,
+                                        onClick = { showDisconnectConfirmation = true },
+                                    ) { Text(stringResource(R.string.dropbox_disconnect)) }
+                                }
+                                Text(
+                                    stringResource(R.string.dropbox_retention, DropboxBackupRetention.KEEP),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                if (savedPlacesExcess > 0) {
+                                    TextButton(onClick = { showSavedLimitDialog = true }) {
+                                        Text(stringResource(R.string.dropbox_saved_limit_fix))
+                                    }
+                                }
+                                if (backupState.status == DropboxBackupStatus.CONFLICT) {
+                                    TextButton(onClick = { showConflictDialog = true }) {
+                                        Text(stringResource(R.string.dropbox_resolve_conflict))
+                                    }
+                                }
                             }
                             DropboxConnectionStatus.FAILED -> {
                                 Text(
@@ -114,6 +243,9 @@ internal fun BackupRestoreScreen(
                                 Button(enabled = !state.busy, onClick = onConnectDropbox) { Text(stringResource(R.string.dropbox_reauthorize)) }
                             }
                         }
+                        if (dropboxState.status == DropboxConnectionStatus.NOT_CONNECTED) {
+                            Text(stringResource(R.string.dropbox_connection_required), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                         dropboxState.notice?.let {
                             Text(
                                 stringResource(
@@ -125,6 +257,87 @@ internal fun BackupRestoreScreen(
                                 ),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        if (showDisconnectConfirmation && dropboxState.status == DropboxConnectionStatus.CONNECTED) {
+                            AlertDialog(
+                                onDismissRequest = { showDisconnectConfirmation = false },
+                                title = { Text(stringResource(R.string.dropbox_disconnect_confirm_title)) },
+                                text = { Text(stringResource(R.string.dropbox_disconnect_confirm_message)) },
+                                confirmButton = {
+                                    TextButton(
+                                        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                                        enabled = dropboxState.status != DropboxConnectionStatus.DISCONNECTING,
+                                        onClick = {
+                                            showDisconnectConfirmation = false
+                                            dropboxVm.disconnect()
+                                        },
+                                    ) { Text(stringResource(R.string.dropbox_disconnect)) }
+                                },
+                                dismissButton = {
+                                    TextButton(onClick = { showDisconnectConfirmation = false }) {
+                                        Text(stringResource(R.string.cancel))
+                                    }
+                                },
+                            )
+                        }
+                        if (showSavedLimitDialog && savedPlacesExcess > 0) {
+                            AlertDialog(
+                                onDismissRequest = { showSavedLimitDialog = false },
+                                title = { Text(stringResource(R.string.dropbox_saved_limit_title)) },
+                                text = {
+                                    Text(
+                                        stringResource(
+                                            R.string.dropbox_saved_limit_message,
+                                            AppLimits.current.maxSavedPlaces + savedPlacesExcess,
+                                            AppLimits.current.maxSavedPlaces,
+                                            savedPlacesExcess,
+                                        ),
+                                    )
+                                },
+                                confirmButton = {
+                                    TextButton(
+                                        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                                        onClick = {
+                                            showSavedLimitDialog = false
+                                            dropboxBackupVm.removeOldestExtraPlaces()
+                                        },
+                                    ) { Text(stringResource(R.string.dropbox_saved_limit_remove)) }
+                                },
+                                dismissButton = {
+                                    TextButton(onClick = { showSavedLimitDialog = false }) {
+                                        Text(stringResource(R.string.dropbox_saved_limit_manual))
+                                    }
+                                },
+                            )
+                        }
+                        if (showConflictDialog && backupState.status == DropboxBackupStatus.CONFLICT) {
+                            AlertDialog(
+                                onDismissRequest = { showConflictDialog = false },
+                                title = { Text(stringResource(R.string.dropbox_conflict_title)) },
+                                text = { Text(stringResource(R.string.dropbox_conflict_message)) },
+                                confirmButton = {
+                                    TextButton(
+                                        enabled = backupState.status != DropboxBackupStatus.SYNCING,
+                                        onClick = {
+                                            showConflictDialog = false
+                                            dropboxBackupVm.useLocalBackup()
+                                        },
+                                    ) { Text(stringResource(R.string.dropbox_use_local), textAlign = TextAlign.End) }
+                                },
+                                dismissButton = {
+                                    Column(horizontalAlignment = Alignment.End) {
+                                        TextButton(
+                                            onClick = {
+                                                showConflictDialog = false
+                                                dropboxBackupVm.mergeDropboxBackup()
+                                            },
+                                        ) { Text(stringResource(R.string.dropbox_merge_remote)) }
+                                        TextButton(onClick = { showConflictDialog = false }) {
+                                            Text(stringResource(R.string.cancel))
+                                        }
+                                    }
+                                },
                             )
                         }
                     }
@@ -166,4 +379,18 @@ internal fun BackupRestoreScreen(
             confirmButton = { if (preview.saved.fits) TextButton(enabled = !state.busy, onClick = vm::restore) { Text(stringResource(R.string.saved_restore)) } },
             dismissButton = { TextButton(onClick = vm::dismissRestore) { Text(stringResource(R.string.cancel)) } })
     }
+}
+
+private fun DropboxBackupFrequency.labelRes(): Int = when (this) {
+    DropboxBackupFrequency.OFF -> R.string.dropbox_mode_off
+    DropboxBackupFrequency.MANUAL -> R.string.dropbox_mode_manual
+    DropboxBackupFrequency.DAILY -> R.string.dropbox_frequency_daily
+    DropboxBackupFrequency.WEEKLY -> R.string.dropbox_frequency_weekly
+}
+
+private fun DropboxBackupFrequency.descriptionRes(): Int = when (this) {
+    DropboxBackupFrequency.OFF -> R.string.dropbox_mode_off_description
+    DropboxBackupFrequency.MANUAL -> R.string.dropbox_mode_manual_description
+    DropboxBackupFrequency.DAILY -> R.string.dropbox_mode_daily_description
+    DropboxBackupFrequency.WEEKLY -> R.string.dropbox_mode_weekly_description
 }

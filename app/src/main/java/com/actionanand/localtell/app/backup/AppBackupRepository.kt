@@ -3,6 +3,7 @@ package com.actionanand.localtell.app.backup
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import com.actionanand.localtell.app.AppLimits
+import com.actionanand.localtell.app.DataLimits
 import com.actionanand.localtell.app.journey.JourneyDbHelper
 import com.actionanand.localtell.app.journey.JourneyHistoryChanges
 import com.actionanand.localtell.app.saved.SavedPlacesRepository
@@ -75,11 +76,23 @@ class AppBackupRepository(context: Context) {
         transaction { _, current -> planAppRestore(current, incoming) }
     }
 
-    suspend fun restore(incoming: AppBackupData): AppRestorePlan = withContext(Dispatchers.IO) {
+    suspend fun restore(incoming: AppBackupData): AppRestorePlan = merge(incoming, allowSavedOverflow = false)
+
+    /**
+     * Dropbox conflict merge keeps every place from both devices, even above the Saved Places limit.
+     * The user then trims the list; saving new places and Dropbox sync stay paused until they do.
+     */
+    suspend fun mergeKeepingAllPlaces(incoming: AppBackupData): AppRestorePlan = merge(incoming, allowSavedOverflow = true)
+
+    private suspend fun merge(incoming: AppBackupData, allowSavedOverflow: Boolean): AppRestorePlan = withContext(Dispatchers.IO) {
         AppBackupCodec.validate(incoming) // No database access at all for malformed content.
         transaction(notifyChanges = true) { db, current ->
             val plan = planAppRestore(current, incoming)
-            require(plan.saved.fits) { "Saved Places capacity exceeded" }
+            if (allowSavedOverflow) {
+                require(plan.saved.total <= DataLimits.MAX_SAVED_BOUND) { "Saved Places backup bound exceeded" }
+            } else {
+                require(plan.saved.fits) { "Saved Places capacity exceeded" }
+            }
             incoming.savedPlaces.filter { candidate -> current.savedPlaces.none {
                 com.actionanand.localtell.app.saved.SavedPlaceIdentity.matches(it, candidate)
             } }.forEach { saved.insert(db, it) }
