@@ -36,10 +36,10 @@ class DropboxRevisionDownloadTest {
         assertEquals(2, http.requests.size)
         for ((url, argument) in http.requests) {
             assertTrue(url, url.endsWith("/2/files/download"))
+            assertEquals(argument.toString(), 1, argument.length())
             assertEquals("rev:${file.revision}", argument.getString("path"))
             // The deprecated separate argument (SDK withRev) must never be sent with a revision path.
             assertFalse(argument.toString(), argument.has("rev"))
-            assertEquals(setOf("path"), argument.keySet())
         }
     }
 
