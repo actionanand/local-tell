@@ -263,6 +263,11 @@ internal object DropboxBackupScheduler {
     }
 
     fun scheduleConfigured(context: Context) {
+        if (CloudBackupFeature.startupAction() == CloudBackupFeature.StartupAction.CANCEL_SCHEDULED_WORK) {
+            // Only WorkManager jobs are removed; credentials, sessions and backup files stay untouched.
+            cancel(context)
+            return
+        }
         val store = DropboxBackupStateStore(context)
         val connected = DropboxCredentialStore(context).load() is StoredCredentialResult.Available
         update(context, store.frequency(), connected)

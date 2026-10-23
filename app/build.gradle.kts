@@ -21,6 +21,10 @@ val configuredAppName = appConfig["appName"] as String
 val configuredHomeAnnouncementUrl = appConfig["homeAnnouncementUrl"] as String
 val configuredManifestSources = appConfig["dataManifestSources"] as List<*>
 val configuredTowerSurvey = appConfig["enableTowerSurvey"] as? Boolean ?: false
+val configuredCloudBackup = appConfig["enableCloudBackup"].let { value ->
+    require(value is Boolean) { "app-config.json: enableCloudBackup must be a JSON boolean (true or false, not a string)." }
+    value
+}
 fun configuredLimit(key: String, maximum: Int): Int {
     val value = appConfig[key]
     require(value is Byte || value is Short || value is Int || value is Long) {
@@ -52,6 +56,7 @@ android {
         buildConfigField("String", "HOME_ANNOUNCEMENT_URL", quoted(configuredHomeAnnouncementUrl))
         buildConfigField("String", "DATA_MANIFEST_SOURCES_JSON", quoted(JsonOutput.toJson(configuredManifestSources)))
         buildConfigField("Boolean", "ENABLE_TOWER_SURVEY", configuredTowerSurvey.toString())
+        buildConfigField("boolean", "ENABLE_CLOUD_BACKUP", configuredCloudBackup.toString())
         buildConfigField("int", "MAX_SAVED_PLACES", configuredMaxSavedPlaces.toString())
         buildConfigField("int", "MAX_JOURNEY_POINTS", configuredMaxJourneyPoints.toString())
         // Public OAuth client identifier only. No Dropbox app secret is used by Android.

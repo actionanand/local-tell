@@ -13,7 +13,8 @@ internal class DropboxBackupFolder(
     fun discover(list: () -> List<DropboxRemoteFile>): List<DropboxRemoteFile> = try {
         list()
     } catch (error: ListFolderErrorException) {
-        if (!error.errorValue.isPath || !error.errorValue.pathValue.isNotFound) throw error
+        val value = error.errorValue
+        if (value == null || !value.isPath || !value.pathValue.isNotFound) throw error
         emptyList()
     }
 
@@ -22,13 +23,15 @@ internal class DropboxBackupFolder(
             if (!isFolder()) throw DropboxBackupFolderException()
             return
         } catch (error: GetMetadataErrorException) {
-            if (!error.errorValue.pathValue.isNotFound) throw error
+            val value = error.errorValue
+            if (value == null || !value.isPath || !value.pathValue.isNotFound) throw error
         }
         try {
             create()
         } catch (error: CreateFolderErrorException) {
             // Only a concurrent folder creation may be accepted, not permission/quota failures.
-            if (!error.errorValue.pathValue.isConflict || !isFolder()) throw error
+            val value = error.errorValue
+            if (value == null || !value.isPath || !value.pathValue.isConflict || !isFolder()) throw error
         }
     }
 }

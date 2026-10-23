@@ -20,6 +20,7 @@
     }
   ],
   "enableTowerSurvey": false,
+  "enableCloudBackup": true,
   "maxSavedPlaces": 30,
   "maxJourneyPoints": 100
 }

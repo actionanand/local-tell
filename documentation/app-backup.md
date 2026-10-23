@@ -29,6 +29,32 @@ Normal opening/insertion applies retention; backup inspection does not trim befo
 confirmation. Reducing the Journey limit applies the usual oldest-first eviction,
 not a database reset. Increasing it allows future records up to the new maximum.
 
+### Cloud backup feature switch
+
+```json
+"enableCloudBackup": true
+```
+
+`enableCloudBackup` must be a JSON boolean; Gradle rejects strings such as
+`"true"` and a missing value. It becomes `BuildConfig.ENABLE_CLOUD_BACKUP`, read
+through `CloudBackupFeature.enabled`.
+
+- `true`: the Dropbox card, connection, modes, Sync now, diagnostics and disconnect
+  are available as described below.
+- `false`: the whole Dropbox card is hidden and its ViewModels are not created.
+  OAuth is never started or completed. Daily/Weekly work is not scheduled; at app
+  start the unique periodic and manual Dropbox jobs are cancelled. A worker queued
+  by an earlier build checks the switch at its entry point and stops before
+  reading credentials or contacting Dropbox. Sync now and resolution requests are
+  not enqueued.
+
+Hiding the feature is **not** a disconnect. Credentials, account/session metadata,
+ownership records, the chosen mode, Dropbox files and local data are all kept
+untouched; nothing is deleted, renamed or moved. A later build with `true` resumes
+through the normal stored-credential verification. Local backup, Save Backup,
+Share Backup, Restore Backup, Choose device file, Saved Places and Journey history
+are unaffected by the switch.
+
 Installed database contracts are unchanged: `saved_places.db` schema 1 and
 `journeys.db` schema 2. The existing additive Journey v1→v2 migration preserves old
 records, with null latitude/longitude/accuracy/subdistrict. No GPS, service interval,
@@ -188,7 +214,7 @@ The existing PKCE OAuth connection retains **App Folder** access, not Full Dropb
 access. Uploads use the API-relative directory `/localtell-managed-backups`, shown
 as **Apps / LocalTell / localtell-managed-backups**. Dropbox controls the app-folder
 root; this permission cannot create the proposed **Apps / AR Apps / LocalTell**
-umbrella. The UI explains this restriction rather than claiming that destination.
+umbrella. The card shows only the real location and does not claim that destination.
 Dropbox may localize or rename the app-folder root; the API-relative directory is
 unchanged. Existing root-level `.bklt` files remain readable for conflict handling
 and compatibility, but are not automatically adopted as owned files.
@@ -223,8 +249,20 @@ revocation is disclosed independently of local disconnection.
 
 Uploads create new uniquely named files without overwriting any existing file.
 Every remote read checks metadata size against `AppBackupCodec.MAX_BYTES` (12 MiB)
-before receiving bytes, pins the Dropbox revision, and uses a bounded output
-stream. The full filename, UTF-8, strict JSON, checksum and record validation then
+before receiving bytes and uses a bounded output stream.
+
+Baseline downloads (`DOWNLOAD_REMOTE`) and post-upload verification
+(`VERIFY_UPLOAD`) share `DropboxRevisionDownload`. The exact listed revision is
+requested through the `path` argument as `rev:<revision>`, which Dropbox's
+`/files/download` contract documents for a specific version. The deprecated
+separate `rev` argument (SDK `withRev`) is not sent; the previous request combined
+`id:<file id>` with it and was rejected on a device with HTTP 400 at
+`DOWNLOAD_REMOTE`. A revision that does not match Dropbox's `[0-9a-f]{9,}` format
+is rejected locally without a request. The returned file ID, revision and size
+must match the listing before the body is read; the received byte count and the
+Dropbox content hash (SHA-256 of per-4 MiB block digests) must match afterwards.
+A mismatch means the file changed or the transfer was incomplete: the run aborts,
+nothing is merged, recorded or deleted, and only a pre-upload attempt may retry. The full filename, UTF-8, strict JSON, checksum and record validation then
 runs unchanged. Oversize or malformed data is a non-retryable validation/storage
 failure; it cannot reach the merge transaction.
 
@@ -310,9 +348,14 @@ Failures do not replace the last successful timestamp or discard conflict detail
 
 ### Failure diagnostics
 
-Only SDK `NetworkIOException` is treated as a network outage. Typed Dropbox
+Only SDK `NetworkIOException` and interrupted transfer streams are treated as a
+network outage. HTTP 400 (`BadRequestException`) is a rejected request, not a
+connection failure, and never retries. Typed Dropbox
 lookup/write tags distinguish paths, permissions and quota errors; permanent API
-failures do not retry. Server/rate-limit and transport errors may retry at most
+failures do not retry. Tagged Dropbox errors are inspected only after checking
+their variant (for example `isPath` before `pathValue`); non-path variants and any
+unexpected classification problem fall back to a generic category so the original
+error is never hidden. Server/rate-limit, transport and changed-download errors may retry at most
 three times before an upload starts. Upload and post-upload failures require a
 later sync attempt, using the pending receipt where available, rather than
 blindly retrying an ambiguous write. Daily, Weekly and Sync now share this logic.
@@ -323,11 +366,15 @@ work is running changes a leftover **Syncing** status to **Backup interrupted**;
 an attempt timestamp check prevents this from overwriting a run that just started.
 
 The account-scoped diagnostic records stage, exception class, a fixed API tag,
-sanitized request ID, retry decision and timestamp. Logcat and the optional
-**Copy diagnostic details** button expose only these fields, never exception
-messages, credentials, coordinates or backup payloads. The actual folder remains
-visible; the technical App Folder restriction is behind **About the backup folder**.
-The short management notice does not change retention or file protection.
+sanitized request ID, retry decision and timestamp. For HTTP 400 only, it also
+keeps a short **Detail** line from Dropbox's error text naming the rejected
+argument, with paths, `id:`, `rev:` and `ns:` values redacted and length bounded.
+Logcat and the optional **Copy diagnostic details** button expose only these
+fields, never other exception messages, credentials, coordinates or backup
+payloads. The card shows **Backup location: Apps / LocalTell /
+localtell-managed-backups** and the short note that only backups created through
+LocalTell are managed automatically; the former folder-help toggle and App Folder
+paragraph were removed. The note does not change retention or file protection.
 
 ## Validation
 
@@ -360,7 +407,12 @@ location codes or acquisition.
 Dropbox unit coverage includes fourth/fifth upload retention, unknown/manual file
 protection, invalid ownership records, failed uploads/verification, download
 limits, account/session binding, concurrent remote changes and localized resource
-validity. `DropboxBackupStorageTest` is an Android instrumentation suite using
+validity. `DropboxRevisionDownloadTest` drives the real SDK client through a fake
+`HttpRequestor` to assert that both download and verification send only
+`{"path":"rev:<revision>"}`, and covers ID/revision/size/hash mismatches, the
+12 MiB limit and redacted HTTP 400 diagnostics. `CloudBackupFeatureTest` covers the
+JSON boolean, screen sections, startup cancellation, scheduling and the worker
+entry guard for both switch values. `DropboxBackupStorageTest` is an Android instrumentation suite using
 isolated database files/preferences for overflow, explicit trimming, rollback,
 pending changes and stale state updates. It requires an emulator or device; merely
 building the Android test APK does not execute it. No local tests/builds were run

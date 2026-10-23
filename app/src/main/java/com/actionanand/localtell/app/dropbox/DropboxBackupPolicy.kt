@@ -18,8 +18,11 @@ internal enum class DropboxBackupFrequency(val preferenceValue: String, val peri
 
 internal object DropboxBackupSchedulePolicy {
     /** Repeat interval in days for scheduled work, or null when no periodic work must exist. */
-    fun periodDays(frequency: DropboxBackupFrequency, connected: Boolean): Long? =
-        if (connected) frequency.periodDays else null
+    fun periodDays(
+        frequency: DropboxBackupFrequency,
+        connected: Boolean,
+        cloudBackupEnabled: Boolean = CloudBackupFeature.enabled,
+    ): Long? = if (cloudBackupEnabled && connected) frequency.periodDays else null
 }
 
 internal data class DropboxRemoteFile(

@@ -34,7 +34,15 @@ internal data class DropboxBackupFailure(
 
 internal class DropboxBackupAuthorizationException(val category: String) : IllegalStateException(category)
 
-internal fun classifyDropboxFailure(error: Exception, stage: DropboxBackupStage): DropboxBackupFailure {
+internal fun classifyDropboxFailure(error: Exception, stage: DropboxBackupStage): DropboxBackupFailure =
+    try {
+        classifyDropboxFailureUnchecked(error, stage)
+    } catch (_: RuntimeException) {
+        // Classification must never replace the original Dropbox error with a second exception.
+        DropboxBackupFailure(DropboxBackupError.UNKNOWN, "UNCLASSIFIED")
+    }
+
+private fun classifyDropboxFailureUnchecked(error: Exception, stage: DropboxBackupStage): DropboxBackupFailure {
     fun api(tag: String) = DropboxBackupFailure(DropboxBackupError.DROPBOX_API, tag)
     fun lookup(value: LookupError): DropboxBackupFailure = when {
         value.isRestrictedContent -> DropboxBackupFailure(DropboxBackupError.DROPBOX_PERMISSION, value.tag().name)
@@ -62,8 +70,8 @@ internal fun classifyDropboxFailure(error: Exception, stage: DropboxBackupStage)
             DropboxBackupFailure(DropboxBackupError.DROPBOX_TEMPORARY, "HTTP_${error.statusCode}", true)
         } else api("HTTP_${error.statusCode}")
         is ListFolderErrorException -> error.errorValue.let { if (it.isPath) lookup(it.pathValue) else api(it.tag().name) }
-        is GetMetadataErrorException -> lookup(error.errorValue.pathValue)
-        is CreateFolderErrorException -> write(error.errorValue.pathValue)
+        is GetMetadataErrorException -> error.errorValue.let { if (it.isPath) lookup(it.pathValue) else api(it.tag().name) }
+        is CreateFolderErrorException -> error.errorValue.let { if (it.isPath) write(it.pathValue) else api(it.tag().name) }
         is UploadErrorException -> error.errorValue.let { if (it.isPath) write(it.pathValue.reason) else api(it.tag().name) }
         is DownloadErrorException -> error.errorValue.let { if (it.isPath) lookup(it.pathValue) else api(it.tag().name) }
         is DeleteErrorException -> error.errorValue.let {
@@ -77,6 +85,8 @@ internal fun classifyDropboxFailure(error: Exception, stage: DropboxBackupStage)
         is BadRequestException -> api("BAD_REQUEST")
         is DbxException -> api("UNCLASSIFIED_API")
         is DropboxBackupValidationException -> DropboxBackupFailure(DropboxBackupError.INVALID_BACKUP, "BACKUP_VALIDATION")
+        is DropboxDownloadMismatchException ->
+            DropboxBackupFailure(DropboxBackupError.DROPBOX_TEMPORARY, "DOWNLOAD_MISMATCH", true)
         is IllegalArgumentException, is org.json.JSONException, is java.time.DateTimeException,
         is java.nio.charset.CharacterCodingException ->
             DropboxBackupFailure(if (invalidData) DropboxBackupError.INVALID_BACKUP else DropboxBackupError.STORAGE, "VALIDATION")
@@ -102,6 +112,7 @@ internal data class DropboxBackupDiagnostic(
     val requestId: String?,
     val retryable: Boolean,
     val timestamp: Long,
+    val detail: String? = null,
 ) {
     fun toSafeText(): String = buildString {
         appendLine("Dropbox backup diagnostic")
@@ -110,6 +121,7 @@ internal data class DropboxBackupDiagnostic(
         appendLine("Category: $category")
         appendLine("Request ID: ${requestId ?: "unavailable"}")
         appendLine("Retryable: $retryable")
+        detail?.let { appendLine("Detail: $it") }
         append("Timestamp (UTC epoch ms): $timestamp")
     }
 
@@ -120,6 +132,7 @@ internal data class DropboxBackupDiagnostic(
         .put("requestId", requestId)
         .put("retryable", retryable)
         .put("timestamp", timestamp)
+        .put("detail", detail)
         .toString()
 
     companion object {
@@ -134,6 +147,7 @@ internal data class DropboxBackupDiagnostic(
                     requestId = json.optString("requestId").takeIf(String::isNotEmpty),
                     retryable = json.getBoolean("retryable"),
                     timestamp = json.getLong("timestamp"),
+                    detail = json.optString("detail").takeIf(String::isNotEmpty)?.let(::sanitizeDropboxDetail),
                 )
             } catch (_: JSONException) {
                 null
@@ -143,3 +157,16 @@ internal data class DropboxBackupDiagnostic(
         }
     }
 }
+
+private val dropboxPathToken = Regex("""(?<=^|[\s'"(=:,])/[^\s'",)]*""")
+private val dropboxAddressToken = Regex("""\b(id|rev|ns):[^\s'",)]+""")
+
+/** Dropbox's HTTP 400 body names the rejected argument; redact any paths, IDs and revisions it echoes. */
+internal fun sanitizeDropboxDetail(message: String): String? =
+    message.replace(dropboxAddressToken) { "${it.groupValues[1]}:<redacted>" }
+        .replace(dropboxPathToken, "<path>")
+        .map { if (it in ' '..'~') it else ' ' }.joinToString("")
+        .replace(Regex("\\s+"), " ").trim().take(240).ifEmpty { null }
+
+internal fun dropboxFailureDetail(error: Exception): String? =
+    (error as? BadRequestException)?.message?.let(::sanitizeDropboxDetail)

@@ -36,7 +36,13 @@ class DropboxBackupResourcesTest {
         for (directory in listOf("values", "values-ta", "values-sa")) {
             val localized = strings(directory)
             assertTrue(localized.getValue("dropbox_location").contains("Apps / LocalTell / localtell-managed-backups"))
-            assertTrue(localized.getValue("dropbox_folder_scope").contains("Apps / AR Apps / LocalTell"))
+            assertTrue(localized.getValue("dropbox_location")
+                .endsWith(DropboxBackupOwnership.MANAGED_DIRECTORY.removePrefix("/")))
+            // The folder-help toggle and its Apps / AR Apps paragraph were removed from the Dropbox card.
+            for (removed in listOf("dropbox_folder_scope", "dropbox_folder_help", "dropbox_hide_help")) {
+                assertFalse("$removed must stay removed in $directory", localized.containsKey(removed))
+            }
+            assertTrue(localized.getValue("dropbox_retention").isNotBlank())
             assertTrue(localized.getValue("backup_privacy").isNotBlank())
         }
         assertTrue(english.getValue("backup_privacy").contains("not encrypted"))

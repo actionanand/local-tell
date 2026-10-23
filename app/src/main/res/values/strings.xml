@@ -317,7 +317,6 @@
     <string name="dropbox_disconnect_confirm_title">Disconnect Dropbox?</string>
     <string name="dropbox_disconnect_confirm_message">Are you sure you want to disconnect Dropbox?\n\nAutomatic backups and syncing will stop.\n\nYour local data will remain safe on this device. Existing backups stored in Dropbox will not be deleted.\n\nYou can reconnect Dropbox anytime.</string>
     <string name="dropbox_location">Backup location: Apps / LocalTell / localtell-managed-backups</string>
-    <string name="dropbox_folder_scope">Dropbox App Folder access cannot use Apps / AR Apps / LocalTell. LocalTell uses its authorized app folder only; no broader Dropbox access is requested.</string>
     <string name="dropbox_sync_now">Sync now</string>
     <string name="dropbox_status_up_to_date">Up to date</string>
     <string name="dropbox_status_pending">Pending changes</string>
@@ -349,8 +348,6 @@
     <string name="dropbox_mode_daily_description">Backs up about once a day when connected to the internet. Android may delay it to save battery.</string>
     <string name="dropbox_mode_weekly_description">Backs up about once a week when connected to the internet. Android may delay it to save battery.</string>
     <string name="dropbox_retention">Only backups created through LocalTell are managed automatically.</string>
-    <string name="dropbox_folder_help">About the backup folder</string>
-    <string name="dropbox_hide_help">Hide folder details</string>
     <string name="dropbox_copy_diagnostic">Copy diagnostic details</string>
     <string name="dropbox_status_no_backup">No backup yet</string>
     <string name="dropbox_status_interrupted">Backup interrupted. Tap Sync now to try again.</string>

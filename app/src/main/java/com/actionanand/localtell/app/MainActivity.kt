@@ -166,6 +166,7 @@ import com.actionanand.localtell.app.geography.*
 import com.actionanand.localtell.app.backup.AppBackupViewModel
 import com.actionanand.localtell.app.backup.BackupRestoreScreen
 import com.actionanand.localtell.app.dropbox.DropboxConnectionViewModel
+import com.actionanand.localtell.app.dropbox.CloudBackupFeature
 import com.actionanand.localtell.app.dropbox.DropboxAuthorization
 import com.dropbox.core.DbxRequestConfig
 import com.dropbox.core.android.Auth
@@ -238,7 +239,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        if (dropboxConnectionViewModel.consumeAuthorizationResult()) {
+        if (CloudBackupFeature.enabled && dropboxConnectionViewModel.consumeAuthorizationResult()) {
             dropboxConnectionViewModel.completeAuthorization(Auth.getDbxCredential(), Auth.getScope())
         }
         if (::locationEnablement.isInitialized) locationEnablement.onResume()
@@ -298,7 +299,7 @@ class MainActivity : ComponentActivity() {
     }
 
     fun connectDropbox() {
-        if (!dropboxConnectionViewModel.beginAuthorization()) return
+        if (!CloudBackupFeature.enabled || !dropboxConnectionViewModel.beginAuthorization()) return
         try {
             Auth.startOAuth2PKCE(
                 this,

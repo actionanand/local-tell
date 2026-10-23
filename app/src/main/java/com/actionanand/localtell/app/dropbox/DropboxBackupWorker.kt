@@ -37,7 +37,16 @@ import kotlinx.coroutines.withContext
 
 /** One-time manual runs and periodic work share one serial worker implementation. */
 internal class DropboxBackupWorker(context: Context, parameters: WorkerParameters) : CoroutineWorker(context, parameters) {
-    override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
+    override suspend fun doWork(): Result = guardCloudBackupWork(
+        enabled = CloudBackupFeature.enabled,
+        onDisabled = {
+            // Work queued by an earlier build: stop before any credential, network or file access.
+            DropboxBackupScheduler.cancel(applicationContext)
+            Result.failure()
+        },
+    ) { sync() }
+
+    private suspend fun sync(): Result = withContext(Dispatchers.IO) {
         syncMutex.withLock {
             val account = inputData.getString(KEY_ACCOUNT_HASH) ?: return@withLock Result.failure()
             val generation = inputData.getString(KEY_SESSION) ?: return@withLock Result.failure()
@@ -238,6 +247,7 @@ internal class DropboxBackupWorker(context: Context, parameters: WorkerParameter
             requestId = requestId?.filter { it.isLetterOrDigit() || it == '-' || it == '_' }?.take(128),
             retryable = retryable,
             timestamp = System.currentTimeMillis(),
+            detail = dropboxFailureDetail(error),
         )
         store.markFailure(account, status, backupError, diagnostic = diagnostic)
         Log.e(TAG, diagnostic.toSafeText())
@@ -262,6 +272,7 @@ internal class DropboxBackupWorker(context: Context, parameters: WorkerParameter
             context: Context, accountHash: String, action: String = ACTION_SYNC, path: String? = null,
             fingerprint: String? = null, remoteState: String? = null,
         ) {
+            if (!CloudBackupFeature.enabled) return
             val session = DropboxBackupSessionStore(context).current() ?: return
             if (session.account != accountHash) return
             val data = workDataOf(
@@ -340,23 +351,29 @@ internal class DropboxSdkBackupRemote(
         return downloadFile(file)
     }
 
-    private fun downloadFile(file: DropboxRemoteFile): AppBackupData {
-        checkActive()
-        BackupFileFormat.requireFilename(file.name)
-        val output = DropboxDownloadLimit(file.size, checkActive)
-        // Pin the revision: a changed file cannot pass verification as the earlier snapshot.
-        client.files().downloadBuilder(file.id).withRev(file.revision).start().use { download ->
-            val actual = metadata(download.result)
-            require(actual.id == file.id && actual.revision == file.revision && actual.size == file.size) {
-                "Dropbox download metadata changed"
+    // Pin the revision via the path argument ("rev:<rev>"); a changed file cannot pass as the earlier snapshot.
+    private val revisionDownload = DropboxRevisionDownload(
+        source = { path ->
+            val download = client.files().downloadBuilder(path).start()
+            try {
+                val result = download.result
+                val received = DropboxDownloadedMetadata(result.id, result.rev, result.size, result.contentHash)
+                object : DropboxOpenedDownload {
+                    override val metadata = received
+                    override fun copyTo(output: java.io.OutputStream) {
+                        download.download(output)
+                    }
+                    override fun close() = download.close()
+                }
+            } catch (error: Throwable) {
+                download.close()
+                throw error
             }
-            download.download(output)
-        }
-        checkActive()
-        val bytes = output.bytes()
-        require(bytes.size.toLong() == file.size) { "Dropbox download is incomplete" }
-        return BackupFileFormat.decode(file.name, bytes)
-    }
+        },
+        checkActive = checkActive,
+    )
+
+    private fun downloadFile(file: DropboxRemoteFile): AppBackupData = revisionDownload.fetch(file)
 
     override fun upload(data: AppBackupData): DropboxRemoteFile {
         val contents = AppBackupCodec.encode(data).toByteArray(Charsets.UTF_8)

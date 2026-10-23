@@ -121,6 +121,31 @@ class DropboxVerifiedUploadTest {
         assertNull(ownership.pending("A"))
     }
 
+    @Test fun interruptedOrChangedVerificationDownloadResumesWithoutDuplicateUpload() {
+        val failures = listOf<() -> Exception>(
+            { com.dropbox.core.NetworkIOException(IOException("stream reset")) },
+            { DropboxDownloadMismatchException("Dropbox download metadata changed") },
+            { com.dropbox.core.BadRequestException("req", "rejected") },
+        )
+        for (failure in failures) {
+            val remote = FakeRemote().apply { verifyError = failure }
+            val ownership = FakeOwnership()
+            val thrown = assertThrows(Exception::class.java) {
+                DropboxVerifiedUpload(remote, ownership) {}.execute("A", data, emptyList())
+            }
+            assertEquals(failure().javaClass, thrown.javaClass)
+            assertNotNull(ownership.pending("A"))
+            assertTrue(ownership.records.isEmpty())
+            assertTrue(remote.deleted.isEmpty())
+            remote.verifyError = null
+            assertTrue(DropboxVerifiedUpload(remote, ownership) {}
+                .execute("A", data, remote.files.toList()) is DropboxUploadResult.Verified)
+            assertEquals(1, remote.uploads)
+            assertEquals(1, remote.files.size)
+            assertNull(ownership.pending("A"))
+        }
+    }
+
     @Test fun failedOwnershipWriteRecoversWithoutASecondUpload() {
         val remote = FakeRemote()
         val ownership = FakeOwnership().apply { failRecord = true }
@@ -291,6 +316,11 @@ class DropboxVerifiedUploadTest {
             downloads++
             if (failDownload || file.id in malformedIds) throw DropboxBackupValidationException("Invalid or oversized remote backup")
             return downloadedData
+        }
+        var verifyError: (() -> Exception)? = null
+        override fun verify(file: DropboxRemoteFile): AppBackupData {
+            verifyError?.let { throw it() }
+            return download(file)
         }
         override fun upload(data: AppBackupData): DropboxRemoteFile {
             if (failUpload) throw IOException("Upload interrupted")

@@ -52,9 +52,12 @@ Single source for app identity and per-country data-manifest sources:
       "layout": "flat",
       "manifestUrl": "https://github.com/actionanand/localtell-data/releases/download/country-lk-v1/manifest-LK.json"
     }
-  ]
+  ],
+  "enableCloudBackup": true
 }
 ```
+
+`enableCloudBackup` (JSON boolean) turns the Dropbox cloud backup feature on or off at build time. `false` hides it and stops its background work without deleting credentials, Dropbox files or local data; see [documentation/app-backup.md](documentation/app-backup.md).
 
 Change `applicationId` only before the first Play Store publication.
 

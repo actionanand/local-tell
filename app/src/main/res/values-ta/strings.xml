@@ -317,7 +317,6 @@
     <string name="dropbox_disconnect_confirm_title">Dropbox இணைப்பை நீக்கவா?</string>
     <string name="dropbox_disconnect_confirm_message">Dropbox இணைப்பை நீக்க விரும்புகிறீர்களா?\n\nதானியங்கி காப்புப்பிரதியும் ஒத்திசைவும் நிறுத்தப்படும்.\n\nஉங்கள் உள்ளூர் தரவு இந்தச் சாதனத்தில் பாதுகாப்பாக இருக்கும். Dropbox-இல் உள்ள காப்புப்பிரதிகள் நீக்கப்படாது.\n\nஎப்போது வேண்டுமானாலும் மீண்டும் இணைக்கலாம்.</string>
     <string name="dropbox_location">காப்புப்பிரதி இடம்: Apps / LocalTell / localtell-managed-backups</string>
-    <string name="dropbox_folder_scope">Dropbox App Folder அனுமதியால் Apps / AR Apps / LocalTell இடத்தைப் பயன்படுத்த முடியாது. LocalTell தனக்கு அனுமதிக்கப்பட்ட செயலிக் கோப்புறையை மட்டுமே பயன்படுத்துகிறது; விரிவான Dropbox அணுகலைக் கோராது.</string>
     <string name="dropbox_sync_now">இப்போது ஒத்திசைக்கவும்</string>
     <string name="dropbox_status_up_to_date">புதுப்பித்த நிலையில் உள்ளது</string>
     <string name="dropbox_status_pending">நிலுவையில் உள்ள மாற்றங்கள்</string>
@@ -349,8 +348,6 @@
     <string name="dropbox_mode_daily_description">இணைய இணைப்பு இருக்கும்போது சுமார் தினமும் ஒருமுறை காப்புப்பிரதி எடுக்கும். பேட்டரியைச் சேமிக்க Android தாமதப்படுத்தலாம்.</string>
     <string name="dropbox_mode_weekly_description">இணைய இணைப்பு இருக்கும்போது சுமார் வாரத்திற்கு ஒருமுறை காப்புப்பிரதி எடுக்கும். பேட்டரியைச் சேமிக்க Android தாமதப்படுத்தலாம்.</string>
     <string name="dropbox_retention">LocalTell மூலம் உருவாக்கப்பட்ட காப்புப்பிரதிகள் மட்டுமே தானாக நிர்வகிக்கப்படும்.</string>
-    <string name="dropbox_folder_help">காப்புப்பிரதி கோப்புறை பற்றி</string>
-    <string name="dropbox_hide_help">கோப்புறை விவரங்களை மறைக்கவும்</string>
     <string name="dropbox_copy_diagnostic">பிழை கண்டறியும் விவரங்களை நகலெடுக்கவும்</string>
     <string name="dropbox_status_no_backup">இதுவரை காப்புப்பிரதி இல்லை</string>
     <string name="dropbox_status_interrupted">காப்புப்பிரதி தடைப்பட்டது. மீண்டும் முயற்சிக்க இப்போது ஒத்திசைக்கவும் என்பதைத் தட்டவும்.</string>

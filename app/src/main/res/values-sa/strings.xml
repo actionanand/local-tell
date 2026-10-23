@@ -367,7 +367,6 @@
     <string name="dropbox_disconnect_confirm_title">Dropbox-वियोगं कुर्याम?</string>
     <string name="dropbox_disconnect_confirm_message">Dropbox-वियोगं कर्तुम् इच्छसि किम्?\n\nस्वयञ्चालिताः प्रतिलिपयः समन्वयश्च स्थास्यतः।\n\nस्थानीयदत्तांशः अस्मिन् उपकरणे सुरक्षितः भविष्यति। Dropbox-स्थिताः प्रतिलिपयः न निष्कास्यन्ते।\n\nDropbox पुनः संयोजयितुं शक्यते।</string>
     <string name="dropbox_location">प्रतिलिपि-स्थानम्: Apps / LocalTell / localtell-managed-backups</string>
-    <string name="dropbox_folder_scope">Dropbox App Folder-अनुमत्या Apps / AR Apps / LocalTell न उपयोक्तुं शक्यते। LocalTell केवलं स्वस्य अनुमत-अनुप्रयोग-सञ्चयिकाम् उपयुङ्क्ते; विस्तृतं Dropbox-अभिगमनं न याचते।</string>
     <string name="dropbox_sync_now">इदानीं समन्वयः</string>
     <string name="dropbox_status_up_to_date">अद्यतनम्</string>
     <string name="dropbox_status_pending">परिवर्तनानि प्रतीक्षन्ते</string>
@@ -399,8 +398,6 @@
     <string name="dropbox_mode_daily_description">अन्तर्जाले संयुक्ते प्रायः प्रतिदिनम् एकवारं प्रतिलिपिः क्रियते। विद्युत्कोशरक्षणाय Android विलम्बयितुं शक्नोति।</string>
     <string name="dropbox_mode_weekly_description">अन्तर्जाले संयुक्ते प्रायः प्रतिसप्ताहम् एकवारं प्रतिलिपिः क्रियते। विद्युत्कोशरक्षणाय Android विलम्बयितुं शक्नोति।</string>
     <string name="dropbox_retention">LocalTell-द्वारा निर्मिताः प्रतिलिपयः एव स्वयमेव व्यवस्थाप्यन्ते।</string>
-    <string name="dropbox_folder_help">प्रतिलिपिसञ्चयिकायाः विवरणम्</string>
-    <string name="dropbox_hide_help">सञ्चयिकाविवरणं गोपय</string>
     <string name="dropbox_copy_diagnostic">दोषनिदानविवरणं प्रतिलिख</string>
     <string name="dropbox_status_no_backup">अद्यापि प्रतिलिपिः नास्ति</string>
     <string name="dropbox_status_interrupted">प्रतिलिपिनिर्माणं बाधितम्। पुनःप्रयत्नाय इदानीं समकालं कुरु इति स्पृश।</string>
