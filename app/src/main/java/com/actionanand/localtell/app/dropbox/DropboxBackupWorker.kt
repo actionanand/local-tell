@@ -3,6 +3,7 @@ package com.actionanand.localtell.app.dropbox
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import android.util.Log
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
@@ -17,16 +18,11 @@ import com.actionanand.localtell.app.saved.BackupFileFormat
 import com.actionanand.localtell.app.saved.SavedPlacesOverflow
 import com.dropbox.core.DbxException
 import com.dropbox.core.DbxRequestConfig
-import com.dropbox.core.InvalidAccessTokenException
 import com.dropbox.core.oauth.DbxCredential
-import com.dropbox.core.oauth.DbxOAuthException
 import com.dropbox.core.v2.DbxClientV2
 import com.dropbox.core.v2.files.FileMetadata
 import com.dropbox.core.v2.files.FolderMetadata
-import com.dropbox.core.v2.files.GetMetadataErrorException
-import com.dropbox.core.v2.files.ListFolderErrorException
 import com.dropbox.core.v2.files.WriteMode
-import java.io.IOException
 import java.io.FilterInputStream
 import java.security.MessageDigest
 import kotlinx.coroutines.CancellationException
@@ -51,7 +47,12 @@ internal class DropboxBackupWorker(context: Context, parameters: WorkerParameter
             val store = DropboxBackupStateStore(applicationContext)
             val repository = AppBackupRepository(applicationContext)
             val coroutine = currentCoroutineContext()
-            val stored = (DropboxCredentialStore(applicationContext).load() as? StoredCredentialResult.Available)?.credential
+            var stage = DropboxBackupStage.VERIFY_ACCOUNT
+            var uploadStarted = false
+            val setStage: (DropboxBackupStage) -> Unit = {
+                stage = it
+                if (it == DropboxBackupStage.UPLOAD_BACKUP || it == DropboxBackupStage.VERIFY_UPLOAD) uploadStarted = true
+            }
             fun stillCurrent(): Boolean {
                 val current = sessions.current()
                 return current == queued && store.frequency().syncAllowed &&
@@ -61,48 +62,62 @@ internal class DropboxBackupWorker(context: Context, parameters: WorkerParameter
                 coroutine.ensureActive()
                 if (!stillCurrent()) throw CancellationException("Dropbox backup session ended")
             }
+            fun handleFailure(error: Exception): Result {
+                val failure = classifyDropboxFailure(error, stage)
+                val retry = !uploadStarted && failure.shouldRetry(stage, runAttemptCount)
+                fail(store, account, stage, error, failure.status, failure.error, retry, ::stillCurrent, failure.category)
+                return if (retry) Result.retry() else Result.failure()
+            }
             try {
-                if (stored == null) {
-                    store.markFailure(account, DropboxBackupStatus.REAUTHORIZATION_REQUIRED, DropboxBackupError.AUTHORIZATION)
-                    return@withLock Result.failure()
-                }
-                if (!queued.accepts(account, generation, account, backupAccountHash(stored.refreshToken))) {
-                    return@withLock Result.failure()
-                }
                 checkActive()
-                when (val verification = DropboxSdkGateway().verify(stored)) {
-                    is DropboxVerification.Connected -> {
-                        checkActive()
-                        if (!queued.accepts(account, generation, verification.accountIdHash, backupAccountHash(stored.refreshToken))) {
-                            return@withLock Result.failure()
-                        }
-                    }
-                    DropboxVerification.CredentialsInvalid -> {
-                        checkActive()
-                        store.markFailure(account, DropboxBackupStatus.REAUTHORIZATION_REQUIRED, DropboxBackupError.AUTHORIZATION)
-                        return@withLock Result.failure()
-                    }
-                    DropboxVerification.TemporarilyUnavailable -> {
-                        checkActive()
-                        store.markFailure(account, DropboxBackupStatus.OFFLINE, DropboxBackupError.NETWORK)
-                        return@withLock Result.retry()
-                    }
-                }
                 store.selectAccount(account)
                 val previousConflict = store.state.value
                 store.beginAttempt(account)
+                val stored = (DropboxCredentialStore(applicationContext).load() as? StoredCredentialResult.Available)?.credential
+                    ?: throw DropboxBackupAuthorizationException("CREDENTIAL_UNAVAILABLE")
+                if (!queued.accepts(account, generation, account, backupAccountHash(stored.refreshToken))) {
+                    throw DropboxBackupAuthorizationException("CREDENTIAL_CHANGED")
+                }
+                checkActive()
+                var verificationError: Exception? = null
+                when (val verification = DropboxSdkGateway().verifyForBackup(stored) { verificationError = it }) {
+                    is DropboxVerification.Connected -> {
+                        checkActive()
+                        if (!queued.accepts(account, generation, verification.accountIdHash, backupAccountHash(stored.refreshToken))) {
+                            throw DropboxBackupAuthorizationException("ACCOUNT_MISMATCH")
+                        }
+                    }
+                    DropboxVerification.CredentialsInvalid,
+                    DropboxVerification.TemporarilyUnavailable ->
+                        throw checkNotNull(verificationError) { "Dropbox account verification failed without an exception" }
+                }
+                setStage(DropboxBackupStage.RECORD_OWNERSHIP)
+                val ownership = DropboxBackupOwnership(applicationContext)
+                val ownershipRecords = ownership.read(account)
+                    ?: throw IllegalStateException("Backup ownership ledger is invalid")
+                val storedPending = ownership.pending(account)
                 val client = DbxClientV2(
                     DbxRequestConfig("LocalTell/Dropbox"),
                     DbxCredential(stored.accessToken, stored.expiresAt, stored.refreshToken, BuildConfig.DROPBOX_APP_KEY),
                 )
-                val remote = DropboxSdkBackupRemote(client, ::checkActive)
+                val remote = DropboxSdkBackupRemote(client, ::checkActive, setStage)
+                setStage(DropboxBackupStage.LIST_REMOTE)
                 val initial = remote.snapshots()
+                // An interrupted upload that no longer exists remotely cannot be resumed; start a fresh sync.
+                val pendingUpload = storedPending?.takeIf { pending -> initial.any { it == pending.file } }
+                if (storedPending != null && pendingUpload == null) {
+                    setStage(DropboxBackupStage.RECORD_OWNERSHIP)
+                    check(ownership.clearPending(account)) { "Cannot clear missing pending upload" }
+                }
                 val action = inputData.getString(KEY_ACTION) ?: ACTION_SYNC
                 val resolving = action == ACTION_USE_LOCAL || action == ACTION_MERGE_REMOTE
                 val preferredPath = if (resolving) inputData.getString(KEY_EXPECTED_PATH) else previousConflict.conflictPath
                 // A concurrent upload of our own must not hide the other device's unresolved snapshot.
-                val latest = initial.firstOrNull { it.path == preferredPath } ?: newest(initial)
-                val remoteData = latest?.let(remote::download)
+                val candidates = initial.filter { it.id != pendingUpload?.file?.id }
+                setStage(DropboxBackupStage.DOWNLOAD_REMOTE)
+                val baseline = selectRemoteBaseline(candidates, preferredPath, ownershipRecords, remote::download)
+                val latest = baseline.file
+                val remoteData = baseline.data
                 val remoteFingerprint = remoteData?.let(AppBackupCodec::fingerprint)
                 checkActive()
                 if (resolving) {
@@ -115,47 +130,59 @@ internal class DropboxBackupWorker(context: Context, parameters: WorkerParameter
                     // Check the entire remote set, not just whichever file sorted newest.
                     val beforeMerge = remote.snapshots()
                     if (!DropboxRemoteState.unchanged(initial, beforeMerge)) {
-                        markConflict(store, account, remote, beforeMerge, ::checkActive)
+                        markConflict(store, account, remote, beforeMerge, ownershipRecords, ::checkActive)
                         return@withLock Result.success()
                     }
                     if (action == ACTION_MERGE_REMOTE && remoteData != null && remoteFingerprint != null) {
+                        setStage(DropboxBackupStage.READ_LOCAL_DATA)
                         repository.mergeKeepingAllPlaces(remoteData, ::checkActive)
                         checkActive()
                         store.adoptBaseline(account, remoteFingerprint)
                     }
                 }
+                setStage(DropboxBackupStage.READ_LOCAL_DATA)
                 val local = repository.snapshot()
                 checkActive()
                 if (SavedPlacesOverflow.excess(local.savedPlaces.size) > 0) {
                     store.markSavedLimitExceeded(account)
                     return@withLock Result.success()
                 }
-                if (!resolving && previousConflict.conflictFingerprint != null) {
+                val changedOwnedFile = latest?.let { file ->
+                    ownershipRecords.any { it.file.id == file.id && !it.matches(file) }
+                } == true
+                if (pendingUpload == null && !resolving && (previousConflict.conflictFingerprint != null || changedOwnedFile)) {
                     store.markConflict(account, latest?.path, remoteFingerprint.orEmpty(), remoteState = DropboxRemoteState.token(initial))
                     return@withLock Result.success()
                 }
                 val localFingerprint = AppBackupCodec.fingerprint(local)
-                val decision = if (resolving) DropboxSyncDecision.UPLOAD_LOCAL
+                val protocolDecision = if (resolving || pendingUpload != null) DropboxSyncDecision.UPLOAD_LOCAL
                     else DropboxSyncProtocol.decide(localFingerprint, remoteFingerprint, store.baseline(account))
+                val decision = managedSyncDecision(protocolDecision, latest, ownershipRecords)
                 when (decision) {
                     DropboxSyncDecision.CONFLICT ->
                         store.markConflict(account, latest?.path, remoteFingerprint.orEmpty(), remoteState = DropboxRemoteState.token(initial))
                     DropboxSyncDecision.UP_TO_DATE -> {
                         val current = remote.snapshots()
                         if (!DropboxRemoteState.unchanged(initial, current)) {
-                            markConflict(store, account, remote, current, ::checkActive)
+                            markConflict(store, account, remote, current, ownershipRecords, ::checkActive)
                         } else {
+                            setStage(DropboxBackupStage.COMPLETE)
                             completeDropboxBackup(store, repository, account, localFingerprint, ::checkActive)
                         }
                     }
                     DropboxSyncDecision.UPLOAD_LOCAL -> {
                         when (val uploaded = DropboxVerifiedUpload(
-                            remote, DropboxBackupOwnership(applicationContext), ::checkActive,
+                            remote, ownership, setStage = setStage, checkActive = ::checkActive,
                         ).execute(account, local, initial)) {
-                            is DropboxUploadResult.Conflict -> markConflict(
-                                store, account, remote, uploaded.files, ::checkActive, uploaded.ignoredUploadId,
-                            )
-                            is DropboxUploadResult.Verified -> completeDropboxBackup(store, repository, account, uploaded.fingerprint, ::checkActive)
+                            is DropboxUploadResult.Conflict -> {
+                                setStage(DropboxBackupStage.RECORD_OWNERSHIP)
+                                val currentOwnership = checkNotNull(ownership.read(account)) { "Backup ownership ledger is invalid" }
+                                markConflict(store, account, remote, uploaded.files, currentOwnership, ::checkActive, uploaded.ignoredUploadId)
+                            }
+                            is DropboxUploadResult.Verified -> {
+                                setStage(DropboxBackupStage.COMPLETE)
+                                completeDropboxBackup(store, repository, account, uploaded.fingerprint, ::checkActive)
+                            }
                         }
                     }
                 }
@@ -165,33 +192,9 @@ internal class DropboxBackupWorker(context: Context, parameters: WorkerParameter
                 // Session ended (disconnect, account switch, backup turned off) while WorkManager still runs us.
                 if (coroutine.isActive) return@withLock Result.failure()
                 throw cancelled
-            } catch (_: InvalidAccessTokenException) {
-                if (stillCurrent()) store.markFailure(account, DropboxBackupStatus.REAUTHORIZATION_REQUIRED, DropboxBackupError.AUTHORIZATION)
-                Result.failure()
-            } catch (_: DbxOAuthException) {
-                if (stillCurrent()) store.markFailure(account, DropboxBackupStatus.REAUTHORIZATION_REQUIRED, DropboxBackupError.AUTHORIZATION)
-                Result.failure()
-            } catch (_: IOException) {
-                if (stillCurrent()) store.markFailure(account, DropboxBackupStatus.OFFLINE, DropboxBackupError.NETWORK)
-                Result.retry()
-            } catch (_: DbxException) {
-                if (stillCurrent()) store.markFailure(account, DropboxBackupStatus.FAILED, DropboxBackupError.NETWORK)
-                Result.retry()
-            } catch (_: IllegalArgumentException) {
-                if (stillCurrent()) store.markFailure(account, DropboxBackupStatus.FAILED, DropboxBackupError.STORAGE)
-                Result.failure()
-            } catch (_: IllegalStateException) {
-                if (stillCurrent()) store.markFailure(account, DropboxBackupStatus.FAILED, DropboxBackupError.STORAGE)
-                Result.failure()
-            } catch (_: org.json.JSONException) {
-                if (stillCurrent()) store.markFailure(account, DropboxBackupStatus.FAILED, DropboxBackupError.STORAGE)
-                Result.failure()
-            } catch (_: java.time.DateTimeException) {
-                if (stillCurrent()) store.markFailure(account, DropboxBackupStatus.FAILED, DropboxBackupError.STORAGE)
-                Result.failure()
-            } catch (_: android.database.sqlite.SQLiteException) {
-                if (stillCurrent()) store.markFailure(account, DropboxBackupStatus.FAILED, DropboxBackupError.STORAGE)
-                Result.failure()
+            } catch (error: Exception) {
+                // Every failure is classified and leaves a terminal status; nothing may stay "Syncing".
+                handleFailure(error)
             } finally {
                 withContext(NonCancellable) { repository.close() }
                 store.close()
@@ -204,16 +207,44 @@ internal class DropboxBackupWorker(context: Context, parameters: WorkerParameter
         account: String,
         remote: DropboxBackupRemote,
         files: List<DropboxRemoteFile>,
+        ownership: List<DropboxOwnedBackup>,
         checkActive: () -> Unit,
         ignoredUploadId: String? = null,
     ) {
-        val latest = newest(files.filter { it.id != ignoredUploadId })
-        val fingerprint = latest?.let { AppBackupCodec.fingerprint(remote.download(it)) }.orEmpty()
+        val baseline = selectRemoteBaseline(files.filter { it.id != ignoredUploadId }, null, ownership, remote::download)
+        val fingerprint = baseline.data?.let(AppBackupCodec::fingerprint).orEmpty()
         checkActive()
-        store.markConflict(account, latest?.path, fingerprint, remoteState = DropboxRemoteState.token(files))
+        store.markConflict(account, baseline.file?.path, fingerprint, remoteState = DropboxRemoteState.token(files))
+    }
+
+    private fun fail(
+        store: DropboxBackupStateStore,
+        account: String,
+        stage: DropboxBackupStage,
+        error: Exception,
+        status: DropboxBackupStatus,
+        backupError: DropboxBackupError,
+        retryable: Boolean,
+        stillCurrent: () -> Boolean,
+        category: String = backupError.name,
+        requestId: String? = (error as? DbxException)?.requestId,
+    ) {
+        if (!stillCurrent()) return
+        val diagnostic = DropboxBackupDiagnostic(
+            stage = stage,
+            exceptionClass = error.javaClass.simpleName.filter { it.isLetterOrDigit() }.take(80)
+                .ifEmpty { "UnknownException" },
+            category = category.filter { it.isLetterOrDigit() || it == '_' || it == '-' }.take(80),
+            requestId = requestId?.filter { it.isLetterOrDigit() || it == '-' || it == '_' }?.take(128),
+            retryable = retryable,
+            timestamp = System.currentTimeMillis(),
+        )
+        store.markFailure(account, status, backupError, diagnostic = diagnostic)
+        Log.e(TAG, diagnostic.toSafeText())
     }
 
     companion object {
+        private const val TAG = "DropboxBackupWorker"
         private val syncMutex = Mutex()
         const val MANUAL_WORK = "dropbox-manual-sync"
         const val ACTION_SYNC = "sync"
@@ -246,9 +277,6 @@ internal class DropboxBackupWorker(context: Context, parameters: WorkerParameter
                 OneTimeWorkRequestBuilder<DropboxBackupWorker>().setInputData(data).build(),
             )
         }
-
-        private fun newest(files: List<DropboxRemoteFile>): DropboxRemoteFile? =
-            files.maxWithOrNull(compareBy<DropboxRemoteFile> { it.modifiedAtMillis }.thenBy { it.name })
     }
 }
 
@@ -270,18 +298,27 @@ internal suspend fun completeDropboxBackup(
 internal class DropboxSdkBackupRemote(
     private val client: DbxClientV2,
     private val checkActive: () -> Unit,
+    private val setStage: (DropboxBackupStage) -> Unit = {},
 ) : DropboxBackupRemote {
-    override fun snapshots(): List<DropboxRemoteFile> = list("") + list(DropboxBackupOwnership.MANAGED_DIRECTORY)
+    private val folder = DropboxBackupFolder(
+        isFolder = {
+            checkActive()
+            client.files().getMetadata(DropboxBackupOwnership.MANAGED_DIRECTORY) is FolderMetadata
+        },
+        create = {
+            checkActive()
+            client.files().createFolderV2(DropboxBackupOwnership.MANAGED_DIRECTORY)
+        },
+    )
+
+    override fun snapshots(): List<DropboxRemoteFile> =
+        folder.discover { list(DropboxBackupOwnership.MANAGED_DIRECTORY) }
 
     private fun list(directory: String): List<DropboxRemoteFile> {
         checkActive()
+        setStage(DropboxBackupStage.LIST_REMOTE)
         val files = mutableListOf<DropboxRemoteFile>()
-        var result = try {
-            client.files().listFolder(directory)
-        } catch (missing: ListFolderErrorException) {
-            if (directory.isNotEmpty() && missing.errorValue.isPath && missing.errorValue.pathValue.isNotFound) return emptyList()
-            throw missing
-        }
+        var result = client.files().listFolder(directory)
         while (true) {
             checkActive()
             result.entries.filterIsInstance<FileMetadata>().filter {
@@ -294,6 +331,16 @@ internal class DropboxSdkBackupRemote(
     }
 
     override fun download(file: DropboxRemoteFile): AppBackupData {
+        setStage(DropboxBackupStage.DOWNLOAD_REMOTE)
+        return downloadFile(file)
+    }
+
+    override fun verify(file: DropboxRemoteFile): AppBackupData {
+        setStage(DropboxBackupStage.VERIFY_UPLOAD)
+        return downloadFile(file)
+    }
+
+    private fun downloadFile(file: DropboxRemoteFile): AppBackupData {
         checkActive()
         BackupFileFormat.requireFilename(file.name)
         val output = DropboxDownloadLimit(file.size, checkActive)
@@ -313,15 +360,10 @@ internal class DropboxSdkBackupRemote(
 
     override fun upload(data: AppBackupData): DropboxRemoteFile {
         val contents = AppBackupCodec.encode(data).toByteArray(Charsets.UTF_8)
-        val directory = DropboxBackupOwnership.MANAGED_DIRECTORY
+        setStage(DropboxBackupStage.PREPARE_BACKUP_FOLDER)
         checkActive()
-        try {
-            require(client.files().getMetadata(directory) is FolderMetadata) { "Backup destination is not a folder" }
-        } catch (missing: GetMetadataErrorException) {
-            if (!missing.errorValue.isPath || !missing.errorValue.pathValue.isNotFound) throw missing
-            checkActive()
-            client.files().createFolderV2(directory)
-        }
+        folder.prepare()
+        setStage(DropboxBackupStage.UPLOAD_BACKUP)
         checkActive()
         val input = object : FilterInputStream(contents.inputStream()) {
             override fun read(): Int {
@@ -334,7 +376,7 @@ internal class DropboxSdkBackupRemote(
             }
         }
         val result = input.use {
-            client.files().uploadBuilder("$directory/${BackupFileFormat.filename()}")
+            client.files().uploadBuilder("${DropboxBackupOwnership.MANAGED_DIRECTORY}/${BackupFileFormat.filename()}")
                 .withMode(WriteMode.ADD).withAutorename(false).withStrictConflict(true)
                 .uploadAndFinish(it)
         }
@@ -343,6 +385,7 @@ internal class DropboxSdkBackupRemote(
     }
 
     override fun deleteOwned(file: DropboxRemoteFile) {
+        setStage(DropboxBackupStage.RETENTION_CLEANUP)
         checkActive()
         val current = client.files().getMetadata(file.id) as? FileMetadata
             ?: throw DropboxBackupValidationException("Managed backup is no longer a file")

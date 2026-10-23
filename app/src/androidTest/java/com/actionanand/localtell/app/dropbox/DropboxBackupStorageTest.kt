@@ -27,6 +27,75 @@ import org.junit.runner.RunWith
 /** All fixtures use isolated database paths/preferences, never the installed user's databases. */
 @RunWith(AndroidJUnit4::class)
 class DropboxBackupStorageTest {
+    @Test fun pendingUploadSurvivesRecreationAndCorruptReceiptBlocksRecovery() = runBlocking {
+        fixture { context, _, _ ->
+            val account = "e".repeat(64)
+            val file = DropboxRemoteFile(
+                "/localtell-managed-backups/localtell-test.bklt", "LocalTell-test.bklt",
+                1L, "id:test", "revision", 100L, "a".repeat(64),
+            )
+            val pending = DropboxPendingUpload(file, "b".repeat(64), "c".repeat(64))
+            assertTrue(DropboxBackupOwnership(context).savePending(account, pending))
+            val restored = DropboxBackupOwnership(context)
+            assertEquals(pending, restored.pending(account))
+            context.getSharedPreferences("localtell_dropbox_ownership", Context.MODE_PRIVATE)
+                .edit().putString("$account.pending", "broken").commit()
+            try {
+                restored.pending(account)
+                fail("Expected corrupt receipt rejection")
+            } catch (_: IllegalStateException) {
+                assertTrue(restored.read(account).orEmpty().isEmpty())
+            }
+        }
+    }
+
+    @Test fun staleSyncingIsRecoveredOnlyForTheSameAttempt() = runBlocking {
+        fixture { context, _, _ ->
+            val account = "d".repeat(64)
+            val store = DropboxBackupStateStore(context)
+            try {
+                store.beginAttempt(account, now = 1000L)
+                assertFalse(store.recoverStaleSync(account, attemptedAt = 999L))
+                store.selectAccount(account)
+                assertEquals(DropboxBackupStatus.SYNCING, store.state.value.status)
+                assertTrue(store.recoverStaleSync(account, attemptedAt = 1000L))
+                store.selectAccount(account)
+                assertEquals(DropboxBackupStatus.INTERRUPTED, store.state.value.status)
+                assertFalse(store.recoverStaleSync(account, attemptedAt = 1000L))
+            } finally {
+                store.close()
+            }
+        }
+    }
+
+    @Test fun backupFailureDiagnosticsSurviveStoreRecreationWithoutChangingLastSuccess() = runBlocking {
+        fixture { context, _, _ ->
+            val account = "f".repeat(64)
+            val diagnostic = DropboxBackupDiagnostic(
+                DropboxBackupStage.PREPARE_BACKUP_FOLDER, "CreateFolderErrorException",
+                "NO_WRITE_PERMISSION", "request-id", false, 2000L,
+            )
+            val first = DropboxBackupStateStore(context)
+            first.markSuccess(account, "fingerprint", pending = false, now = 1000L)
+            first.beginAttempt(account, now = 1500L)
+            first.markFailure(account, DropboxBackupStatus.FAILED, DropboxBackupError.DROPBOX_PERMISSION,
+                now = 2000L, diagnostic = diagnostic)
+            first.close()
+            val restored = DropboxBackupStateStore(context)
+            try {
+                restored.selectAccount(account)
+                assertEquals(diagnostic, restored.state.value.diagnostic)
+                assertEquals(1000L, restored.state.value.lastSuccessfulAt)
+                assertEquals(2000L, restored.state.value.lastAttemptedAt)
+                restored.markInterrupted(account)
+                restored.selectAccount(account)
+                assertEquals(DropboxBackupStatus.INTERRUPTED, restored.state.value.status)
+            } finally {
+                restored.close()
+            }
+        }
+    }
+
     @Test fun overflowMergePreservesAllPlacesAndExplicitTrimmingReturnsToConfiguredLimit() = runBlocking {
         fixture { _, repository, saved ->
             val count = (AppLimits.current.maxSavedPlaces + 2).coerceAtMost(DataLimits.MAX_SAVED_BOUND)

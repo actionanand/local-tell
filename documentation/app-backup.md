@@ -230,6 +230,13 @@ failure; it cannot reach the merge transaction.
 
 After uploading, LocalTell downloads and validates the new revision and compares
 its data fingerprint. Only then can it record ownership and consider cleanup.
+An unreadable ownership ledger or pending-upload receipt blocks uploads before
+any remote write. A checksummed pending receipt stores the upload response,
+fingerprint and pre-upload remote-state token. If verification, ownership
+recording or cleanup fails, later attempts verify that same revision instead of
+uploading another copy. Retention progress updates the receipt; successful
+completion clears it. A process death between Dropbox accepting the upload and
+persisting its response can still leave an unclaimed copy, which is preserved.
 The private, checksummed, account-scoped ownership ledger records the exact upload response:
 Dropbox file ID, revision, path, size and content hash. Cleanup requires a matching
 record and matching current metadata; deletion uses file ID plus a revision
@@ -251,19 +258,36 @@ than silently pretending cleanup succeeded.
 
 ### Conflicts, pending edits and Saved Places overflow
 
+Automatic discovery lists only `/localtell-managed-backups`, relative to the
+authorized App Folder. A missing folder is an empty initial state; it is created
+when uploading. A concurrent creation is accepted only after confirming it is
+a folder. Root-level manual and legacy files are never read by automatic sync.
+Every valid `.bklt` file in the managed folder, including another device's
+uploads, remains visible as sync data so cross-device changes become conflicts
+instead of being silently ignored. Ownership controls only automatic deletion.
+Files are read newest-first; an unreadable file without this installation's
+ownership proof is skipped (and preserved) so it cannot block sync, while an
+unreadable owned backup is reported as an invalid-backup error.
+New file arrivals during a run still trigger a conservative conflict/race stop.
+An interrupted upload whose file no longer exists remotely is forgotten and the
+sync starts again from the current remote state.
+Use the existing file picker and merge preview for explicit manual/legacy restore.
+Changing a known file's revision remains visible as a conflict, but revokes its
+eligibility for automatic deletion.
+
 Local and remote data fingerprints are compared with the account's common
 baseline. Different remote data requires the explicit **Use this device's data**
 or **Merge Dropbox backup** choice. Resolution also carries a token for the remote
 file set. LocalTell checks that set immediately before merging/uploading and again
 after verification, before each deletion and before successful completion. A
-concurrent change keeps a conflict and stops cleanup. A competing remote snapshot
-is not hidden by the worker's own newer upload.
+concurrent change to the tracked file set keeps a conflict and stops cleanup.
 
 Dropbox does not provide an atomic compare-and-swap for an entire directory.
 Another device can still upload after a final check. Immutable snapshots prevent
-overwriting its records; the next synchronization detects differing content.
-This is snapshot backup with explicit conflict resolution, not a real-time
-multi-device database replication protocol.
+overwriting its records. A different installation's files have no device-local
+ownership proof; they take part in conflict detection and the explicit merge
+choice, but are never adopted for retention or deleted. This is installation-scoped snapshot backup,
+not a real-time multi-device database replication protocol.
 
 A Dropbox merge keeps unique Saved Places up to the absolute 200-record safety
 bound, including temporary overflow of the configured limit. File restore keeps
@@ -283,6 +307,27 @@ fresh transactional local snapshot. Edits during an upload remain pending.
 Account/session checks, cancelled superseded refresh jobs and revision-checked
 status updates prevent old asynchronous snapshots from clearing newer state.
 Failures do not replace the last successful timestamp or discard conflict details.
+
+### Failure diagnostics
+
+Only SDK `NetworkIOException` is treated as a network outage. Typed Dropbox
+lookup/write tags distinguish paths, permissions and quota errors; permanent API
+failures do not retry. Server/rate-limit and transport errors may retry at most
+three times before an upload starts. Upload and post-upload failures require a
+later sync attempt, using the pending receipt where available, rather than
+blindly retrying an ambiguous write. Daily, Weekly and Sync now share this logic.
+
+Any unexpected exception is also classified, so a run always ends with a final
+status. If the process dies mid-run, opening the backup screen while no backup
+work is running changes a leftover **Syncing** status to **Backup interrupted**;
+an attempt timestamp check prevents this from overwriting a run that just started.
+
+The account-scoped diagnostic records stage, exception class, a fixed API tag,
+sanitized request ID, retry decision and timestamp. Logcat and the optional
+**Copy diagnostic details** button expose only these fields, never exception
+messages, credentials, coordinates or backup payloads. The actual folder remains
+visible; the technical App Folder restriction is behind **About the backup folder**.
+The short management notice does not change retention or file protection.
 
 ## Validation
 

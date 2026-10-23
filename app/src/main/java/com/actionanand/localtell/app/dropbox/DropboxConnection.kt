@@ -176,20 +176,31 @@ internal class DropboxCredentialStore(context: Context) : DropboxCredentialPersi
 
 /** Dropbox SDK calls live behind this boundary so credential decisions remain deterministic and testable. */
 internal class DropboxSdkGateway : DropboxAccountGateway {
-    override fun verify(credential: StoredDropboxCredential): DropboxVerification = try {
+    override fun verify(credential: StoredDropboxCredential): DropboxVerification =
+        verifyForBackup(credential) {}
+
+    fun verifyForBackup(
+        credential: StoredDropboxCredential,
+        onFailure: (Exception) -> Unit,
+    ): DropboxVerification = try {
         val account = client(credential).users().currentAccount
         DropboxVerification.Connected(account.name.displayName, backupAccountHash(account.accountId))
-    } catch (_: InvalidAccessTokenException) {
+    } catch (error: InvalidAccessTokenException) {
+        onFailure(error)
         DropboxVerification.CredentialsInvalid
-    } catch (_: DbxOAuthException) {
+    } catch (error: DbxOAuthException) {
         // The SDK documents this for a revoked or invalid refresh credential.
+        onFailure(error)
         DropboxVerification.CredentialsInvalid
-    } catch (_: DbxException) {
+    } catch (error: DbxException) {
+        onFailure(error)
         DropboxVerification.TemporarilyUnavailable
-    } catch (_: IOException) {
+    } catch (error: IOException) {
+        onFailure(error)
         DropboxVerification.TemporarilyUnavailable
-    } catch (_: RuntimeException) {
+    } catch (error: RuntimeException) {
         // Do not mistake an SDK/transport failure for a revoked credential.
+        onFailure(error)
         DropboxVerification.TemporarilyUnavailable
     }
 

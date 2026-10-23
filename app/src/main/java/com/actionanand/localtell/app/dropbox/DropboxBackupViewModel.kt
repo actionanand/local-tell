@@ -3,6 +3,7 @@ package com.actionanand.localtell.app.dropbox
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import com.actionanand.localtell.app.backup.AppBackupCodec
 import com.actionanand.localtell.app.backup.AppBackupRepository
@@ -18,6 +19,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -49,6 +51,7 @@ internal class DropboxBackupViewModel(application: Application) : AndroidViewMod
         } else {
             DropboxBackupScheduler.update(getApplication(), store.frequency(), connected = true)
             refreshPending()
+            recoverStaleSync(hash)
         }
     }
 
@@ -99,6 +102,19 @@ internal class DropboxBackupViewModel(application: Application) : AndroidViewMod
             } finally {
                 removingOverflow = false
             }
+        }
+    }
+
+    private fun recoverStaleSync(account: String) {
+        val current = state.value
+        if (current.status != DropboxBackupStatus.SYNCING) return
+        val attemptedAt = current.lastAttemptedAt ?: return
+        viewModelScope.launch {
+            val manager = WorkManager.getInstance(getApplication())
+            val running = listOf(DropboxBackupWorker.MANUAL_WORK, DropboxBackupScheduler.PERIODIC_WORK).any { name ->
+                manager.getWorkInfosForUniqueWorkFlow(name).first().any { it.state == WorkInfo.State.RUNNING }
+            }
+            if (!running && account == accountHash) store.recoverStaleSync(account, attemptedAt)
         }
     }
 

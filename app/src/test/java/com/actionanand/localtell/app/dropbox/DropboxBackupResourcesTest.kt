@@ -40,5 +40,8 @@ class DropboxBackupResourcesTest {
             assertTrue(localized.getValue("backup_privacy").isNotBlank())
         }
         assertTrue(english.getValue("backup_privacy").contains("not encrypted"))
+        assertEquals("Only backups created through LocalTell are managed automatically.", english.getValue("dropbox_retention"))
+        assertFalse(english.getValue("dropbox_retention").contains("%"))
+        assertTrue(english.getValue("dropbox_copy_diagnostic").isNotBlank())
     }
 }

@@ -21,6 +21,7 @@ internal enum class DropboxBackupStatus {
     OFFLINE,
     REAUTHORIZATION_REQUIRED,
     SAVED_LIMIT_EXCEEDED,
+    INTERRUPTED,
 }
 
 internal enum class DropboxBackupError {
@@ -28,6 +29,12 @@ internal enum class DropboxBackupError {
     AUTHORIZATION,
     STORAGE,
     UNKNOWN,
+    DROPBOX_API,
+    DROPBOX_PATH,
+    DROPBOX_PERMISSION,
+    DROPBOX_QUOTA,
+    INVALID_BACKUP,
+    DROPBOX_TEMPORARY,
 }
 
 internal data class DropboxBackupUiState(
@@ -40,6 +47,7 @@ internal data class DropboxBackupUiState(
     val conflictPath: String? = null,
     val conflictFingerprint: String? = null,
     val conflictRemoteState: String? = null,
+    val diagnostic: DropboxBackupDiagnostic? = null,
 )
 
 /** Persisted, account-scoped sync metadata. Tokens and backup contents are never stored here. */
@@ -73,19 +81,29 @@ internal class DropboxBackupStateStore(context: Context) {
 
     fun beginAttempt(account: String, now: Long = System.currentTimeMillis()) = synchronized(stateLock) {
         editAccount(account).putString(key(account, STATUS), DropboxBackupStatus.SYNCING.name)
-            .putLong(key(account, LAST_ATTEMPTED), now).remove(key(account, ERROR)).apply()
+            .putLong(key(account, LAST_ATTEMPTED), now).remove(key(account, ERROR))
+            .remove(key(account, DIAGNOSTIC)).apply()
     }
 
     fun markInterrupted(account: String) = synchronized(stateLock) {
         val hasConflict = preferences.contains(key(account, CONFLICT_FINGERPRINT))
-        val pending = preferences.getBoolean(key(account, PENDING), false)
         if (readStatus(account) == DropboxBackupStatus.SAVED_LIMIT_EXCEEDED) return@synchronized
         val status = when {
             hasConflict -> DropboxBackupStatus.CONFLICT
-            pending -> DropboxBackupStatus.PENDING
-            else -> DropboxBackupStatus.UP_TO_DATE
+            else -> DropboxBackupStatus.INTERRUPTED
         }
         editAccount(account).putString(key(account, STATUS), status.name).apply()
+    }
+
+    /**
+     * Clears a "Syncing" status left behind when the process died mid-run. [attemptedAt] must still match,
+     * so a worker that started after the caller checked WorkManager is never overwritten.
+     */
+    fun recoverStaleSync(account: String, attemptedAt: Long): Boolean = synchronized(stateLock) {
+        if (readStatus(account) != DropboxBackupStatus.SYNCING ||
+            preferences.getLong(key(account, LAST_ATTEMPTED), 0L) != attemptedAt) return@synchronized false
+        markInterrupted(account)
+        true
     }
 
     fun markSuccess(account: String, fingerprint: String, pending: Boolean, now: Long = System.currentTimeMillis()) = synchronized(stateLock) {
@@ -93,7 +111,7 @@ internal class DropboxBackupStateStore(context: Context) {
             .putLong(key(account, LAST_SUCCESSFUL), now).putString(key(account, BASELINE_FINGERPRINT), fingerprint)
             .putBoolean(key(account, PENDING), pending).remove(key(account, ERROR))
             .remove(key(account, CONFLICT_PATH)).remove(key(account, CONFLICT_FINGERPRINT))
-            .remove(key(account, CONFLICT_REMOTE_STATE)).apply()
+            .remove(key(account, CONFLICT_REMOTE_STATE)).remove(key(account, DIAGNOSTIC)).apply()
     }
 
     fun markPending(account: String, pending: Boolean, expectedRevision: Long) = synchronized(stateLock) {
@@ -130,10 +148,13 @@ internal class DropboxBackupStateStore(context: Context) {
         status: DropboxBackupStatus,
         error: DropboxBackupError?,
         now: Long = System.currentTimeMillis(),
+        diagnostic: DropboxBackupDiagnostic? = null,
     ) = synchronized(stateLock) {
         require(status in setOf(DropboxBackupStatus.FAILED, DropboxBackupStatus.OFFLINE, DropboxBackupStatus.REAUTHORIZATION_REQUIRED))
         val builder = editAccount(account).putString(key(account, STATUS), status.name).putLong(key(account, LAST_ATTEMPTED), now)
         if (error == null) builder.remove(key(account, ERROR)) else builder.putString(key(account, ERROR), error.name)
+        if (diagnostic == null) builder.remove(key(account, DIAGNOSTIC))
+        else builder.putString(key(account, DIAGNOSTIC), diagnostic.encode())
         // Retrying a failed conflict resolution must not lose the user's unresolved conflict.
         if (preferences.contains(key(account, CONFLICT_FINGERPRINT))) {
             builder.putString(key(account, STATUS), DropboxBackupStatus.CONFLICT.name)
@@ -176,6 +197,7 @@ internal class DropboxBackupStateStore(context: Context) {
             conflictPath = scopedKey(CONFLICT_PATH)?.let { preferences.getString(it, null) },
             conflictFingerprint = scopedKey(CONFLICT_FINGERPRINT)?.let { preferences.getString(it, null) },
             conflictRemoteState = scopedKey(CONFLICT_REMOTE_STATE)?.let { preferences.getString(it, null) },
+            diagnostic = scopedKey(DIAGNOSTIC)?.let { DropboxBackupDiagnostic.decode(preferences.getString(it, null)) },
         )
     }
 
@@ -203,12 +225,13 @@ internal class DropboxBackupStateStore(context: Context) {
         const val CONFLICT_PATH = "conflict_path"
         const val CONFLICT_FINGERPRINT = "conflict_fingerprint"
         const val CONFLICT_REMOTE_STATE = "conflict_remote_state"
+        const val DIAGNOSTIC = "diagnostic"
         const val REVISION = "revision"
     }
 }
 
 internal object DropboxBackupScheduler {
-    private const val PERIODIC_WORK = "dropbox-automatic-backup"
+    const val PERIODIC_WORK = "dropbox-automatic-backup"
 
     fun update(context: Context, frequency: DropboxBackupFrequency, connected: Boolean) {
         val manager = WorkManager.getInstance(context.applicationContext)

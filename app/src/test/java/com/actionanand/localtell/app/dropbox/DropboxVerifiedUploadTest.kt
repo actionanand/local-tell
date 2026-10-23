@@ -10,6 +10,16 @@ import org.junit.Test
 class DropboxVerifiedUploadTest {
     private val data = AppBackupData(emptyList(), emptyList())
 
+    @Test fun firstVerifiedUploadCreatesMissingManagedFolder() {
+        val remote = FakeRemote().apply { folderExists = false }
+        assertTrue(remote.snapshots().isEmpty())
+        assertTrue(DropboxVerifiedUpload(remote, FakeOwnership()) {}
+            .execute("A", data, emptyList()) is DropboxUploadResult.Verified)
+        assertEquals(1, remote.folderCreations)
+        assertEquals(1, remote.uploads)
+        assertEquals(1, remote.downloads)
+    }
+
     @Test fun fourthAndFifthVerifiedUploadsKeepExactlyLatestThreeAndNeverDeleteManualFiles() {
         val remote = FakeRemote()
         val ownership = FakeOwnership()
@@ -94,6 +104,147 @@ class DropboxVerifiedUploadTest {
             DropboxVerifiedUpload(remote, records) {}.execute("A", data, emptyList())
         }
         assertTrue(remote.deleted.isEmpty())
+        assertEquals(0, remote.uploads)
+    }
+
+    @Test fun failedVerificationResumesTheSameUploadInsteadOfUploadingAgain() {
+        val remote = FakeRemote().apply { failDownload = true }
+        val ownership = FakeOwnership()
+        assertThrows(DropboxBackupValidationException::class.java) {
+            DropboxVerifiedUpload(remote, ownership) {}.execute("A", data, emptyList())
+        }
+        assertNotNull(ownership.pending("A"))
+        remote.failDownload = false
+        assertTrue(DropboxVerifiedUpload(remote, ownership) {}
+            .execute("A", data, remote.files.toList()) is DropboxUploadResult.Verified)
+        assertEquals(1, remote.uploads)
+        assertNull(ownership.pending("A"))
+    }
+
+    @Test fun failedOwnershipWriteRecoversWithoutASecondUpload() {
+        val remote = FakeRemote()
+        val ownership = FakeOwnership().apply { failRecord = true }
+        assertThrows(IllegalStateException::class.java) {
+            DropboxVerifiedUpload(remote, ownership) {}.execute("A", data, emptyList())
+        }
+        assertTrue(remote.deleted.isEmpty())
+        ownership.failRecord = false
+        assertTrue(DropboxVerifiedUpload(remote, ownership) {}
+            .execute("A", data, remote.files.toList()) is DropboxUploadResult.Verified)
+        assertEquals(1, remote.uploads)
+    }
+
+    @Test fun replacementOfPendingUploadCannotBeReportedAsSuccessfulOrDeleted() {
+        val remote = FakeRemote().apply { failDownload = true }
+        val ownership = FakeOwnership()
+        assertThrows(DropboxBackupValidationException::class.java) {
+            DropboxVerifiedUpload(remote, ownership) {}.execute("A", data, emptyList())
+        }
+        remote.failDownload = false
+        remote.files[0] = remote.files[0].copy(revision = "changed")
+        assertTrue(DropboxVerifiedUpload(remote, ownership) {}
+            .execute("A", data, remote.files.toList()) is DropboxUploadResult.Conflict)
+        assertEquals(1, remote.uploads)
+        assertTrue(remote.deleted.isEmpty())
+        assertNull(ownership.pending("A"))
+    }
+
+    @Test fun failedCleanupResumesWithoutDuplicatingTheUpload() {
+        val remote = FakeRemote()
+        val ownership = FakeOwnership()
+        repeat(3) { DropboxVerifiedUpload(remote, ownership) {}.execute("A", data, remote.files.toList()) }
+        remote.failDelete = true
+        assertThrows(IOException::class.java) {
+            DropboxVerifiedUpload(remote, ownership) {}.execute("A", data, remote.files.toList())
+        }
+        assertEquals(4, remote.uploads)
+        remote.failDelete = false
+        assertTrue(DropboxVerifiedUpload(remote, ownership) {}
+            .execute("A", data, remote.files.toList()) is DropboxUploadResult.Verified)
+        assertEquals(4, remote.uploads)
+        assertEquals(3, remote.files.size)
+    }
+
+    @Test fun otherDeviceBackupsStayVisibleAsSyncBaseline() {
+        val remote = FakeRemote()
+        val otherDevice = file(7)
+        remote.files += otherDevice
+        val baseline = selectRemoteBaseline(remote.snapshots(), null, emptyList(), remote::download)
+        assertEquals(otherDevice, baseline.file)
+        assertNotNull(baseline.data)
+    }
+
+    @Test fun malformedUnknownFileIsSkippedAndPreservedButNotBlockingSync() {
+        val remote = FakeRemote()
+        // Distinct from the IDs FakeRemote assigns to new uploads.
+        val valid = file(20)
+        val malformed = file(25)
+        remote.files += listOf(valid, malformed)
+        remote.malformedIds = setOf(malformed.id)
+        val baseline = selectRemoteBaseline(remote.snapshots(), null, emptyList(), remote::download)
+        assertEquals(valid, baseline.file)
+        val onlyMalformed = selectRemoteBaseline(listOf(malformed), null, emptyList(), remote::download)
+        assertNull(onlyMalformed.file)
+        assertTrue(DropboxVerifiedUpload(remote, FakeOwnership()) {}
+            .execute("A", data, remote.snapshots()) is DropboxUploadResult.Verified)
+        assertTrue(remote.files.contains(malformed))
+        assertTrue(remote.deleted.isEmpty())
+    }
+
+    @Test fun malformedOwnedBackupIsReportedInsteadOfSkipped() {
+        val remote = FakeRemote()
+        val owned = file(5)
+        remote.files += listOf(file(1), owned)
+        remote.malformedIds = setOf(owned.id)
+        assertThrows(DropboxBackupValidationException::class.java) {
+            selectRemoteBaseline(remote.snapshots(), null, listOf(DropboxOwnedBackup(owned)), remote::download)
+        }
+    }
+
+    @Test fun transportFailuresAreNeverMistakenForMalformedFiles() {
+        val failure = com.dropbox.core.NetworkIOException(IOException("offline"))
+        assertSame(failure, assertThrows(com.dropbox.core.NetworkIOException::class.java) {
+            selectRemoteBaseline(listOf(file(1)), null, emptyList()) { throw failure }
+        })
+    }
+
+    @Test fun conflictPathIsPreferredOverNewerFiles() {
+        val remote = FakeRemote()
+        remote.files += listOf(file(1), file(9))
+        assertEquals(file(1), selectRemoteBaseline(remote.snapshots(), file(1).path, emptyList(), remote::download).file)
+        assertEquals(file(9), selectRemoteBaseline(remote.snapshots(), null, emptyList(), remote::download).file)
+    }
+
+    @Test fun modifiedKnownFileNeverAuthorizesDeletion() {
+        val original = file(1)
+        val changed = original.copy(revision = "manually-replaced")
+        assertFalse(DropboxOwnedBackup(original).matches(changed))
+        assertTrue(DropboxBackupRetention.obsolete(listOf(changed, file(2), file(3), file(4), file(5)),
+            listOf(DropboxOwnedBackup(original)), file(5)).none { it.id == original.id })
+    }
+
+    @Test fun newlyArrivingDeviceBackupStillStopsManagedUploadCleanup() {
+        val remote = FakeRemote().apply { duringUpload = { files += file(99) } }
+        val ownership = FakeOwnership()
+        val result = DropboxVerifiedUpload(remote, ownership) {}.execute("A", data, remote.snapshots())
+        assertTrue(result is DropboxUploadResult.Conflict)
+        assertTrue(remote.deleted.isEmpty())
+        assertEquals(1, ownership.records.size)
+        assertEquals("id:1", ownership.records.single().file.id)
+        assertNull(ownership.pending("A"))
+    }
+
+    @Test fun identicalManualOrOtherDeviceFileCannotFakeASuccessfulManagedSync() {
+        val manual = file(7)
+        assertEquals(DropboxSyncDecision.UPLOAD_LOCAL,
+            managedSyncDecision(DropboxSyncDecision.UP_TO_DATE, manual, emptyList()))
+        assertEquals(DropboxSyncDecision.UPLOAD_LOCAL,
+            managedSyncDecision(DropboxSyncDecision.UP_TO_DATE, manual.copy(revision = "changed"), listOf(DropboxOwnedBackup(manual))))
+        assertEquals(DropboxSyncDecision.UP_TO_DATE,
+            managedSyncDecision(DropboxSyncDecision.UP_TO_DATE, manual, listOf(DropboxOwnedBackup(manual))))
+        // Conflicts are never downgraded into uploads.
+        assertEquals(DropboxSyncDecision.CONFLICT,
+            managedSyncDecision(DropboxSyncDecision.CONFLICT, manual, emptyList()))
     }
 
     @Test fun ownershipCodecRejectsMissingMalformedOrInconsistentRecords() {
@@ -113,22 +264,44 @@ class DropboxVerifiedUploadTest {
         var downloads = 0
         var failUpload = false
         var failDownload = false
+        var failDelete = false
+        var malformedIds = emptySet<String>()
+        var folderExists = true
+        var folderCreations = 0
+        private val folder = DropboxBackupFolder(
+            isFolder = {
+                if (!folderExists) throw com.dropbox.core.v2.files.GetMetadataErrorException(
+                    "metadata", "req", null,
+                    com.dropbox.core.v2.files.GetMetadataError.path(com.dropbox.core.v2.files.LookupError.NOT_FOUND),
+                )
+                true
+            },
+            create = { folderExists = true; folderCreations++ },
+        )
         var downloadedData = data
         var duringUpload: () -> Unit = {}
-        override fun snapshots() = files.toList()
+        override fun snapshots() = folder.discover {
+            if (!folderExists) throw com.dropbox.core.v2.files.ListFolderErrorException(
+                "list", "req", null,
+                com.dropbox.core.v2.files.ListFolderError.path(com.dropbox.core.v2.files.LookupError.NOT_FOUND),
+            )
+            files.toList()
+        }
         override fun download(file: DropboxRemoteFile): AppBackupData {
             downloads++
-            if (failDownload) throw DropboxBackupValidationException("Invalid or oversized remote backup")
+            if (failDownload || file.id in malformedIds) throw DropboxBackupValidationException("Invalid or oversized remote backup")
             return downloadedData
         }
         override fun upload(data: AppBackupData): DropboxRemoteFile {
             if (failUpload) throw IOException("Upload interrupted")
+            folder.prepare()
             val uploaded = file(++uploads)
             files += uploaded
             duringUpload()
             return uploaded
         }
         override fun deleteOwned(file: DropboxRemoteFile) {
+            if (failDelete) throw IOException("Cleanup interrupted")
             deleted += file
             files.remove(file)
         }
@@ -137,9 +310,21 @@ class DropboxVerifiedUploadTest {
     private class FakeOwnership : DropboxOwnershipRecords {
         val records = mutableListOf<DropboxOwnedBackup>()
         var invalid = false
+        var failRecord = false
+        private var pendingUpload: DropboxPendingUpload? = null
+        override fun pending(account: String): DropboxPendingUpload? = pendingUpload
+        override fun savePending(account: String, upload: DropboxPendingUpload): Boolean {
+            pendingUpload = upload
+            return true
+        }
+        override fun clearPending(account: String): Boolean {
+            pendingUpload = null
+            return true
+        }
         override fun read(account: String): List<DropboxOwnedBackup>? = if (invalid) null else records.toList()
         override fun record(account: String, file: DropboxRemoteFile): Boolean {
-            if (invalid) return false
+            if (invalid || failRecord) return false
+            records.removeAll { it.file.id == file.id }
             records += DropboxOwnedBackup(file)
             return true
         }

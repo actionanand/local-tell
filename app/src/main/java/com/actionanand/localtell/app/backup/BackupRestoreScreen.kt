@@ -29,7 +29,6 @@ import com.actionanand.localtell.app.dropbox.DropboxBackupViewModel
 import com.actionanand.localtell.app.dropbox.DropboxBackupFrequency
 import com.actionanand.localtell.app.dropbox.DropboxBackupStatus
 import com.actionanand.localtell.app.dropbox.DropboxBackupError
-import com.actionanand.localtell.app.dropbox.DropboxBackupRetention
 import java.text.DateFormat
 import java.util.Date
 
@@ -48,6 +47,7 @@ internal fun BackupRestoreScreen(
     var showDisconnectConfirmation by remember { mutableStateOf(false) }
     var showConflictDialog by remember { mutableStateOf(false) }
     var showSavedLimitDialog by remember { mutableStateOf(false) }
+    var showDropboxHelp by remember { mutableStateOf(false) }
     val shareTitle = stringResource(R.string.saved_backup_share)
     val host = remember { SnackbarHostState() }
     val message = state.message?.let { stringResource(it) }
@@ -117,11 +117,17 @@ internal fun BackupRestoreScreen(
                             DropboxConnectionStatus.CONNECTED -> {
                                 Text(stringResource(R.string.dropbox_connected, dropboxState.accountName.orEmpty()), color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 Text(stringResource(R.string.dropbox_location), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Text(stringResource(R.string.dropbox_folder_scope), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                TextButton(onClick = { showDropboxHelp = !showDropboxHelp }) {
+                                    Text(stringResource(if (showDropboxHelp) R.string.dropbox_hide_help else R.string.dropbox_folder_help))
+                                }
+                                if (showDropboxHelp) {
+                                    Text(stringResource(R.string.dropbox_folder_scope), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
                                 Text(
                                     stringResource(
                                         when (backupState.status) {
-                                            DropboxBackupStatus.UP_TO_DATE -> R.string.dropbox_status_up_to_date
+                                            DropboxBackupStatus.UP_TO_DATE -> if (backupState.lastSuccessfulAt == null)
+                                                R.string.dropbox_status_no_backup else R.string.dropbox_status_up_to_date
                                             DropboxBackupStatus.PENDING -> R.string.dropbox_status_pending
                                             DropboxBackupStatus.SYNCING -> R.string.dropbox_status_syncing
                                             DropboxBackupStatus.FAILED -> R.string.dropbox_status_failed
@@ -129,6 +135,7 @@ internal fun BackupRestoreScreen(
                                             DropboxBackupStatus.OFFLINE -> R.string.dropbox_status_offline
                                             DropboxBackupStatus.REAUTHORIZATION_REQUIRED -> R.string.dropbox_status_reauthorize
                                             DropboxBackupStatus.SAVED_LIMIT_EXCEEDED -> R.string.dropbox_status_saved_limit
+                                            DropboxBackupStatus.INTERRUPTED -> R.string.dropbox_status_interrupted
                                         },
                                     ),
                                     color = if (backupState.status in setOf(
@@ -163,11 +170,24 @@ internal fun BackupRestoreScreen(
                                                 DropboxBackupError.AUTHORIZATION -> R.string.dropbox_error_authorization
                                                 DropboxBackupError.STORAGE -> R.string.dropbox_error_storage
                                                 DropboxBackupError.UNKNOWN -> R.string.dropbox_error_unknown
+                                                DropboxBackupError.DROPBOX_API -> R.string.dropbox_error_api
+                                                DropboxBackupError.DROPBOX_PATH -> R.string.dropbox_error_path
+                                                DropboxBackupError.DROPBOX_PERMISSION -> R.string.dropbox_error_permission
+                                                DropboxBackupError.DROPBOX_QUOTA -> R.string.dropbox_error_quota
+                                                DropboxBackupError.INVALID_BACKUP -> R.string.dropbox_error_invalid_backup
+                                                DropboxBackupError.DROPBOX_TEMPORARY -> R.string.dropbox_error_temporary
                                             },
                                         ),
                                         color = MaterialTheme.colorScheme.error,
                                         style = MaterialTheme.typography.bodySmall,
                                     )
+                                }
+                                backupState.diagnostic?.let { diagnostic ->
+                                    val copyLabel = stringResource(R.string.dropbox_copy_diagnostic)
+                                    TextButton(onClick = {
+                                        context.getSystemService(android.content.ClipboardManager::class.java)
+                                            ?.setPrimaryClip(android.content.ClipData.newPlainText(copyLabel, diagnostic.toSafeText()))
+                                    }) { Text(copyLabel) }
                                 }
                                 Text(stringResource(R.string.dropbox_backup_mode), fontWeight = FontWeight.SemiBold)
                                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -204,7 +224,7 @@ internal fun BackupRestoreScreen(
                                     ) { Text(stringResource(R.string.dropbox_disconnect)) }
                                 }
                                 Text(
-                                    stringResource(R.string.dropbox_retention, DropboxBackupRetention.KEEP),
+                                    stringResource(R.string.dropbox_retention),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
