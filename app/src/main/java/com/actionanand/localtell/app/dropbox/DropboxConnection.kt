@@ -401,7 +401,6 @@ internal class DropboxConnectionViewModel(app: Application, private val savedSta
     private val lifecycle = DropboxConnectionLifecycle(
         DropboxCredentialStore(app), DropboxSdkGateway(), sessions::invalidate, sessions::activate,
     )
-    private val backupSettings = DropboxBackupStateStore(app)
     val state = lifecycle.state
     private var awaitingAuthorization: Boolean
         get() = savedState[AUTHORIZATION_PENDING] ?: false
@@ -411,8 +410,7 @@ internal class DropboxConnectionViewModel(app: Application, private val savedSta
         viewModelScope.launch {
             state.collect { connection ->
                 when (connection.status) {
-                    DropboxConnectionStatus.CONNECTED ->
-                        DropboxBackupScheduler.update(app, backupSettings.frequency(), connected = true)
+                    DropboxConnectionStatus.CONNECTED -> DropboxBackupScheduler.reconcileAsync(app)
                     DropboxConnectionStatus.REAUTHORIZATION_REQUIRED -> DropboxBackupScheduler.cancel(app)
                     else -> Unit
                 }
@@ -494,11 +492,6 @@ internal class DropboxConnectionViewModel(app: Application, private val savedSta
     }
 
     private fun authorizationOperation(): Long? = savedState[AUTHORIZATION_OPERATION]
-
-    override fun onCleared() {
-        backupSettings.close()
-        super.onCleared()
-    }
 
     private companion object {
         const val AUTHORIZATION_PENDING = "dropbox_authorization_pending"

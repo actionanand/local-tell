@@ -74,7 +74,7 @@ class DropboxBackupResourcesTest {
         val source = File("src/main/java/com/actionanand/localtell/app/backup/BackupRestoreScreen.kt").readText()
         val start = source.indexOf("val reviewDialog = backupState.reviewDialog")
         assertTrue(start >= 0)
-        val dialogs = source.substring(start, source.indexOf("private fun DropboxBackupFrequency.labelRes"))
+        val dialogs = source.substring(start, source.indexOf("fun DropboxBackupFrequency.labelRes"))
         for (forbidden in listOf("weight(", "SpaceBetween", "Modifier.height(", ".height(", "heightIn(", "Spacer(")) {
             assertFalse("$forbidden must not be used in the Dropbox review dialogs", dialogs.contains(forbidden))
         }

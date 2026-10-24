@@ -43,7 +43,7 @@ through `CloudBackupFeature.enabled`.
   are available as described below.
 - `false`: the whole Dropbox card is hidden and its ViewModels are not created.
   OAuth is never started or completed. Daily/Weekly work is not scheduled; at app
-  start the unique periodic and manual Dropbox jobs are cancelled. A worker queued
+  start the unique scheduled, legacy periodic and manual Dropbox jobs are cancelled. A worker queued
   by an earlier build checks the switch at its entry point and stops before
   reading credentials or contacting Dropbox. Sync now and resolution requests are
   not enqueued.
@@ -228,9 +228,49 @@ Credentials and upload ownership/session metadata are not included in `.bklt`.
 
 - **Off** is the default and blocks manual and scheduled backup.
 - **Manual only** runs only after tapping **Sync now**.
-- **Daily** and **Weekly** use unique WorkManager periodic work with a connected
-  network constraint and exponential retry backoff. Android controls execution
-  timing; exact times are not promised. Sync now is also available in these modes.
+- **Daily** and **Weekly** are anchored to the local calendar at a preferred
+  2:00 AM (Weekly on a selectable weekday, Sunday by default). A unique periodic
+  WorkManager "alarm" job has its next run overridden to the next occurrence and
+  re-applies the override on every run (`UPDATE`, so no growing chain); its 1- or
+  7-day period is only a fallback if an override was lost. The scheduler reads
+  actual WorkManager state on each check, so a missing, cancelled or stale alarm is
+  re-armed and repeated checks never duplicate it. Delayed, catch-up or manual
+  backups never shift later occurrences. Timezone, clock and DST changes recompute
+  the anchor. Android controls execution timing; 2:00 AM is preferred, not
+  guaranteed. Sync now and the sync icons beside Daily and Weekly are available in
+  every mode except Off and never change the schedule.
+- A missed occurrence (device off, Doze, offline, deferred) is detected from
+  local state when the alarm runs, the app starts or returns to the foreground,
+  or after a timezone/clock change. One network-constrained backup is queued under
+  its own unique name, so a pending manual sync can never swallow it; the worker
+  mutex keeps all syncs serial. Before touching Dropbox, a scheduled run ends
+  without work if the schedule (mode, weekday or session) changed since it was
+  queued; otherwise it serves the occurrence due when it starts, so a Monday run
+  delayed past Tuesday 2:00 AM backs up for Tuesday. A backup covers an occurrence
+  only when its data was current at that time: if edits arrived during the upload,
+  coverage is the snapshot time and the newer data is backed up again. When a
+  scheduled run ends without a WorkManager retry and an occurrence that became due
+  meanwhile is still unsatisfied and recoverable, a one-time re-check runs a minute
+  later instead of waiting for the next 2:00 AM.
+- If the alarm itself fails to schedule, it does not return a retry (its 2:00 AM
+  override would take precedence over retry backoff); it queues a one-time
+  recovery re-check about 15 minutes later and keeps its calendar anchor.
+- Offline, temporary Dropbox errors and interrupted work recover automatically.
+  A scheduled job retries up to three times with WorkManager backoff. When a run
+  still ends with a recoverable failure (including one after the upload began,
+  which is never retried blindly), a persisted throttle delays the next automatic
+  attempt for that occurrence: 15 minutes, doubling per failure, capped at 6 hours.
+  Job recreation, follow-ups and foreground events cannot reset it; a successful
+  backup, a reconnection or the next occurrence does. The next attempt always lists
+  and reads Dropbox first and resumes verification of an upload it had recorded.
+  Authorization failures wait for reconnection; permanent failures (invalid data,
+  quota, permissions, local storage) are not retried until the next occurrence.
+  Conflicts and the Saved Places limit wait for the user.
+- Only the selected Daily or Weekly option shows a "Next backup" time; Off,
+  Manual and unselected rows show only their rule.
+- Upgrades keep the selected mode, default Weekly to Sunday, cancel the old
+  periodic job and start the anchor at upgrade time, so updating never triggers
+  an immediate upload.
 
 Manual and scheduled workers share a mutex. Each queued request contains the
 verified account hash and a persisted session generation. Starting a disconnect

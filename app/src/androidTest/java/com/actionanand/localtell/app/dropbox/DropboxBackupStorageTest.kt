@@ -328,6 +328,74 @@ class DropboxBackupStorageTest {
         }
     }
 
+    @Test fun migrationKeepsExistingScheduleDefaultsWeeklyToSundayAndNeverCountsTheUpgradeAsMissed() = runBlocking {
+        fixture { context, _, _ ->
+            val legacy = context.getSharedPreferences("localtell_dropbox_backup", Context.MODE_PRIVATE)
+            legacy.edit().putString("frequency", "weekly").commit()
+            val store = DropboxBackupStateStore(context)
+            try {
+                assertTrue(store.migrateSchedule(now = 5_000L))
+                assertEquals(DropboxBackupFrequency.WEEKLY, store.frequency())
+                assertEquals(java.time.DayOfWeek.SUNDAY, store.weekday())
+                assertEquals(5_000L, store.scheduleSince())
+                assertFalse(store.migrateSchedule(now = 9_000L))
+                assertEquals(5_000L, store.scheduleSince())
+            } finally {
+                store.close()
+            }
+        }
+    }
+
+    @Test fun migrationKeepsASavedWeekdayAndDoesNotEnableADisabledSchedule() = runBlocking {
+        fixture { context, _, _ ->
+            context.getSharedPreferences("localtell_dropbox_backup", Context.MODE_PRIVATE).edit()
+                .putString("frequency", "off").putString("weekly_day", "WEDNESDAY").commit()
+            val store = DropboxBackupStateStore(context)
+            try {
+                store.migrateSchedule(now = 1_000L)
+                assertEquals(DropboxBackupFrequency.OFF, store.frequency())
+                assertEquals(java.time.DayOfWeek.WEDNESDAY, store.weekday())
+            } finally {
+                store.close()
+            }
+        }
+    }
+
+    @Test fun scheduleSurvivesProcessRestartAndOnlyRealChangesReanchorIt() = runBlocking {
+        fixture { context, _, _ ->
+            val account = "2".repeat(64)
+            val first = DropboxBackupStateStore(context)
+            assertTrue(first.setFrequency(DropboxBackupFrequency.WEEKLY, now = 1_000L))
+            assertTrue(first.setWeekday(java.time.DayOfWeek.FRIDAY, now = 2_000L))
+            first.markSuccess(account, "fingerprint", pending = false, now = 3_000L)
+            val revision = first.revision(account)
+            first.markScheduledBlocked(account, DropboxScheduledBlock(4_000L, "generation"))
+            assertEquals(revision, first.revision(account))
+            first.close()
+            val restarted = DropboxBackupStateStore(context)
+            try {
+                restarted.selectAccount(account)
+                assertEquals(DropboxBackupFrequency.WEEKLY, restarted.state.value.frequency)
+                assertEquals(java.time.DayOfWeek.FRIDAY, restarted.state.value.weeklyDay)
+                assertEquals(2_000L, restarted.state.value.scheduleSince)
+                assertEquals(4_000L, restarted.state.value.scheduledBlockedOccurrence)
+                assertEquals(DropboxScheduledBlock(4_000L, "generation"), restarted.scheduledBlock(account))
+                assertEquals(3_000L, restarted.lastSuccessfulAt(account))
+                // Re-selecting the same mode or day must not postpone an overdue backup.
+                restarted.setFrequency(DropboxBackupFrequency.WEEKLY, now = 8_000L)
+                restarted.setWeekday(java.time.DayOfWeek.FRIDAY, now = 8_000L)
+                assertEquals(2_000L, restarted.scheduleSince())
+                restarted.setFrequency(DropboxBackupFrequency.DAILY, now = 9_000L)
+                assertEquals(9_000L, restarted.scheduleSince())
+                // A manual or scheduled success never touches the schedule anchor.
+                restarted.markSuccess(account, "next", pending = false, now = 10_000L)
+                assertEquals(9_000L, restarted.scheduleSince())
+            } finally {
+                restarted.close()
+            }
+        }
+    }
+
     private suspend fun fixture(action: suspend (Context, AppBackupRepository, SavedPlacesRepository) -> Unit) {
         val base = InstrumentationRegistry.getInstrumentation().targetContext
         val prefix = "dropbox-safety-${UUID.randomUUID()}"

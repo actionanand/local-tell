@@ -167,6 +167,7 @@ import com.actionanand.localtell.app.backup.AppBackupViewModel
 import com.actionanand.localtell.app.backup.BackupRestoreScreen
 import com.actionanand.localtell.app.dropbox.DropboxConnectionViewModel
 import com.actionanand.localtell.app.dropbox.CloudBackupFeature
+import com.actionanand.localtell.app.dropbox.DropboxBackupScheduler
 import com.actionanand.localtell.app.dropbox.DropboxAuthorization
 import com.dropbox.core.DbxRequestConfig
 import com.dropbox.core.android.Auth
@@ -235,6 +236,12 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         incomingBackup = backupUriFromIntent(intent)
+    }
+
+    override fun onStart() {
+        super.onStart()
+        // Returning to the app is a chance to recover a missed scheduled backup; only local state is read here.
+        if (CloudBackupFeature.enabled) DropboxBackupScheduler.reconcileAsync(applicationContext)
     }
 
     override fun onResume() {

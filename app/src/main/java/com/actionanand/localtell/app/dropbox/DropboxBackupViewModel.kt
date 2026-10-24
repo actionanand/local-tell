@@ -16,10 +16,13 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -36,6 +39,12 @@ internal class DropboxBackupViewModel(application: Application) : AndroidViewMod
     /** Number of Saved Places above the limit after a Dropbox merge; 0 when within the limit. */
     val savedPlacesExcess: StateFlow<Int> = mutableSavedPlacesExcess.asStateFlow()
 
+    /** A scheduled or catch-up backup is waiting for internet or for Android to run it. */
+    val scheduledSyncQueued: StateFlow<Boolean> = WorkManager.getInstance(application)
+        .getWorkInfosForUniqueWorkFlow(DropboxBackupScheduler.SCHEDULED_SYNC_WORK)
+        .map { infos -> infos.any { it.state == WorkInfo.State.ENQUEUED || it.state == WorkInfo.State.BLOCKED } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
     init {
         viewModelScope.launch {
             combine(SavedPlacesChanges.version, JourneyHistoryChanges.version) { _, _ -> Unit }
@@ -49,13 +58,14 @@ internal class DropboxBackupViewModel(application: Application) : AndroidViewMod
         if (hash == null) {
             DropboxBackupScheduler.cancel(getApplication())
         } else {
-            DropboxBackupScheduler.update(getApplication(), store.frequency(), connected = true)
+            DropboxBackupScheduler.reconcileAsync(getApplication())
             refreshPending()
             recoverStaleSync(hash)
         }
     }
 
     fun setFrequency(frequency: DropboxBackupFrequency) {
+        val changed = frequency != store.frequency()
         if (!store.setFrequency(frequency)) {
             accountHash?.let { store.markFailure(it, DropboxBackupStatus.FAILED, DropboxBackupError.STORAGE) }
             return
@@ -63,8 +73,18 @@ internal class DropboxBackupViewModel(application: Application) : AndroidViewMod
         if (!frequency.syncAllowed) {
             WorkManager.getInstance(getApplication()).cancelUniqueWork(DropboxBackupWorker.MANUAL_WORK)
         }
-        DropboxBackupScheduler.update(getApplication(), frequency, connected = accountHash != null)
+        DropboxBackupScheduler.reconcileAsync(getApplication(), scheduleChanged = changed)
         store.selectAccount(accountHash)
+    }
+
+    /** Changing the weekday re-anchors Weekly; it never triggers an immediate backup by itself. */
+    fun setWeekday(day: java.time.DayOfWeek) {
+        val changed = day != store.weekday()
+        if (!store.setWeekday(day)) {
+            accountHash?.let { store.markFailure(it, DropboxBackupStatus.FAILED, DropboxBackupError.STORAGE) }
+            return
+        }
+        DropboxBackupScheduler.reconcileAsync(getApplication(), scheduleChanged = changed)
     }
 
     fun syncNow() {
@@ -113,7 +133,7 @@ internal class DropboxBackupViewModel(application: Application) : AndroidViewMod
         val attemptedAt = current.lastAttemptedAt ?: return
         viewModelScope.launch {
             val manager = WorkManager.getInstance(getApplication())
-            val running = listOf(DropboxBackupWorker.MANUAL_WORK, DropboxBackupScheduler.PERIODIC_WORK).any { name ->
+            val running = listOf(DropboxBackupWorker.MANUAL_WORK, DropboxBackupScheduler.SCHEDULED_SYNC_WORK).any { name ->
                 manager.getWorkInfosForUniqueWorkFlow(name).first().any { it.state == WorkInfo.State.RUNNING }
             }
             if (!running && account == accountHash) store.recoverStaleSync(account, attemptedAt)
