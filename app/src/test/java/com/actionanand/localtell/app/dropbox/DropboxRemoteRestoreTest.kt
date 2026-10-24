@@ -69,7 +69,7 @@ class DropboxRemoteRestoreTest {
         val remote = FakeRemote(remoteFile to remoteData, file(2) to data("Newer"))
         val target = FakeTarget(empty)
         val outcome = restore(remote, target, files = remote.files)
-        assertTrue(outcome is DropboxRestoreOutcome.Review && outcome.restore)
+        assertTrue(outcome is DropboxRestoreOutcome.Review && outcome.restore && outcome.path == file(2).path)
         assertEquals(token(remote.files), (outcome as DropboxRestoreOutcome.Review).remoteState)
         assertEquals(empty, target.data)
         assertEquals(0, target.restoreCalls)
@@ -92,6 +92,58 @@ class DropboxRemoteRestoreTest {
         val target = FakeTarget(empty)
         val outcome = restore(remote, target)
         assertTrue(outcome is DropboxRestoreOutcome.Review && outcome.restore && outcome.path == arrival.path)
+        assertEquals(0, target.restoreCalls)
+        remote.assertUnmodified()
+    }
+
+    @Test fun newerBackupArrivingAfterDialogIsSelectedForFreshConfirmation() = runBlocking {
+        val a = file(1)
+        val b = file(2)
+        val bData = data("Backup B")
+        val remote = FakeRemote(a to remoteData, b to bData)
+        val ownership = listOf<DropboxOwnedBackup>()
+        val target = FakeTarget(empty)
+        // The dialog confirmed A while it was the only backup; B appeared before the worker started.
+        val outcome = restore(remote, target, ownership = ownership, files = remote.files,
+            request = DropboxRestoreRequest(a.path, fingerprint(remoteData), token(listOf(a))))
+        assertEquals(DropboxRestoreOutcome.Review(b.path, fingerprint(bData), token(remote.files), restore = true), outcome)
+        assertEquals(listOf(b), remote.downloaded)
+        assertEquals(empty, target.data)
+        assertEquals(0, target.restoreCalls)
+        assertTrue(ownership.isEmpty())
+        assertEquals(listOf(a, b), remote.files)
+        remote.assertUnmodified()
+    }
+
+    @Test fun invalidNewerBackupFallsBackToOlderValidOneForFreshConfirmation() = runBlocking {
+        val a = file(1)
+        val b = file(2)
+        val remote = FakeRemote(a to remoteData, b to data("Corrupt")).apply { invalid += b }
+        val target = FakeTarget(empty)
+        val outcome = restore(remote, target, files = remote.files)
+        assertEquals(DropboxRestoreOutcome.Review(a.path, fingerprint(remoteData), token(remote.files), restore = true), outcome)
+        assertEquals(0, target.restoreCalls)
+        remote.assertUnmodified()
+    }
+
+    @Test fun noValidBackupAfterRemoteChangeClearsTheOffer() = runBlocking {
+        val b = file(2)
+        val remote = FakeRemote(b to data("Corrupt")).apply { invalid += b }
+        val target = FakeTarget(empty)
+        assertEquals(DropboxRestoreOutcome.NothingToRestore(pending = false), restore(remote, target, files = remote.files))
+        assertEquals(0, target.restoreCalls)
+        remote.assertUnmodified()
+    }
+
+    @Test fun localRecordsAndNewerBackupTogetherShowAConflictForTheNewerBackup() = runBlocking {
+        val b = file(2)
+        val bData = data("Backup B")
+        val remote = FakeRemote(remoteFile to remoteData, b to bData)
+        val local = data("Local")
+        val target = FakeTarget(local)
+        val outcome = restore(remote, target, files = remote.files)
+        assertEquals(DropboxRestoreOutcome.Review(b.path, fingerprint(bData), token(remote.files), restore = false), outcome)
+        assertEquals(local, target.data)
         assertEquals(0, target.restoreCalls)
         remote.assertUnmodified()
     }
@@ -123,6 +175,8 @@ class DropboxRemoteRestoreTest {
         private val contents = linkedMapOf(*entries)
         val files: List<DropboxRemoteFile> get() = contents.keys.toList()
         var beforeListing: () -> Unit = {}
+        val downloaded = mutableListOf<DropboxRemoteFile>()
+        val invalid = mutableSetOf<DropboxRemoteFile>()
         private var uploads = 0
         private var deletes = 0
         fun add(file: DropboxRemoteFile, data: AppBackupData) { contents[file] = data }
@@ -131,7 +185,11 @@ class DropboxRemoteRestoreTest {
             beforeListing = {}
             return files
         }
-        override fun download(file: DropboxRemoteFile): AppBackupData = checkNotNull(contents[file])
+        override fun download(file: DropboxRemoteFile): AppBackupData {
+            downloaded += file
+            if (file in invalid) throw IllegalArgumentException("Backup checksum mismatch")
+            return checkNotNull(contents[file])
+        }
         override fun upload(data: AppBackupData): DropboxRemoteFile { uploads++; error("Restore must not upload") }
         override fun deleteOwned(file: DropboxRemoteFile) { deletes++; error("Restore must not delete") }
         fun assertUnmodified() {

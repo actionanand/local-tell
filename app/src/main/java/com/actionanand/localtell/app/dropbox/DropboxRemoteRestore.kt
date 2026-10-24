@@ -40,10 +40,12 @@ internal class DropboxRemoteRestore(
         ignoredUploadId: String? = null,
     ): DropboxRestoreOutcome {
         setStage(DropboxBackupStage.DOWNLOAD_REMOTE)
-        val selected = selectRemoteBaseline(files.filter { it.id != ignoredUploadId }, request.path, ownership, remote::download)
+        val remoteState = DropboxRemoteState.token(files)
+        // A changed remote set voids the confirmed choice; the newest valid backup must be confirmed afresh.
+        val preferredPath = request.path.takeIf { remoteState == request.remoteState }
+        val selected = selectRemoteBaseline(files.filter { it.id != ignoredUploadId }, preferredPath, ownership, remote::download)
         val remoteData = selected.data
         val remoteFingerprint = remoteData?.let(AppBackupCodec::fingerprint)
-        val remoteState = DropboxRemoteState.token(files)
         checkActive()
         setStage(DropboxBackupStage.READ_LOCAL_DATA)
         val current = local.snapshot()

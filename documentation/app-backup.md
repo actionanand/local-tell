@@ -326,8 +326,10 @@ baseline:
   conflict. Restore is read-only toward Dropbox: it never uploads, records
   ownership or runs retention cleanup. Before writing it re-checks the confirmed
   path, content and remote file set, and writes only if the device is still empty
-  inside the same transaction. Records added meanwhile produce a genuine conflict;
-  a changed backup is offered again; a vanished backup simply clears the offer.
+  inside the same transaction. Records added meanwhile produce a genuine conflict.
+  If the remote file set changed, the confirmed path is no longer preferred: the
+  newest valid backup is offered for fresh confirmation, and a vanished or
+  entirely invalid backup set simply clears the offer.
   A completed restore adopts the snapshot as baseline and records a separate
   "last restored" time; the last-successful-backup time is not changed.
 - When both sides hold different data, the explicit **Use this device's data**
