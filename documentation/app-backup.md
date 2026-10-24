@@ -314,8 +314,26 @@ Changing a known file's revision remains visible as a conflict, but revokes its
 eligibility for automatic deletion.
 
 Local and remote data fingerprints are compared with the account's common
-baseline. Different remote data requires the explicit **Use this device's data**
-or **Merge Dropbox backup** choice. Resolution also carries a token for the remote
+baseline:
+
+- Identical data on both sides is already synchronized; no dialog is shown, even
+  if an earlier conflict was recorded.
+- An empty managed folder, or a remote backup with no records, uploads this
+  device's data normally without a prompt. Uploads are append-only, so nothing
+  in Dropbox can be lost.
+- When this device has no Saved Places or Journey history and Dropbox holds a
+  non-empty backup, a **Restore backup / Cancel** dialog is shown instead of a
+  conflict. Restore is read-only toward Dropbox: it never uploads, records
+  ownership or runs retention cleanup. Before writing it re-checks the confirmed
+  path, content and remote file set, and writes only if the device is still empty
+  inside the same transaction. Records added meanwhile produce a genuine conflict;
+  a changed backup is offered again; a vanished backup simply clears the offer.
+  A completed restore adopts the snapshot as baseline and records a separate
+  "last restored" time; the last-successful-backup time is not changed.
+- When both sides hold different data, the explicit **Use this device's data**
+  or **Merge Dropbox backup** choice is required.
+
+Resolution also carries a token for the remote
 file set. LocalTell checks that set immediately before merging/uploading and again
 after verification, before each deletion and before successful completion. A
 concurrent change to the tracked file set keeps a conflict and stops cleanup.

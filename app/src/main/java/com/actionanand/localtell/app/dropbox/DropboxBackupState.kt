@@ -42,13 +42,26 @@ internal data class DropboxBackupUiState(
     val status: DropboxBackupStatus = DropboxBackupStatus.UP_TO_DATE,
     val lastSuccessfulAt: Long? = null,
     val lastAttemptedAt: Long? = null,
+    /** When Dropbox data was last restored onto this device; never counts as a backup. */
+    val lastRestoredAt: Long? = null,
     val error: DropboxBackupError? = null,
     val pendingChanges: Boolean = false,
     val conflictPath: String? = null,
     val conflictFingerprint: String? = null,
     val conflictRemoteState: String? = null,
+    /** The CONFLICT status only offers a restore: this device had no data when Dropbox was checked. */
+    val restoreAvailable: Boolean = false,
     val diagnostic: DropboxBackupDiagnostic? = null,
-)
+) {
+    val reviewDialog: DropboxReviewDialog?
+        get() = when {
+            status != DropboxBackupStatus.CONFLICT -> null
+            restoreAvailable -> DropboxReviewDialog.RESTORE
+            else -> DropboxReviewDialog.CONFLICT
+        }
+}
+
+internal enum class DropboxReviewDialog { RESTORE, CONFLICT }
 
 /** Persisted, account-scoped sync metadata. Tokens and backup contents are never stored here. */
 internal class DropboxBackupStateStore(context: Context) {
@@ -111,7 +124,8 @@ internal class DropboxBackupStateStore(context: Context) {
             .putLong(key(account, LAST_SUCCESSFUL), now).putString(key(account, BASELINE_FINGERPRINT), fingerprint)
             .putBoolean(key(account, PENDING), pending).remove(key(account, ERROR))
             .remove(key(account, CONFLICT_PATH)).remove(key(account, CONFLICT_FINGERPRINT))
-            .remove(key(account, CONFLICT_REMOTE_STATE)).remove(key(account, DIAGNOSTIC)).apply()
+            .remove(key(account, CONFLICT_REMOTE_STATE)).remove(key(account, RESTORE_OFFER))
+            .remove(key(account, DIAGNOSTIC)).apply()
     }
 
     fun markPending(account: String, pending: Boolean, expectedRevision: Long) = synchronized(stateLock) {
@@ -132,8 +146,28 @@ internal class DropboxBackupStateStore(context: Context) {
     fun adoptBaseline(account: String, fingerprint: String) = synchronized(stateLock) {
         editAccount(account).putString(key(account, BASELINE_FINGERPRINT), fingerprint)
             .remove(key(account, CONFLICT_PATH)).remove(key(account, CONFLICT_FINGERPRINT))
-            .remove(key(account, CONFLICT_REMOTE_STATE)).apply()
+            .remove(key(account, CONFLICT_REMOTE_STATE)).remove(key(account, RESTORE_OFFER)).apply()
     }
+
+    /** Restore adopts the Dropbox snapshot as baseline but leaves the last-successful-backup time untouched. */
+    fun markRestored(account: String, fingerprint: String, pending: Boolean, restoredAt: Long?) = synchronized(stateLock) {
+        val builder = clearReview(editAccount(account), account, pending)
+            .putString(key(account, BASELINE_FINGERPRINT), fingerprint)
+        if (restoredAt != null) builder.putLong(key(account, LAST_RESTORED), restoredAt)
+        builder.apply()
+    }
+
+    /** The reviewed Dropbox backup no longer exists, so there is nothing left to choose. */
+    fun clearReview(account: String, pending: Boolean) = synchronized(stateLock) {
+        clearReview(editAccount(account), account, pending).apply()
+    }
+
+    private fun clearReview(builder: SharedPreferences.Editor, account: String, pending: Boolean): SharedPreferences.Editor =
+        builder.putString(key(account, STATUS), (if (pending) DropboxBackupStatus.PENDING else DropboxBackupStatus.UP_TO_DATE).name)
+            .putBoolean(key(account, PENDING), pending).remove(key(account, ERROR))
+            .remove(key(account, CONFLICT_PATH)).remove(key(account, CONFLICT_FINGERPRINT))
+            .remove(key(account, CONFLICT_REMOTE_STATE)).remove(key(account, RESTORE_OFFER))
+            .remove(key(account, DIAGNOSTIC))
 
     fun markSavedLimitExceeded(account: String, expectedRevision: Long? = null) = synchronized(stateLock) {
         if (expectedRevision != null && revision(account) != expectedRevision) return@synchronized
@@ -168,12 +202,14 @@ internal class DropboxBackupStateStore(context: Context) {
         fingerprint: String?,
         now: Long = System.currentTimeMillis(),
         remoteState: String? = null,
+        restore: Boolean = false,
     ) = synchronized(stateLock) {
         editAccount(account).putString(key(account, STATUS), DropboxBackupStatus.CONFLICT.name)
             .putLong(key(account, LAST_ATTEMPTED), now)
             .putString(key(account, CONFLICT_PATH), path)
             .putString(key(account, CONFLICT_FINGERPRINT), fingerprint)
             .putString(key(account, CONFLICT_REMOTE_STATE), remoteState)
+            .putBoolean(key(account, RESTORE_OFFER), restore)
             .remove(key(account, ERROR))
             .apply()
     }
@@ -191,12 +227,14 @@ internal class DropboxBackupStateStore(context: Context) {
                 ?: DropboxBackupStatus.UP_TO_DATE,
             lastSuccessfulAt = scopedKey(LAST_SUCCESSFUL)?.let { preferences.getLong(it, 0L).takeIf { time -> time > 0 } },
             lastAttemptedAt = scopedKey(LAST_ATTEMPTED)?.let { preferences.getLong(it, 0L).takeIf { time -> time > 0 } },
+            lastRestoredAt = scopedKey(LAST_RESTORED)?.let { preferences.getLong(it, 0L).takeIf { time -> time > 0 } },
             error = scopedKey(ERROR)?.let { preferences.getString(it, null) }
                 ?.let { runCatching { DropboxBackupError.valueOf(it) }.getOrNull() },
             pendingChanges = scopedKey(PENDING)?.let { preferences.getBoolean(it, false) } ?: false,
             conflictPath = scopedKey(CONFLICT_PATH)?.let { preferences.getString(it, null) },
             conflictFingerprint = scopedKey(CONFLICT_FINGERPRINT)?.let { preferences.getString(it, null) },
             conflictRemoteState = scopedKey(CONFLICT_REMOTE_STATE)?.let { preferences.getString(it, null) },
+            restoreAvailable = scopedKey(RESTORE_OFFER)?.let { preferences.getBoolean(it, false) } ?: false,
             diagnostic = scopedKey(DIAGNOSTIC)?.let { DropboxBackupDiagnostic.decode(preferences.getString(it, null)) },
         )
     }
@@ -219,12 +257,14 @@ internal class DropboxBackupStateStore(context: Context) {
         const val STATUS = "status"
         const val LAST_SUCCESSFUL = "last_successful"
         const val LAST_ATTEMPTED = "last_attempted"
+        const val LAST_RESTORED = "last_restored"
         const val ERROR = "error"
         const val PENDING = "pending"
         const val BASELINE_FINGERPRINT = "baseline_fingerprint"
         const val CONFLICT_PATH = "conflict_path"
         const val CONFLICT_FINGERPRINT = "conflict_fingerprint"
         const val CONFLICT_REMOTE_STATE = "conflict_remote_state"
+        const val RESTORE_OFFER = "restore_offer"
         const val DIAGNOSTIC = "diagnostic"
         const val REVISION = "revision"
     }

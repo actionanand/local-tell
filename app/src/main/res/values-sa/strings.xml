@@ -377,6 +377,7 @@
     <string name="dropbox_status_reauthorize">समन्वयाय Dropbox पुनः संयोजय।</string>
     <string name="dropbox_last_successful">अन्तिमा सफल-प्रतिलिपिः: %1$s</string>
     <string name="dropbox_last_attempted">अन्तिमः प्रतिलिपि-प्रयत्नः: %1$s</string>
+    <string name="dropbox_last_restored">Dropbox-तः अन्तिमं पुनःस्थापनम्: %1$s</string>
     <string name="dropbox_never_backed_up">अन्तिमा सफल-प्रतिलिपिः: कदापि न</string>
     <string name="dropbox_frequency_daily">प्रतिदिनम्</string>
     <string name="dropbox_frequency_weekly">प्रतिसप्ताहम्</string>
@@ -389,6 +390,10 @@
     <string name="dropbox_use_local">अस्य उपकरणस्य दत्तांशं प्रयुङ्क्ष्व</string>
     <string name="dropbox_merge_remote">Dropbox-प्रतिलिपिं संयोजय</string>
     <string name="dropbox_resolve_conflict">विरोधं समाधेहि</string>
+    <string name="dropbox_status_restore_available">पुनःस्थापनाय Dropbox-प्रतिलिपिः उपलभ्यते</string>
+    <string name="dropbox_restore_title">Dropbox-प्रतिलिपिं पुनःस्थापयेत् किम्?</string>
+    <string name="dropbox_restore_message">अस्मिन् उपकरणे रक्षितस्थानानि Journey-इतिहासः वा न सन्ति, Dropbox-मध्ये च LocalTell-प्रतिलिपिः लब्धा। तान् अभिलेखान् अस्मिन् उपकरणे आनेतुं तां पुनःस्थापय। Dropbox-मध्ये किमपि न परिवर्त्यते न च अपाक्रियते।</string>
+    <string name="dropbox_restore_backup">प्रतिलिपिं पुनःस्थापय</string>
     <string name="dropbox_connection_required">समन्वयात् पूर्वं Dropbox संयोजय।</string>
     <string name="dropbox_backup_mode">प्रतिलिपि-प्रकारः</string>
     <string name="dropbox_mode_off">निष्क्रियम्</string>

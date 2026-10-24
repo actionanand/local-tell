@@ -113,6 +113,52 @@ class DropboxBackupPolicyTest {
         assertEquals(DropboxSyncDecision.UPLOAD_LOCAL, DropboxSyncProtocol.decide("T", "R", "R"))
     }
 
+    @Test fun emptyDeviceWithExistingDropboxBackupOffersRestoreInsteadOfConflict() {
+        assertEquals(DropboxSyncDecision.RESTORE_REMOTE, DropboxSyncProtocol.decide("E", "R", null, localEmpty = true))
+        assertEquals(DropboxSyncDecision.RESTORE_REMOTE, DropboxSyncProtocol.decide("E", "R", "B", localEmpty = true))
+        // A wiped device must never push an empty snapshot over a backup it previously synced.
+        assertEquals(DropboxSyncDecision.RESTORE_REMOTE, DropboxSyncProtocol.decide("E", "B", "B", localEmpty = true))
+        assertEquals(DropboxSyncDecision.RESTORE_REMOTE,
+            DropboxSyncProtocol.decide("E", "R", "B", localEmpty = true, requireReview = true))
+    }
+
+    @Test fun emptyDropboxFolderOrEmptyRemoteBackupUploadsWithoutAsking() {
+        assertEquals(DropboxSyncDecision.UPLOAD_LOCAL, DropboxSyncProtocol.decide("L", null, null))
+        // Previously synced, then the managed folder was emptied: nothing remote can be lost.
+        assertEquals(DropboxSyncDecision.UPLOAD_LOCAL, DropboxSyncProtocol.decide("L", null, "B"))
+        assertEquals(DropboxSyncDecision.UPLOAD_LOCAL, DropboxSyncProtocol.decide("L", null, "B", requireReview = true))
+        assertEquals(DropboxSyncDecision.UPLOAD_LOCAL, DropboxSyncProtocol.decide("L", "E", null, remoteEmpty = true))
+    }
+
+    @Test fun differingDataOnBothSidesIsAConflict() {
+        assertEquals(DropboxSyncDecision.CONFLICT, DropboxSyncProtocol.decide("L", "R", null))
+        assertEquals(DropboxSyncDecision.CONFLICT, DropboxSyncProtocol.decide("L", "R", "B"))
+        // An unresolved conflict or externally changed owned file disables the baseline shortcut.
+        assertEquals(DropboxSyncDecision.CONFLICT, DropboxSyncProtocol.decide("L", "B", "B", requireReview = true))
+    }
+
+    @Test fun synchronizedDataNeverAsksEvenWithStaleConflictOrEmptySides() {
+        assertEquals(DropboxSyncDecision.UP_TO_DATE, DropboxSyncProtocol.decide("L", "L", "B", requireReview = true))
+        assertEquals(DropboxSyncDecision.UP_TO_DATE,
+            DropboxSyncProtocol.decide("E", "E", null, localEmpty = true, remoteEmpty = true))
+    }
+
+    @Test fun restoreOfferKeepsUnownedRemoteFilesOutOfRetention() {
+        // Restore never routes through upload, so managed-backup bookkeeping cannot alter it.
+        val remote = file(1)
+        assertEquals(DropboxSyncDecision.RESTORE_REMOTE,
+            managedSyncDecision(DropboxSyncDecision.RESTORE_REMOTE, remote, emptyList()))
+        assertTrue(DropboxBackupRetention.obsolete(listOf(remote), emptyList(), remote).isEmpty())
+    }
+
+    @Test fun reviewDialogMatchesConflictKind() {
+        assertNull(DropboxBackupUiState(status = DropboxBackupStatus.UP_TO_DATE, restoreAvailable = true).reviewDialog)
+        assertNull(DropboxBackupUiState(status = DropboxBackupStatus.PENDING).reviewDialog)
+        assertEquals(DropboxReviewDialog.RESTORE,
+            DropboxBackupUiState(status = DropboxBackupStatus.CONFLICT, restoreAvailable = true).reviewDialog)
+        assertEquals(DropboxReviewDialog.CONFLICT, DropboxBackupUiState(status = DropboxBackupStatus.CONFLICT).reviewDialog)
+    }
+
     private fun file(index: Int) = DropboxRemoteFile(
         "/localtell-managed-backups/localtell-$index.bklt", "LocalTell-$index.bklt", index * 1000L,
         "id:$index", "revision-$index", 20, "a".repeat(64),

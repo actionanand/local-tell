@@ -231,6 +231,103 @@ class DropboxBackupStorageTest {
         }
     }
 
+    @Test fun restoreOfferSurvivesFailureAndIsClearedByMergeOrSuccess() = runBlocking {
+        fixture { context, _, _ ->
+            val account = "e".repeat(64)
+            val store = DropboxBackupStateStore(context)
+            try {
+                store.markConflict(account, "/remote.bklt", "remote", remoteState = "state", restore = true)
+                store.markFailure(account, DropboxBackupStatus.OFFLINE, DropboxBackupError.NETWORK)
+                store.selectAccount(account)
+                assertEquals(DropboxReviewDialog.RESTORE, store.state.value.reviewDialog)
+                store.adoptBaseline(account, "remote")
+                store.selectAccount(account)
+                assertFalse(store.state.value.restoreAvailable)
+                store.markConflict(account, "/remote.bklt", "remote", restore = true)
+                store.markConflict(account, "/remote.bklt", "remote")
+                store.selectAccount(account)
+                assertEquals(DropboxReviewDialog.CONFLICT, store.state.value.reviewDialog)
+                store.markConflict(account, "/remote.bklt", "remote", restore = true)
+                store.markSuccess(account, "remote", pending = false)
+                store.selectAccount(account)
+                assertFalse(store.state.value.restoreAvailable)
+                assertNull(store.state.value.reviewDialog)
+            } finally {
+                store.close()
+            }
+        }
+    }
+
+    @Test fun freshInstallRestoreWritesLocallyAdoptsBaselineAndNeverTouchesDropboxOrBackupTime() = runBlocking {
+        fixture { context, repository, _ ->
+            val account = "f".repeat(64)
+            val store = DropboxBackupStateStore(context)
+            val remoteData = AppBackupData(listOf(place(1)), emptyList())
+            val file = DropboxRemoteFile("/localtell-managed-backups/localtell-1.bklt", "LocalTell-1.bklt", 1000L,
+                "id:1", "revision-1", 20, "a".repeat(64))
+            val remote = object : DropboxBackupRemote {
+                override fun snapshots() = listOf(file)
+                override fun download(file: DropboxRemoteFile) = remoteData
+                override fun upload(data: AppBackupData): DropboxRemoteFile = throw AssertionError("Restore uploaded")
+                override fun deleteOwned(file: DropboxRemoteFile) = throw AssertionError("Restore deleted")
+            }
+            try {
+                val fingerprint = AppBackupCodec.fingerprint(remoteData)
+                val token = DropboxRemoteState.token(listOf(file))
+                store.markConflict(account, file.path, fingerprint, remoteState = token, restore = true)
+                val outcome = DropboxRemoteRestore(remote, repositoryRestoreTarget(repository) {}, {})
+                    .execute(DropboxRestoreRequest(file.path, fingerprint, token), listOf(file), emptyList(), store.baseline(account))
+                completeDropboxRestore(store, repository, account, outcome, {}, now = 5000L)
+                store.selectAccount(account)
+                assertEquals(fingerprint, AppBackupCodec.fingerprint(repository.snapshot()))
+                assertEquals(fingerprint, store.baseline(account))
+                assertEquals(DropboxBackupStatus.UP_TO_DATE, store.state.value.status)
+                assertFalse(store.state.value.restoreAvailable)
+                assertNull(store.state.value.conflictFingerprint)
+                assertNull(store.state.value.lastSuccessfulAt)
+                assertEquals(5000L, store.state.value.lastRestoredAt)
+                assertFalse(store.state.value.pendingChanges)
+            } finally {
+                store.close()
+            }
+        }
+    }
+
+    @Test fun restoreIntoEmptyRefusesToWriteOnceLocalRecordsExist() = runBlocking {
+        fixture { _, repository, _ ->
+            repository.mergeKeepingAllPlaces(AppBackupData(listOf(place(1)), emptyList()))
+            val before = repository.snapshot()
+            assertFalse(repository.restoreIntoEmpty(AppBackupData(listOf(place(2)), emptyList())))
+            assertEquals(before, repository.snapshot())
+        }
+    }
+
+    @Test fun restoreCompletionKeepsEarlierBackupTimeAndOnlyRecordsActualRestores() = runBlocking {
+        fixture { context, _, _ ->
+            val account = "1".repeat(64)
+            val store = DropboxBackupStateStore(context)
+            try {
+                store.markSuccess(account, "old", pending = false, now = 1000L)
+                store.markConflict(account, "/remote.bklt", "remote", restore = true)
+                store.markRestored(account, "remote", pending = false, restoredAt = null)
+                store.selectAccount(account)
+                assertEquals(1000L, store.state.value.lastSuccessfulAt)
+                assertNull(store.state.value.lastRestoredAt)
+                assertEquals("remote", store.baseline(account))
+                assertNull(store.state.value.reviewDialog)
+                store.markConflict(account, "/remote.bklt", "remote", restore = true)
+                store.clearReview(account, pending = true)
+                store.selectAccount(account)
+                assertEquals(DropboxBackupStatus.PENDING, store.state.value.status)
+                assertEquals("remote", store.baseline(account))
+                assertEquals(1000L, store.state.value.lastSuccessfulAt)
+                assertNull(store.state.value.reviewDialog)
+            } finally {
+                store.close()
+            }
+        }
+    }
+
     private suspend fun fixture(action: suspend (Context, AppBackupRepository, SavedPlacesRepository) -> Unit) {
         val base = InstrumentationRegistry.getInstrumentation().targetContext
         val prefix = "dropbox-safety-${UUID.randomUUID()}"

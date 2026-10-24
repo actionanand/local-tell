@@ -86,6 +86,8 @@ internal class DropboxBackupViewModel(application: Application) : AndroidViewMod
 
     fun mergeDropboxBackup() = resolve(DropboxBackupWorker.ACTION_MERGE_REMOTE)
 
+    fun restoreDropboxBackup() = resolve(DropboxBackupWorker.ACTION_RESTORE_REMOTE)
+
     /** Deletes only the oldest places beyond the limit, after the user explicitly confirmed it. */
     fun removeOldestExtraPlaces() {
         if (removingOverflow) return
@@ -122,6 +124,7 @@ internal class DropboxBackupViewModel(application: Application) : AndroidViewMod
         val account = accountHash ?: return
         val current = state.value
         if (current.status != DropboxBackupStatus.CONFLICT || !current.frequency.syncAllowed) return
+        if (current.restoreAvailable != (action == DropboxBackupWorker.ACTION_RESTORE_REMOTE)) return
         if (!isDropboxNetworkAvailable(getApplication())) {
             store.markFailure(account, DropboxBackupStatus.OFFLINE, DropboxBackupError.NETWORK)
             return

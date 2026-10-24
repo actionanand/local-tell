@@ -327,6 +327,7 @@
     <string name="dropbox_status_reauthorize">Reconnect Dropbox to continue syncing.</string>
     <string name="dropbox_last_successful">Last successful backup: %1$s</string>
     <string name="dropbox_last_attempted">Last attempted backup: %1$s</string>
+    <string name="dropbox_last_restored">Last restored from Dropbox: %1$s</string>
     <string name="dropbox_never_backed_up">Last successful backup: Never backed up</string>
     <string name="dropbox_frequency_daily">Daily</string>
     <string name="dropbox_frequency_weekly">Weekly</string>
@@ -339,6 +340,10 @@
     <string name="dropbox_use_local">Use this device\'s data</string>
     <string name="dropbox_merge_remote">Merge Dropbox backup</string>
     <string name="dropbox_resolve_conflict">Resolve conflict</string>
+    <string name="dropbox_status_restore_available">A Dropbox backup is available to restore</string>
+    <string name="dropbox_restore_title">Restore Dropbox backup?</string>
+    <string name="dropbox_restore_message">This device has no Saved Places or Journey history, and a LocalTell backup was found in Dropbox. Restore it to bring those records to this device. Nothing in Dropbox is changed or deleted.</string>
+    <string name="dropbox_restore_backup">Restore backup</string>
     <string name="dropbox_connection_required">Connect Dropbox before syncing.</string>
     <string name="dropbox_backup_mode">Backup mode</string>
     <string name="dropbox_mode_off">Off</string>

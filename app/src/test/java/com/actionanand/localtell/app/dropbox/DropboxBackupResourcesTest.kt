@@ -50,4 +50,40 @@ class DropboxBackupResourcesTest {
         assertFalse(english.getValue("dropbox_retention").contains("%"))
         assertTrue(english.getValue("dropbox_copy_diagnostic").isNotBlank())
     }
+
+    @Test fun restoreAndConflictDialogStringsExistInAllLanguages() {
+        for (directory in listOf("values", "values-ta", "values-sa")) {
+            val localized = strings(directory)
+            for (name in listOf(
+                "dropbox_restore_title", "dropbox_restore_message", "dropbox_restore_backup", "dropbox_last_restored",
+                "dropbox_status_restore_available", "dropbox_use_local", "dropbox_merge_remote", "cancel",
+            )) {
+                assertTrue("$name missing in $directory", localized[name]?.isNotBlank() == true)
+            }
+            val raw = File("src/main/res/$directory/strings.xml").readText()
+            for (name in listOf("dropbox_restore_title", "dropbox_restore_message", "dropbox_restore_backup")) {
+                assertEquals("$name must be declared once in $directory", 1, Regex("name=\"$name\"").findAll(raw).count())
+                assertFalse("$name contains markup in $directory", localized.getValue(name).contains('<'))
+            }
+            assertTrue(localized.getValue("dropbox_last_restored").contains("%1\$s"))
+        }
+        assertEquals("Restore backup", strings("values").getValue("dropbox_restore_backup"))
+    }
+
+    @Test fun dropboxReviewDialogsKeepActionsCompactAndVisible() {
+        val source = File("src/main/java/com/actionanand/localtell/app/backup/BackupRestoreScreen.kt").readText()
+        val start = source.indexOf("val reviewDialog = backupState.reviewDialog")
+        assertTrue(start >= 0)
+        val dialogs = source.substring(start, source.indexOf("private fun DropboxBackupFrequency.labelRes"))
+        for (forbidden in listOf("weight(", "SpaceBetween", "Modifier.height(", ".height(", "heightIn(", "Spacer(")) {
+            assertFalse("$forbidden must not be used in the Dropbox review dialogs", dialogs.contains(forbidden))
+        }
+        assertEquals(2, Regex("verticalScroll\\(rememberScrollState\\(\\)\\)").findAll(dialogs).count())
+        val conflict = dialogs.substring(dialogs.indexOf("DropboxReviewDialog.CONFLICT"))
+        // All three conflict actions, Cancel included, live in one 8 dp stack and nothing is left in dismissButton.
+        assertFalse(conflict.contains("dismissButton"))
+        val stack = conflict.substring(conflict.indexOf("Arrangement.spacedBy(8.dp)"))
+        assertEquals(3, Regex("TextButton\\(").findAll(stack).count())
+        assertTrue(stack.contains("R.string.cancel"))
+    }
 }

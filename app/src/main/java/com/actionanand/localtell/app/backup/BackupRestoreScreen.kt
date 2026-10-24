@@ -29,6 +29,7 @@ import com.actionanand.localtell.app.dropbox.DropboxBackupViewModel
 import com.actionanand.localtell.app.dropbox.DropboxBackupFrequency
 import com.actionanand.localtell.app.dropbox.DropboxBackupStatus
 import com.actionanand.localtell.app.dropbox.DropboxBackupError
+import com.actionanand.localtell.app.dropbox.DropboxReviewDialog
 import com.actionanand.localtell.app.dropbox.BackupScreenSection
 import com.actionanand.localtell.app.dropbox.backupScreenSections
 import java.text.DateFormat
@@ -141,8 +142,8 @@ private fun DropboxBackupCard(
                 dropboxBackupVm.selectAccount(null)
         }
     }
-    LaunchedEffect(backupState.status) {
-        if (backupState.status == DropboxBackupStatus.CONFLICT) showConflictDialog = true
+    LaunchedEffect(backupState.reviewDialog) {
+        if (backupState.reviewDialog != null) showConflictDialog = true
     }
     LaunchedEffect(savedPlacesExcess > 0) {
         showSavedLimitDialog = savedPlacesExcess > 0
@@ -169,21 +170,21 @@ private fun DropboxBackupCard(
                     Text(
                         stringResource(
                             when (backupState.status) {
-                                DropboxBackupStatus.UP_TO_DATE -> if (backupState.lastSuccessfulAt == null)
+                                DropboxBackupStatus.UP_TO_DATE -> if (backupState.lastSuccessfulAt == null && backupState.lastRestoredAt == null)
                                     R.string.dropbox_status_no_backup else R.string.dropbox_status_up_to_date
                                 DropboxBackupStatus.PENDING -> R.string.dropbox_status_pending
                                 DropboxBackupStatus.SYNCING -> R.string.dropbox_status_syncing
                                 DropboxBackupStatus.FAILED -> R.string.dropbox_status_failed
-                                DropboxBackupStatus.CONFLICT -> R.string.dropbox_status_conflict
+                                DropboxBackupStatus.CONFLICT -> if (backupState.restoreAvailable)
+                                    R.string.dropbox_status_restore_available else R.string.dropbox_status_conflict
                                 DropboxBackupStatus.OFFLINE -> R.string.dropbox_status_offline
                                 DropboxBackupStatus.REAUTHORIZATION_REQUIRED -> R.string.dropbox_status_reauthorize
                                 DropboxBackupStatus.SAVED_LIMIT_EXCEEDED -> R.string.dropbox_status_saved_limit
                                 DropboxBackupStatus.INTERRUPTED -> R.string.dropbox_status_interrupted
                             },
                         ),
-                        color = if (backupState.status in setOf(
+                        color = if (backupState.reviewDialog == DropboxReviewDialog.CONFLICT || backupState.status in setOf(
                                 DropboxBackupStatus.FAILED,
-                                DropboxBackupStatus.CONFLICT,
                                 DropboxBackupStatus.OFFLINE,
                                 DropboxBackupStatus.REAUTHORIZATION_REQUIRED,
                                 DropboxBackupStatus.SAVED_LIMIT_EXCEEDED,
@@ -202,6 +203,12 @@ private fun DropboxBackupCard(
                     backupState.lastAttemptedAt?.let { attempted ->
                         Text(
                             stringResource(R.string.dropbox_last_attempted, dateFormat.format(Date(attempted))),
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    backupState.lastRestoredAt?.let { restored ->
+                        Text(
+                            stringResource(R.string.dropbox_last_restored, dateFormat.format(Date(restored))),
                             style = MaterialTheme.typography.bodySmall,
                         )
                     }
@@ -278,7 +285,9 @@ private fun DropboxBackupCard(
                     }
                     if (backupState.status == DropboxBackupStatus.CONFLICT) {
                         TextButton(onClick = { showConflictDialog = true }) {
-                            Text(stringResource(R.string.dropbox_resolve_conflict))
+                            Text(stringResource(
+                                if (backupState.restoreAvailable) R.string.dropbox_restore_backup else R.string.dropbox_resolve_conflict,
+                            ))
                         }
                     }
                 }
@@ -375,30 +384,55 @@ private fun DropboxBackupCard(
                     },
                 )
             }
-            if (showConflictDialog && backupState.status == DropboxBackupStatus.CONFLICT) {
+            val reviewDialog = backupState.reviewDialog
+            if (showConflictDialog && reviewDialog == DropboxReviewDialog.RESTORE) {
+                AlertDialog(
+                    onDismissRequest = { showConflictDialog = false },
+                    title = { Text(stringResource(R.string.dropbox_restore_title)) },
+                    text = {
+                        Text(
+                            stringResource(R.string.dropbox_restore_message),
+                            Modifier.verticalScroll(rememberScrollState()),
+                        )
+                    },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            showConflictDialog = false
+                            dropboxBackupVm.restoreDropboxBackup()
+                        }) { Text(stringResource(R.string.dropbox_restore_backup)) }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showConflictDialog = false }) { Text(stringResource(R.string.cancel)) }
+                    },
+                )
+            }
+            if (showConflictDialog && reviewDialog == DropboxReviewDialog.CONFLICT) {
                 AlertDialog(
                     onDismissRequest = { showConflictDialog = false },
                     title = { Text(stringResource(R.string.dropbox_conflict_title)) },
-                    text = { Text(stringResource(R.string.dropbox_conflict_message)) },
+                    // The text slot shrinks and scrolls first, so the actions stay visible with large fonts.
+                    text = {
+                        Text(
+                            stringResource(R.string.dropbox_conflict_message),
+                            Modifier.verticalScroll(rememberScrollState()),
+                        )
+                    },
+                    // One stack keeps all three actions together; the dialog's button flow row would wrap them unevenly.
                     confirmButton = {
-                        TextButton(
-                            enabled = backupState.status != DropboxBackupStatus.SYNCING,
-                            onClick = {
+                        Column(
+                            horizontalAlignment = Alignment.End,
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            TextButton(onClick = {
                                 showConflictDialog = false
                                 dropboxBackupVm.useLocalBackup()
-                            },
-                        ) { Text(stringResource(R.string.dropbox_use_local), textAlign = TextAlign.End) }
-                    },
-                    dismissButton = {
-                        Column(horizontalAlignment = Alignment.End) {
-                            TextButton(
-                                onClick = {
-                                    showConflictDialog = false
-                                    dropboxBackupVm.mergeDropboxBackup()
-                                },
-                            ) { Text(stringResource(R.string.dropbox_merge_remote)) }
+                            }) { Text(stringResource(R.string.dropbox_use_local), textAlign = TextAlign.End) }
+                            TextButton(onClick = {
+                                showConflictDialog = false
+                                dropboxBackupVm.mergeDropboxBackup()
+                            }) { Text(stringResource(R.string.dropbox_merge_remote), textAlign = TextAlign.End) }
                             TextButton(onClick = { showConflictDialog = false }) {
-                                Text(stringResource(R.string.cancel))
+                                Text(stringResource(R.string.cancel), textAlign = TextAlign.End)
                             }
                         }
                     },

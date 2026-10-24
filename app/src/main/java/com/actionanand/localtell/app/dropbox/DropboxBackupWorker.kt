@@ -119,6 +119,20 @@ internal class DropboxBackupWorker(context: Context, parameters: WorkerParameter
                     check(ownership.clearPending(account)) { "Cannot clear missing pending upload" }
                 }
                 val action = inputData.getString(KEY_ACTION) ?: ACTION_SYNC
+                if (action == ACTION_RESTORE_REMOTE) {
+                    val outcome = DropboxRemoteRestore(remote, repositoryRestoreTarget(repository, ::checkActive), ::checkActive, setStage)
+                        .execute(
+                            DropboxRestoreRequest(
+                                inputData.getString(KEY_EXPECTED_PATH),
+                                inputData.getString(KEY_EXPECTED_FINGERPRINT),
+                                inputData.getString(KEY_EXPECTED_REMOTE_STATE),
+                            ),
+                            initial, ownershipRecords, store.baseline(account), pendingUpload?.file?.id,
+                        )
+                    setStage(DropboxBackupStage.COMPLETE)
+                    completeDropboxRestore(store, repository, account, outcome, ::checkActive)
+                    return@withLock Result.success()
+                }
                 val resolving = action == ACTION_USE_LOCAL || action == ACTION_MERGE_REMOTE
                 val preferredPath = if (resolving) inputData.getString(KEY_EXPECTED_PATH) else previousConflict.conflictPath
                 // A concurrent upload of our own must not hide the other device's unresolved snapshot.
@@ -159,21 +173,24 @@ internal class DropboxBackupWorker(context: Context, parameters: WorkerParameter
                 val changedOwnedFile = latest?.let { file ->
                     ownershipRecords.any { it.file.id == file.id && !it.matches(file) }
                 } == true
-                if (pendingUpload == null && !resolving && (previousConflict.conflictFingerprint != null || changedOwnedFile)) {
-                    store.markConflict(account, latest?.path, remoteFingerprint.orEmpty(), remoteState = DropboxRemoteState.token(initial))
-                    return@withLock Result.success()
-                }
                 val localFingerprint = AppBackupCodec.fingerprint(local)
                 val protocolDecision = if (resolving || pendingUpload != null) DropboxSyncDecision.UPLOAD_LOCAL
-                    else DropboxSyncProtocol.decide(localFingerprint, remoteFingerprint, store.baseline(account))
+                    else DropboxSyncProtocol.decide(
+                        localFingerprint, remoteFingerprint, store.baseline(account),
+                        localEmpty = local.isEmpty,
+                        remoteEmpty = remoteData?.isEmpty == true,
+                        requireReview = previousConflict.conflictFingerprint != null || changedOwnedFile,
+                    )
                 val decision = managedSyncDecision(protocolDecision, latest, ownershipRecords)
                 when (decision) {
-                    DropboxSyncDecision.CONFLICT ->
-                        store.markConflict(account, latest?.path, remoteFingerprint.orEmpty(), remoteState = DropboxRemoteState.token(initial))
+                    DropboxSyncDecision.CONFLICT, DropboxSyncDecision.RESTORE_REMOTE ->
+                        store.markConflict(account, latest?.path, remoteFingerprint.orEmpty(),
+                            remoteState = DropboxRemoteState.token(initial),
+                            restore = decision == DropboxSyncDecision.RESTORE_REMOTE)
                     DropboxSyncDecision.UP_TO_DATE -> {
                         val current = remote.snapshots()
                         if (!DropboxRemoteState.unchanged(initial, current)) {
-                            markConflict(store, account, remote, current, ownershipRecords, ::checkActive)
+                            markConflict(store, account, remote, current, ownershipRecords, ::checkActive, restore = local.isEmpty)
                         } else {
                             setStage(DropboxBackupStage.COMPLETE)
                             completeDropboxBackup(store, repository, account, localFingerprint, ::checkActive)
@@ -186,7 +203,8 @@ internal class DropboxBackupWorker(context: Context, parameters: WorkerParameter
                             is DropboxUploadResult.Conflict -> {
                                 setStage(DropboxBackupStage.RECORD_OWNERSHIP)
                                 val currentOwnership = checkNotNull(ownership.read(account)) { "Backup ownership ledger is invalid" }
-                                markConflict(store, account, remote, uploaded.files, currentOwnership, ::checkActive, uploaded.ignoredUploadId)
+                                markConflict(store, account, remote, uploaded.files, currentOwnership, ::checkActive,
+                                    uploaded.ignoredUploadId, restore = local.isEmpty)
                             }
                             is DropboxUploadResult.Verified -> {
                                 setStage(DropboxBackupStage.COMPLETE)
@@ -219,11 +237,12 @@ internal class DropboxBackupWorker(context: Context, parameters: WorkerParameter
         ownership: List<DropboxOwnedBackup>,
         checkActive: () -> Unit,
         ignoredUploadId: String? = null,
+        restore: Boolean = false,
     ) {
         val baseline = selectRemoteBaseline(files.filter { it.id != ignoredUploadId }, null, ownership, remote::download)
         val fingerprint = baseline.data?.let(AppBackupCodec::fingerprint).orEmpty()
         checkActive()
-        store.markConflict(account, baseline.file?.path, fingerprint, remoteState = DropboxRemoteState.token(files))
+        store.markConflict(account, baseline.file?.path, fingerprint, remoteState = DropboxRemoteState.token(files), restore = restore)
     }
 
     private fun fail(
@@ -260,6 +279,7 @@ internal class DropboxBackupWorker(context: Context, parameters: WorkerParameter
         const val ACTION_SYNC = "sync"
         const val ACTION_USE_LOCAL = "use_local"
         const val ACTION_MERGE_REMOTE = "merge_remote"
+        const val ACTION_RESTORE_REMOTE = "restore_remote"
         const val KEY_ACTION = "action"
         const val KEY_ACCOUNT_HASH = "account_hash"
         const val KEY_SESSION = "session"
@@ -303,6 +323,41 @@ internal suspend fun completeDropboxBackup(
         checkActive()
         store.markSuccess(account, fingerprint, pending = AppBackupCodec.fingerprint(current) != fingerprint)
         if (SavedPlacesOverflow.excess(current.savedPlaces.size) > 0) store.markSavedLimitExceeded(account)
+    }
+}
+
+internal fun repositoryRestoreTarget(repository: AppBackupRepository, checkActive: () -> Unit) = object : DropboxRestoreTarget {
+    override suspend fun snapshot(): AppBackupData = repository.snapshot()
+    override suspend fun restoreIntoEmpty(data: AppBackupData): Boolean = repository.restoreIntoEmpty(data, checkActive)
+}
+
+/** Publishes a restore outcome; nothing here touches Dropbox or the last-successful-backup time. */
+internal suspend fun completeDropboxRestore(
+    store: DropboxBackupStateStore,
+    repository: AppBackupRepository,
+    account: String,
+    outcome: DropboxRestoreOutcome,
+    checkActive: () -> Unit,
+    now: Long = System.currentTimeMillis(),
+) {
+    when (outcome) {
+        is DropboxRestoreOutcome.Review -> {
+            checkActive()
+            store.markConflict(account, outcome.path, outcome.fingerprint, remoteState = outcome.remoteState, restore = outcome.restore)
+        }
+        is DropboxRestoreOutcome.NothingToRestore -> {
+            checkActive()
+            store.clearReview(account, outcome.pending)
+        }
+        is DropboxRestoreOutcome.Restored -> repository.inspectSnapshot { current ->
+            checkActive()
+            store.markRestored(
+                account, outcome.fingerprint,
+                pending = AppBackupCodec.fingerprint(current) != outcome.fingerprint,
+                restoredAt = now.takeIf { outcome.merged },
+            )
+            if (SavedPlacesOverflow.excess(current.savedPlaces.size) > 0) store.markSavedLimitExceeded(account)
+        }
     }
 }
 

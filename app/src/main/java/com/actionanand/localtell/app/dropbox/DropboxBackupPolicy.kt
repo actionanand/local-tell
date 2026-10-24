@@ -89,13 +89,27 @@ internal object DropboxRemoteState {
     }
 }
 
-internal enum class DropboxSyncDecision { UP_TO_DATE, UPLOAD_LOCAL, CONFLICT }
+internal enum class DropboxSyncDecision { UP_TO_DATE, UPLOAD_LOCAL, RESTORE_REMOTE, CONFLICT }
 
 internal object DropboxSyncProtocol {
-    fun decide(local: String, remote: String?, baseline: String?): DropboxSyncDecision {
+    /**
+     * [requireReview] is set when an unresolved conflict or an externally changed owned file exists;
+     * it disables the baseline shortcut but still lets identical or one-sided data proceed without asking.
+     */
+    fun decide(
+        local: String,
+        remote: String?,
+        baseline: String?,
+        localEmpty: Boolean = false,
+        remoteEmpty: Boolean = false,
+        requireReview: Boolean = false,
+    ): DropboxSyncDecision {
         if (remote == local) return DropboxSyncDecision.UP_TO_DATE
-        if (remote == null && baseline == null) return DropboxSyncDecision.UPLOAD_LOCAL
-        if (baseline != null && remote == baseline && local != baseline) return DropboxSyncDecision.UPLOAD_LOCAL
+        // Nothing in Dropbox can be lost: uploads are append-only and never replace existing files.
+        if (remote == null || remoteEmpty) return DropboxSyncDecision.UPLOAD_LOCAL
+        // Nothing on this device can be lost, so offer a restore rather than a conflict.
+        if (localEmpty) return DropboxSyncDecision.RESTORE_REMOTE
+        if (!requireReview && baseline != null && remote == baseline) return DropboxSyncDecision.UPLOAD_LOCAL
         return DropboxSyncDecision.CONFLICT
     }
 }

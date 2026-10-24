@@ -327,6 +327,7 @@
     <string name="dropbox_status_reauthorize">ஒத்திசைக்க Dropbox-ஐ மீண்டும் இணைக்கவும்.</string>
     <string name="dropbox_last_successful">கடைசி வெற்றிகரமான காப்புப்பிரதி: %1$s</string>
     <string name="dropbox_last_attempted">கடைசி காப்புப்பிரதி முயற்சி: %1$s</string>
+    <string name="dropbox_last_restored">Dropbox-இலிருந்து கடைசியாக மீட்டெடுத்தது: %1$s</string>
     <string name="dropbox_never_backed_up">கடைசி வெற்றிகரமான காப்புப்பிரதி: இதுவரை இல்லை</string>
     <string name="dropbox_frequency_daily">தினமும்</string>
     <string name="dropbox_frequency_weekly">வாரந்தோறும்</string>
@@ -339,6 +340,10 @@
     <string name="dropbox_use_local">இந்தச் சாதனத்தின் தரவைப் பயன்படுத்தவும்</string>
     <string name="dropbox_merge_remote">Dropbox காப்புப்பிரதியை இணைக்கவும்</string>
     <string name="dropbox_resolve_conflict">முரண்பாட்டைத் தீர்க்கவும்</string>
+    <string name="dropbox_status_restore_available">மீட்டெடுக்க Dropbox காப்புப்பிரதி உள்ளது</string>
+    <string name="dropbox_restore_title">Dropbox காப்புப்பிரதியை மீட்டெடுக்கவா?</string>
+    <string name="dropbox_restore_message">இந்தச் சாதனத்தில் சேமித்த இடங்களோ Journey வரலாறோ இல்லை; Dropbox-இல் ஒரு LocalTell காப்புப்பிரதி கண்டறியப்பட்டது. அந்தப் பதிவுகளை இந்தச் சாதனத்திற்குக் கொண்டுவர அதை மீட்டெடுக்கவும். Dropbox-இல் எதுவும் மாற்றப்படவோ நீக்கப்படவோ மாட்டாது.</string>
+    <string name="dropbox_restore_backup">காப்புப்பிரதியை மீட்டெடுக்கவும்</string>
     <string name="dropbox_connection_required">ஒத்திசைக்கும் முன் Dropbox-ஐ இணைக்கவும்.</string>
     <string name="dropbox_backup_mode">காப்புப்பிரதி முறை</string>
     <string name="dropbox_mode_off">முடக்கம்</string>
