@@ -4,8 +4,11 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.util.Log
+import androidx.work.BackoffPolicy
+import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingWorkPolicy
+import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
@@ -25,6 +28,9 @@ import com.dropbox.core.v2.files.FolderMetadata
 import com.dropbox.core.v2.files.WriteMode
 import java.io.FilterInputStream
 import java.security.MessageDigest
+import java.time.Instant
+import java.time.ZoneId
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
@@ -44,7 +50,24 @@ internal class DropboxBackupWorker(context: Context, parameters: WorkerParameter
             DropboxBackupScheduler.cancel(applicationContext)
             Result.failure()
         },
-    ) { sync() }
+    ) {
+        val result = sync()
+        // A retry re-runs this job; any other end needs a check for occurrences that became due meanwhile.
+        if (inputData.getBoolean(KEY_SCHEDULED, false) && result != Result.retry()) {
+            withContext(Dispatchers.IO) {
+                try {
+                    DropboxBackupScheduler.followUpAfterScheduledRun(
+                        applicationContext, inputData.getLong(KEY_SCHEDULE_ID, 0L), inputData.getString(KEY_SESSION),
+                    )
+                } catch (error: Exception) {
+                    if (error is CancellationException) throw error
+                    // The next foreground, clock change or alarm run still recovers the occurrence.
+                    Log.w(TAG, "Follow-up scheduling failed: ${error.javaClass.simpleName}")
+                }
+            }
+        }
+        result
+    }
 
     private suspend fun sync(): Result = withContext(Dispatchers.IO) {
         syncMutex.withLock {
@@ -54,6 +77,23 @@ internal class DropboxBackupWorker(context: Context, parameters: WorkerParameter
             val queued = sessions.current() ?: return@withLock Result.failure()
             if (queued.account != account || queued.generation != generation) return@withLock Result.failure()
             val store = DropboxBackupStateStore(applicationContext)
+            val scheduled = inputData.getBoolean(KEY_SCHEDULED, false)
+            val scheduleId = inputData.getLong(KEY_SCHEDULE_ID, 0L).takeIf { it > 0 }
+            fun scheduleCurrent() = DropboxBackupSchedule.scheduledRun(
+                scheduleId, store.scheduleSince(), store.frequency().periodDays != null, 0L,
+            ) != DropboxScheduledRun.SKIP_STALE
+            // The occurrence due now, so a run delayed past a later 2:00 AM serves that later occurrence.
+            val dueOccurrence = if (!scheduled) null else DropboxBackupSchedule.overdue(
+                store.frequency(), store.weekday(), Instant.now(), ZoneId.systemDefault(),
+                store.scheduleSince(), store.coveredThrough(account),
+            )?.toEpochMilli()
+            if (scheduled && DropboxBackupSchedule.scheduledRun(
+                    scheduleId, store.scheduleSince(), store.frequency().periodDays != null, dueOccurrence,
+                ) != DropboxScheduledRun.RUN) {
+                // Obsolete schedule, or another sync already covered every due occurrence: nothing to upload.
+                store.close()
+                return@withLock Result.success()
+            }
             val repository = AppBackupRepository(applicationContext)
             val coroutine = currentCoroutineContext()
             var stage = DropboxBackupStage.VERIFY_ACCOUNT
@@ -64,8 +104,7 @@ internal class DropboxBackupWorker(context: Context, parameters: WorkerParameter
             }
             fun stillCurrent(): Boolean {
                 val current = sessions.current()
-                return current == queued && store.frequency().syncAllowed &&
-                    (!inputData.getBoolean(KEY_SCHEDULED, false) || store.frequency().periodDays != null)
+                return current == queued && store.frequency().syncAllowed && (!scheduled || scheduleCurrent())
             }
             fun checkActive() {
                 coroutine.ensureActive()
@@ -73,8 +112,20 @@ internal class DropboxBackupWorker(context: Context, parameters: WorkerParameter
             }
             fun handleFailure(error: Exception): Result {
                 val failure = classifyDropboxFailure(error, stage)
-                val retry = !uploadStarted && failure.shouldRetry(stage, runAttemptCount)
+                val maxAttempts = if (scheduled) SCHEDULED_MAX_ATTEMPTS else MANUAL_MAX_ATTEMPTS
+                val retry = !uploadStarted && failure.shouldRetry(stage, runAttemptCount, maxAttempts)
                 fail(store, account, stage, error, failure.status, failure.error, retry, ::stillCurrent, failure.category)
+                // Only permanent or authorization failures stop automatic recovery, and only for this occurrence.
+                if (scheduled && !retry && dueOccurrence != null && stillCurrent()) {
+                    if (DropboxBackupSchedule.recovery(failure.error) != DropboxFailureRecovery.AUTOMATIC) {
+                        store.markScheduledBlocked(account, DropboxScheduledBlock(dueOccurrence, generation))
+                    } else {
+                        // Includes failures after upload began and exhausted retries; the next job waits it out.
+                        store.recordRetryThrottle(account, DropboxBackupSchedule.afterRecoverableFailure(
+                            store.retryThrottle(account), dueOccurrence, generation, System.currentTimeMillis(),
+                        ))
+                    }
+                }
                 return if (retry) Result.retry() else Result.failure()
             }
             try {
@@ -164,6 +215,7 @@ internal class DropboxBackupWorker(context: Context, parameters: WorkerParameter
                     }
                 }
                 setStage(DropboxBackupStage.READ_LOCAL_DATA)
+                val snapshotAt = System.currentTimeMillis()
                 val local = repository.snapshot()
                 checkActive()
                 if (SavedPlacesOverflow.excess(local.savedPlaces.size) > 0) {
@@ -193,7 +245,7 @@ internal class DropboxBackupWorker(context: Context, parameters: WorkerParameter
                             markConflict(store, account, remote, current, ownershipRecords, ::checkActive, restore = local.isEmpty)
                         } else {
                             setStage(DropboxBackupStage.COMPLETE)
-                            completeDropboxBackup(store, repository, account, localFingerprint, ::checkActive)
+                            completeDropboxBackup(store, repository, account, localFingerprint, snapshotAt, ::checkActive)
                         }
                     }
                     DropboxSyncDecision.UPLOAD_LOCAL -> {
@@ -208,7 +260,7 @@ internal class DropboxBackupWorker(context: Context, parameters: WorkerParameter
                             }
                             is DropboxUploadResult.Verified -> {
                                 setStage(DropboxBackupStage.COMPLETE)
-                                completeDropboxBackup(store, repository, account, uploaded.fingerprint, ::checkActive)
+                                completeDropboxBackup(store, repository, account, uploaded.fingerprint, snapshotAt, ::checkActive)
                             }
                         }
                     }
@@ -275,6 +327,10 @@ internal class DropboxBackupWorker(context: Context, parameters: WorkerParameter
     companion object {
         private const val TAG = "DropboxBackupWorker"
         private val syncMutex = Mutex()
+        private const val MANUAL_MAX_ATTEMPTS = 3
+        // Few in-job retries; longer recovery uses the persisted throttle, which a new job cannot reset.
+        private const val SCHEDULED_MAX_ATTEMPTS = 3
+        // Manual and conflict-resolution runs; scheduled runs use DropboxBackupScheduler.SCHEDULED_SYNC_WORK.
         const val MANUAL_WORK = "dropbox-manual-sync"
         const val ACTION_SYNC = "sync"
         const val ACTION_USE_LOCAL = "use_local"
@@ -284,6 +340,8 @@ internal class DropboxBackupWorker(context: Context, parameters: WorkerParameter
         const val KEY_ACCOUNT_HASH = "account_hash"
         const val KEY_SESSION = "session"
         const val KEY_SCHEDULED = "scheduled"
+        const val KEY_OCCURRENCE = "occurrence"
+        const val KEY_SCHEDULE_ID = "schedule_id"
         const val KEY_EXPECTED_PATH = "expected_path"
         const val KEY_EXPECTED_FINGERPRINT = "expected_fingerprint"
         const val KEY_EXPECTED_REMOTE_STATE = "expected_remote_state"
@@ -308,6 +366,37 @@ internal class DropboxBackupWorker(context: Context, parameters: WorkerParameter
                 OneTimeWorkRequestBuilder<DropboxBackupWorker>().setInputData(data).build(),
             )
         }
+
+        /**
+         * Scheduled or catch-up backup under its own unique name, so a pending manual sync can never swallow
+         * it. KEEP leaves an already queued or running scheduled run alone; the worker mutex keeps runs serial.
+         * Waits for the operation, so a failed enqueue throws and is retried by the next reconcile trigger.
+         */
+        fun enqueueScheduled(
+            context: Context,
+            session: DropboxBackupSession,
+            occurrence: Long,
+            scheduleId: Long,
+            delayMillis: Long = 0L,
+        ) {
+            if (!CloudBackupFeature.enabled) return
+            val request = OneTimeWorkRequestBuilder<DropboxBackupWorker>()
+                .setInitialDelay(delayMillis.coerceAtLeast(0L), TimeUnit.MILLISECONDS)
+                .setInputData(workDataOf(
+                    KEY_ACCOUNT_HASH to session.account,
+                    KEY_SESSION to session.generation,
+                    KEY_ACTION to ACTION_SYNC,
+                    KEY_SCHEDULED to true,
+                    KEY_OCCURRENCE to occurrence,
+                    KEY_SCHEDULE_ID to scheduleId,
+                ))
+                .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 15, TimeUnit.MINUTES)
+                .build()
+            WorkManager.getInstance(context.applicationContext)
+                .enqueueUniqueWork(DropboxBackupScheduler.SCHEDULED_SYNC_WORK, ExistingWorkPolicy.KEEP, request)
+                .result.get()
+        }
     }
 }
 
@@ -316,12 +405,15 @@ internal suspend fun completeDropboxBackup(
     repository: AppBackupRepository,
     account: String,
     fingerprint: String,
+    snapshotAt: Long = System.currentTimeMillis(),
     checkActive: () -> Unit,
 ) {
     // Publish from a fresh transaction so a local edit during upload remains pending.
     repository.inspectSnapshot { current ->
         checkActive()
-        store.markSuccess(account, fingerprint, pending = AppBackupCodec.fingerprint(current) != fingerprint)
+        val now = System.currentTimeMillis()
+        val pending = AppBackupCodec.fingerprint(current) != fingerprint
+        store.markSuccess(account, fingerprint, pending, now, DropboxBackupSchedule.coveredAt(now, snapshotAt, pending))
         if (SavedPlacesOverflow.excess(current.savedPlaces.size) > 0) store.markSavedLimitExceeded(account)
     }
 }

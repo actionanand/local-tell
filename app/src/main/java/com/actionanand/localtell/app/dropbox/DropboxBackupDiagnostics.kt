@@ -98,8 +98,8 @@ private fun classifyDropboxFailureUnchecked(error: Exception, stage: DropboxBack
     }
 }
 
-internal fun DropboxBackupFailure.shouldRetry(stage: DropboxBackupStage, attempt: Int): Boolean =
-    retryable && attempt < 3 && stage in setOf(
+internal fun DropboxBackupFailure.shouldRetry(stage: DropboxBackupStage, attempt: Int, maxAttempts: Int = 3): Boolean =
+    retryable && attempt < maxAttempts && stage in setOf(
         DropboxBackupStage.VERIFY_ACCOUNT, DropboxBackupStage.LIST_REMOTE,
         DropboxBackupStage.PREPARE_BACKUP_FOLDER, DropboxBackupStage.DOWNLOAD_REMOTE,
         DropboxBackupStage.READ_LOCAL_DATA,

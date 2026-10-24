@@ -129,6 +129,7 @@ private fun DropboxBackupCard(
     val dropboxState by dropboxVm.state.collectAsStateWithLifecycle()
     val backupState by dropboxBackupVm.state.collectAsStateWithLifecycle()
     val savedPlacesExcess by dropboxBackupVm.savedPlacesExcess.collectAsStateWithLifecycle()
+    val scheduledSyncQueued by dropboxBackupVm.scheduledSyncQueued.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var showDisconnectConfirmation by remember { mutableStateOf(false) }
     var showConflictDialog by remember { mutableStateOf(false) }
@@ -239,21 +240,13 @@ private fun DropboxBackupCard(
                                 ?.setPrimaryClip(android.content.ClipData.newPlainText(copyLabel, diagnostic.toSafeText()))
                         }) { Text(copyLabel) }
                     }
-                    Text(stringResource(R.string.dropbox_backup_mode), fontWeight = FontWeight.SemiBold)
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        DropboxBackupFrequency.entries.forEach { mode ->
-                            FilterChip(
-                                selected = backupState.frequency == mode,
-                                enabled = backupState.status != DropboxBackupStatus.SYNCING,
-                                onClick = { dropboxBackupVm.setFrequency(mode) },
-                                label = { Text(stringResource(mode.labelRes())) },
-                            )
-                        }
-                    }
-                    Text(
-                        stringResource(backupState.frequency.descriptionRes()),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    DropboxScheduleSection(
+                        state = backupState,
+                        scheduledQueued = scheduledSyncQueued,
+                        syncEnabled = backupState.frequency.syncAllowed && savedPlacesExcess == 0,
+                        onSelect = dropboxBackupVm::setFrequency,
+                        onWeekday = dropboxBackupVm::setWeekday,
+                        onSyncNow = dropboxBackupVm::syncNow,
                     )
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(
@@ -442,16 +435,16 @@ private fun DropboxBackupCard(
     }
 }
 
-private fun DropboxBackupFrequency.labelRes(): Int = when (this) {
+internal fun DropboxBackupFrequency.labelRes(): Int = when (this) {
     DropboxBackupFrequency.OFF -> R.string.dropbox_mode_off
     DropboxBackupFrequency.MANUAL -> R.string.dropbox_mode_manual
     DropboxBackupFrequency.DAILY -> R.string.dropbox_frequency_daily
     DropboxBackupFrequency.WEEKLY -> R.string.dropbox_frequency_weekly
 }
 
-private fun DropboxBackupFrequency.descriptionRes(): Int = when (this) {
+/** Daily and Weekly are described by their calendar rule instead. */
+internal fun DropboxBackupFrequency.descriptionRes(): Int? = when (this) {
     DropboxBackupFrequency.OFF -> R.string.dropbox_mode_off_description
     DropboxBackupFrequency.MANUAL -> R.string.dropbox_mode_manual_description
-    DropboxBackupFrequency.DAILY -> R.string.dropbox_mode_daily_description
-    DropboxBackupFrequency.WEEKLY -> R.string.dropbox_mode_weekly_description
+    DropboxBackupFrequency.DAILY, DropboxBackupFrequency.WEEKLY -> null
 }

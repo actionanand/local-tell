@@ -130,6 +130,7 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test:runner:1.7.0")
     androidTestImplementation("androidx.test.ext:junit:1.3.0")
+    androidTestImplementation(libs.androidx.work.testing)
     // Android's org.json stubs cannot parse manifests in local JVM tests.
     testImplementation("org.json:json:20240303")
 }
